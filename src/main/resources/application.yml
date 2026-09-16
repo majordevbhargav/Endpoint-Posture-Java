@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: endpoint-posture-java
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/endpoint_posture?options=-c%20TimeZone=Asia/Kolkata
+    username: ep_app
+    password: devpassword123
+
+  jpa:
+    hibernate:
+      ddl-auto: validate   # Flyway owns the schema, Hibernate must never auto-generate it
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: 8090
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-change-this-to-a-real-256-bit-secret-before-anything-real}
+    expiration-minutes: 480
+  seed-admin:
+    username: ${SEED_ADMIN_USER:admin}
+    password: ${SEED_ADMIN_PASSWORD:Login@123}

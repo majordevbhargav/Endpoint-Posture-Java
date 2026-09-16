@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: ep-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: endpoint_posture
+      POSTGRES_USER: ep_app
+      POSTGRES_PASSWORD: devpassword123
+    ports:
+      - "5434:5432"   # off 5432/5433 in case either is already taken on your machine
+    volumes:
+      - ep_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ep_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  adminer:
+    image: adminer:4
+    container_name: ep-adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  ep_pg_data:
