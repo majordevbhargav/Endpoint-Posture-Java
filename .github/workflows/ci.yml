@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: endpoint_posture
+          POSTGRES_USER: ep_app
+          POSTGRES_PASSWORD: ci_test_password
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U ep_app -d endpoint_posture"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build and test
+        env:
+          DB_USERNAME: ep_app
+          DB_PASSWORD: ci_test_password
+        run: mvn -B clean verify

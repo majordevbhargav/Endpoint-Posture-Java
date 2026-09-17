@@ -4,8 +4,8 @@ spring:
 
   datasource:
     url: jdbc:postgresql://localhost:5434/endpoint_posture
-    username: ep_app
-    password: devpassword123
+    username: ${DB_USERNAME:ep_app}
+    password: ${DB_PASSWORD:devpassword123}
 
   jpa:
     hibernate:
