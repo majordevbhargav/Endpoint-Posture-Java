@@ -896,7 +896,7 @@ public class HardwareHealthController {
 }
 ```
 
-## B.6 Security Design (unchanged, see original §B.6 - already ✅ built and compatible with every module above; every `initiated_by`/`Authentication auth` parameter in the new services above is populated from the existing `JwtAuthFilter`-set `SecurityContext`, no changes required there)
+## B.6 Security Design (unchanged, see original B.6 - already ✅ built and compatible with every module above; every `initiated_by`/`Authentication auth` parameter in the new services above is populated from the existing `JwtAuthFilter`-set `SecurityContext`, no changes required there)
 
 ## B.7 Job / Scheduling Design - one addition
 
