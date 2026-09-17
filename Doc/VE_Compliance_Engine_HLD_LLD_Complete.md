@@ -896,7 +896,7 @@ public class HardwareHealthController {
 }
 ```
 
-## B.6 Security Design (unchanged, see original B.6 - already ✅ built and compatible with every module above; every `initiated_by`/`Authentication auth` parameter in the new services above is populated from the existing `JwtAuthFilter`-set `SecurityContext`, no changes required there)
+## B.6 Security Design (unchanged, see original §B.6 - already ✅ built and compatible with every module above; every `initiated_by`/`Authentication auth` parameter in the new services above is populated from the existing `JwtAuthFilter`-set `SecurityContext`, no changes required there)
 
 ## B.7 Job / Scheduling Design - one addition
 
@@ -914,13 +914,8 @@ public void enqueueIfDue(UUID endpointId, JobType type) {
 }
 ```
 
-## B.8 Configuration Reference - additions
-
-| Key | Purpose | Default |
-|---|---|---|
-| `app.ise.base-url` | ERS/MNT base URL | none - required |
-| `app.ise.username` / `.password` | HTTP Basic creds | none - required, env-injected |
-| `app.ise.enforcement-mode` | `attribute` \| `anc` | `attribute` |
+## B.8 Conf## B.6 Security Design (unchanged, see original B.6 - already ✅ built and compatible with every module above; every `initiated_by`/`Authentication auth` parameter in the new services above is populated from the existing `JwtAuthFilter`-set `SecurityContext`, no changes required there)
+ |
 | `app.ise.session-poll-interval-ms` | `IseSessionWatcher` tick rate | `15000` |
 | `app.jobs.recheck-interval-hours` | posture recheck cadence used by `enqueueIfDue` | `24` |
 
