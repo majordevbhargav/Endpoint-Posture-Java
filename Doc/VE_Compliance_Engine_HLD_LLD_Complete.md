@@ -119,10 +119,10 @@ com.endpointposture
 
 ```
 src/main/java/com/endpointposture/
-├── EndpointPostureApplication.java                      ✅
-├── security/                                             ✅ (unchanged)
-├── endpoint/                                              ✅ (unchanged)
-├── job/                                                    ✅ (unchanged)
+├── EndpointPostureApplication.java                          ✅
+├── security/                                                ✅ (unchanged)
+├── endpoint/                                                ✅ (unchanged)
+├── job/                                                     ✅ (unchanged)
 ├── posture/                                                 📐
 │   ├── Assessment.java, CheckResult.java
 │   ├── AssessmentRepository.java, CheckResultRepository.java
@@ -164,7 +164,7 @@ src/main/java/com/endpointposture/
 │   ├── IseActionAudit.java
 │   ├── IseActionAuditRepository.java
 │   └── AuditQueryController.java (GET /api/v1/audit/ise-actions)
-├── remediation/                                                    💤 (schema reserved, B.2.2)
+├── remediation/                                                     💤 (schema reserved, B.2.2)
 └── endpoint360/                                                     💤 (schema reserved, B.2.2)
 ```
 
