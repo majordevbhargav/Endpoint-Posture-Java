@@ -121,6 +121,18 @@
                     <!-- Explicit, not auto-detected - this is what fixes
                          "Unable to find a suitable main class" -->
                     <mainClass>com.endpointposture.EndpointPostureApplication</mainClass>
+                    <!-- Forces the JVM's default timezone to UTC on every
+                         `mvn spring-boot:run`, regardless of terminal/session
+                         state. Fixes: FATAL: invalid value for parameter
+                         "TimeZone": "Asia/Calcutta" - the JDBC driver reports
+                         the JVM's OS-derived timezone at connection startup,
+                         and some Windows locale setups report the older
+                         "Asia/Calcutta" alias instead of the IANA-standard
+                         "Asia/Kolkata" that Postgres actually recognizes.
+                         Forcing UTC here sidesteps the mismatch entirely and
+                         matches the timestamp convention used throughout
+                         this project (all stored timestamps are UTC). -->
+                    <jvmArguments>-Duser.timezone=UTC</jvmArguments>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

@@ -3,7 +3,7 @@ spring:
     name: endpoint-posture-java
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/endpoint_posture?options=-c%20TimeZone=Asia/Kolkata
+    url: jdbc:postgresql://localhost:5434/endpoint_posture
     username: ep_app
     password: devpassword123
 
