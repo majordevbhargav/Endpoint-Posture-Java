@@ -3,6 +3,7 @@ package com.endpointposture;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Application entry point.
@@ -19,6 +20,7 @@ import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServic
  * which is confusing dead weight rather than a real second auth path.
  */
 @SpringBootApplication(exclude = { UserDetailsServiceAutoConfiguration.class })
+@EnableScheduling
 public class EndpointPostureApplication {
     public static void main(String[] args) {
         SpringApplication.run(EndpointPostureApplication.class, args);

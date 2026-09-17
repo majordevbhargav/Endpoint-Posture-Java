@@ -1,4 +1,7 @@
 com.endpointposture
+com.endpointposture.config
 com.endpointposture.endpoint
 com.endpointposture.endpoint.dto
+com.endpointposture.job
+com.endpointposture.job.dto
 com.endpointposture.security

@@ -30,3 +30,8 @@ app:
   seed-admin:
     username: ${SEED_ADMIN_USER:admin}
     password: ${SEED_ADMIN_PASSWORD:Login@123}
+  jobs:
+    poll-interval-ms: 3000  
+  logging:
+    level:
+    org.springframework.security: DEBUG
