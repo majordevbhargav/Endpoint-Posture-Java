@@ -48,29 +48,36 @@ Cisco ISE remains the sole network-enforcement authority. No module in this syst
 
 ## A.4 Deployment / Host Model (unchanged)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Windows Laptop (operator host)                              │
-│                                                                │
-│   ┌───────────────┐        ┌───────────────────────────────┐│
-│   │  Docker Desktop│        │  Spring Boot (Java 21/22, JVM) ││
-│   │  ┌───────────┐ │        │  - REST API (port 8090)       ││
-│   │  │ PostgreSQL│◄┼────────┤  - @Scheduled workers          ││
-│   │  │  :5434    │ │  JDBC  │  - ProcessBuilder → powershell ││
-│   │  └───────────┘ │        │    .exe (WinRM/CIM dispatch)  ││
-│   │  ┌───────────┐ │        └──────────────┬────────────────┘│
-│   │  │  Adminer  │ │                       │                 │
-│   │  │  :8081    │ │                       │ WinRM / CIM     │
-│   │  └───────────┘ │                       │ (same LAN)      │
-│   └───────────────┘        ┌──────────────▼────────────────┐│
-│                              │ Remote Windows Endpoints       ││
-│                              └────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────┘
-                     │  HTTPS (ERS REST)
-                     ▼
-            ┌─────────────────┐
-            │   Cisco ISE      │
-            └─────────────────┘
+```mermaid
+graph TD
+    subgraph Host ["💻 Windows Laptop (operator host)"]
+        subgraph Docker ["🐳 Docker Desktop"]
+            DB["🗄️ PostgreSQL<br/>Port :5434"]
+            Adminer["🌐 Adminer<br/>Port :8081"]
+        end
+
+        subgraph App ["☕ Spring Boot (Java 21/22, JVM)"]
+            API["- REST API (port 8090)"]
+            Workers["- @Scheduled workers"]
+            PB["- ProcessBuilder → powershell.exe<br/>(WinRM/CIM dispatch)"]
+        end
+        
+        Endpoints["🖥️ Remote Windows Endpoints"]
+    end
+
+    ISE["🔒 Cisco ISE"]
+
+    %% Connections
+    App -- "🔌 JDBC" --> DB
+    PB -- "📡 WinRM / CIM<br/>(same LAN)" --> Endpoints
+    Host -- "🌐 HTTPS (ERS REST)" --> ISE
+
+    %% Layout Styling
+    style Host fill:#f9f9f9,stroke:#333,stroke-width:2px
+    style Docker fill:#e1f5fe,stroke:#0288d1,stroke-width:1px
+    style App fill:#efebe9,stroke:#5d4037,stroke-width:1px
+    style Endpoints fill:#fff,stroke:#333,stroke-width:1px
+    style ISE fill:#fff,stroke:#333,stroke-width:1px
 ```
 
 ## A.5 Technology Stack (unchanged, see original doc §A.5)
