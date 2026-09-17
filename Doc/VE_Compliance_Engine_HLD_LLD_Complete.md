@@ -1,14 +1,14 @@
 # VE Compliance Engine (Endpoint Posture Java)
-## High-Level Design (HLD) & Low-Level Design (LLD) — Completed Edition
+## High-Level Design (HLD) & Low-Level Design (LLD) - Completed Edition
 
-**Document scope:** the complete system. This revision closes out every module that was previously marked `🚧 Designed, not yet built` with a full, implementation-ready design — entities, repositories, services, controllers, DTOs, Flyway migrations, and sequence diagrams — so a developer can implement each package directly from this document without further design decisions. Modules marked `💤 Deferred` remain deferred by explicit project decision (see A.3 Non-Goals) and are given only a schema/interface placeholder, not a full build-out, so that no speculative work is done on features not yet in scope.
+**Document scope:** the complete system. This revision closes out every module that was previously marked `🚧 Designed, not yet built` with a full, implementation-ready design - entities, repositories, services, controllers, DTOs, Flyway migrations, and sequence diagrams - so a developer can implement each package directly from this document without further design decisions. Modules marked `💤 Deferred` remain deferred by explicit project decision (see A.3 Non-Goals) and are given only a schema/interface placeholder, not a full build-out, so that no speculative work is done on features not yet in scope.
 
 **Status legend:**
-`✅ Built` · `📐 Fully designed (this revision) — ready to implement` · `💤 Deferred (schema reserved, not designed further)`
+`✅ Built` · `📐 Fully designed (this revision) - ready to implement` · `💤 Deferred (schema reserved, not designed further)`
 
 ---
 
-# PART A — HIGH-LEVEL DESIGN (HLD)
+# PART A - HIGH-LEVEL DESIGN (HLD)
 
 ## A.1 Purpose and Scope
 
@@ -19,7 +19,7 @@ The platform:
 - Dispatches posture and hardware-health checks to Windows endpoints, agentlessly, over WinRM/CIM.
 - Persists every result as permanent, append-only history in PostgreSQL.
 - Exposes a REST API (JWT-secured) for a dashboard to review endpoint state.
-- Lets an authenticated operator explicitly decide to share posture with ISE, or restrict/clear-restrict a device — nothing happens automatically.
+- Lets an authenticated operator explicitly decide to share posture with ISE, or restrict/clear-restrict a device - nothing happens automatically.
 
 ## A.2 Non-Negotiable Architectural Principle
 
@@ -38,13 +38,13 @@ Cisco ISE remains the sole network-enforcement authority. No module in this syst
 - JWT-based authentication from day one; RBAC roles added only when a second role is genuinely enforced differently.
 - MAC address as the real business key for every endpoint-identifying operation; UUID as a stable internal/API reference only.
 
-**Non-Goals (for now — still true in this revision)**
+**Non-Goals (for now - still true in this revision)**
 - Redis or Kafka.
 - Full RBAC with 4 roles.
 - A general-purpose configurable policy engine.
 - pxGrid integration.
 - Browser-history / productivity collection.
-- **Remediation and Endpoint 360 remain 💤 deferred in this revision** — they are not "completed" below beyond their reserved schema, because building them out now would be exactly the speculative work the Non-Goals section exists to prevent. They are the next candidates once posture/ISE/hardware/session (all completed below) are running in production.
+- **Remediation and Endpoint 360 remain 💤 deferred in this revision** - they are not "completed" below beyond their reserved schema, because building them out now would be exactly the speculative work the Non-Goals section exists to prevent. They are the next candidates once posture/ISE/hardware/session (all completed below) are running in production.
 
 ## A.4 Deployment / Host Model (unchanged)
 
@@ -75,40 +75,40 @@ Cisco ISE remains the sole network-enforcement authority. No module in this syst
 
 ## A.5 Technology Stack (unchanged, see original doc §A.5)
 
-## A.6 High-Level Module Map — Updated
+## A.6 High-Level Module Map - Updated
 
 ```
 com.endpointposture
 ├── security/     ✅ Built
 ├── endpoint/     ✅ Built
 ├── job/          ✅ Built
-├── posture/      📐 Fully designed this revision — ingestion, evaluators, assessment history
-├── inventory/    📐 Fully designed this revision — apps/ports/processes
-├── ise/          📐 Fully designed this revision — IseTransport, ERS impl, 3 action endpoints
-├── hardware/     📐 Fully designed this revision — telemetry + scoring
-├── session/      📐 Fully designed this revision — ISE session watcher
-├── audit/        📐 Fully designed this revision — shared audit-write concern
-├── remediation/  💤 Deferred — schema reserved only (A.3 non-goal)
-├── endpoint360/  💤 Deferred — schema reserved only (A.3 non-goal)
+├── posture/      📐 Fully designed this revision - ingestion, evaluators, assessment history
+├── inventory/    📐 Fully designed this revision - apps/ports/processes
+├── ise/          📐 Fully designed this revision - IseTransport, ERS impl, 3 action endpoints
+├── hardware/     📐 Fully designed this revision - telemetry + scoring
+├── session/      📐 Fully designed this revision - ISE session watcher
+├── audit/        📐 Fully designed this revision - shared audit-write concern
+├── remediation/  💤 Deferred - schema reserved only (A.3 non-goal)
+├── endpoint360/  💤 Deferred - schema reserved only (A.3 non-goal)
 └── scheduler/    ✅ Built (job polling) + 📐 session polling designed below
 ```
 
-## A.7 Core Data Flows — Now Fully Specified
+## A.7 Core Data Flows - Now Fully Specified
 
 1. **Discovery** (📐): `session/IseSessionWatcher`, a `@Scheduled` task, polls ISE's MNT ActiveList every `app.ise.session-poll-interval-ms`, diffs against `endpoint.connected`, calls `EndpointService.markConnected/markDisconnected`, and enqueues a `POSTURE_CHECK` job for any endpoint due for a recheck (see B.5.6).
-2. **Job claim & dispatch** (✅ queue; dispatch itself is Stage 4, out of scope for this revision — this revision completes everything *around* dispatch: what the dispatched agent talks to).
+2. **Job claim & dispatch** (✅ queue; dispatch itself is Stage 4, out of scope for this revision - this revision completes everything *around* dispatch: what the dispatched agent talks to).
 3. **Posture ingestion** (📐): full design in B.4.4 / B.5.4 / B.5.7.
 4. **Operator review**: dashboard calls `GET` endpoints (B.3.2) to show current state + history.
 5. **Share / Restrict / Clear** (📐): full design in B.4.5 / B.5.1 / B.5.8.
 6. **Hardware health** (📐): full design in B.5.9, same job-table mechanism, `job_type = HARDWARE_CHECK`.
 
-## A.8 Non-Functional Requirements (unchanged, see original doc §A.8 — all decisions there are honored in the completed designs below)
+## A.8 Non-Functional Requirements (unchanged, see original doc §A.8 - all decisions there are honored in the completed designs below)
 
 ---
 
-# PART B — LOW-LEVEL DESIGN (LLD)
+# PART B - LOW-LEVEL DESIGN (LLD)
 
-## B.1 Package Structure — Completed
+## B.1 Package Structure - Completed
 
 ```
 src/main/java/com/endpointposture/
@@ -140,7 +140,7 @@ src/main/java/com/endpointposture/
 │   ├── IseTransport.java (interface)
 │   ├── ErsIseTransport.java (implementation)
 │   ├── IseProperties.java (@ConfigurationProperties app.ise)
-│   ├── IseActionController.java (share / restrict / clear — 3 endpoints, own class)
+│   ├── IseActionController.java (share / restrict / clear - 3 endpoints, own class)
 │   ├── IseActionService.java
 │   ├── EnforcementAction.java
 │   └── dto/ (ShareResult, EnforcementResult, ShareRequest, EnforcementRequest)
@@ -161,11 +161,11 @@ src/main/java/com/endpointposture/
 └── endpoint360/                                                     💤 (schema reserved, B.2.2)
 ```
 
-## B.2 Database Schema — Completed
+## B.2 Database Schema - Completed
 
 ### B.2.1 Already migrated (unchanged): `app_user` (V1), `endpoint` (V2), `posture_job` (V3)
 
-### B.2.2 Flyway migrations to add — full SQL, ready to run in order
+### B.2.2 Flyway migrations to add - full SQL, ready to run in order
 
 **`V4__create_assessments_and_checks.sql`**
 ```sql
@@ -249,7 +249,7 @@ CREATE TABLE ise_action_audit (
 );
 CREATE INDEX idx_ise_audit_endpoint_id ON ise_action_audit(endpoint_id);
 CREATE INDEX idx_ise_audit_occurred_at ON ise_action_audit(occurred_at);
--- Written unconditionally by IseActionService — success or failure, never skipped.
+-- Written unconditionally by IseActionService - success or failure, never skipped.
 ```
 
 **`V8__create_hardware_health.sql`**
@@ -279,7 +279,7 @@ CREATE TABLE endpoint_hardware_recommendations (
 CREATE INDEX idx_hw_reco_health_id ON endpoint_hardware_recommendations(hardware_health_id);
 ```
 
-**`V9__reserve_remediation_and_360_schema.sql`** — 💤 tables created but no application code writes to them yet (schema reserved per A.3 non-goal, prevents a later migration-ordering headache without pulling the feature into scope now):
+**`V9__reserve_remediation_and_360_schema.sql`** - 💤 tables created but no application code writes to them yet (schema reserved per A.3 non-goal, prevents a later migration-ordering headache without pulling the feature into scope now):
 ```sql
 CREATE TABLE app_classification (
     id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -322,9 +322,9 @@ CREATE TABLE endpoint_360_diagnostics (
 );
 ```
 
-### B.2.3 Entity-Relationship Overview (unchanged from original — now fully backed by the migrations above)
+### B.2.3 Entity-Relationship Overview (unchanged from original - now fully backed by the migrations above)
 
-## B.3 API Contract — Completed
+## B.3 API Contract - Completed
 
 ### B.3.1 Built ✅ (unchanged, see original §B.3.1)
 
@@ -332,13 +332,13 @@ CREATE TABLE endpoint_360_diagnostics (
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/v1/posture` | Bearer | Ingestion — PowerShell agent → backend. Never touches ISE. |
+| POST | `/api/v1/posture` | Bearer | Ingestion - PowerShell agent → backend. Never touches ISE. |
 | GET | `/api/v1/endpoints/{id}/posture` | Bearer | Latest + historical assessments |
 | GET | `/api/v1/endpoints/{id}/ports` \| `/applications` \| `/processes` | Bearer | Inventory reads |
 | GET | `/api/v1/endpoints/{id}/sessions` | Bearer | Connect/disconnect history |
 | POST | `/api/v1/endpoints/{id}/hardware-health` | Bearer | Hardware agent ingestion |
 | GET | `/api/v1/endpoints/{id}/hardware-health` | Bearer | Latest + history |
-| POST | `/api/v1/ise/posture/share` | Bearer | `IseActionController` — separate class/bean from ingestion |
+| POST | `/api/v1/ise/posture/share` | Bearer | `IseActionController` - separate class/bean from ingestion |
 | POST | `/api/v1/ise/enforcement/restrict` | Bearer | `IseActionController` |
 | POST | `/api/v1/ise/enforcement/clear` | Bearer | `IseActionController` |
 | GET | `/api/v1/audit/ise-actions` | Bearer | Audit trail read, filterable by `endpointId` |
@@ -346,9 +346,9 @@ CREATE TABLE endpoint_360_diagnostics (
 
 **Design rule enforced in the controller layer (carried forward as-is):** `PostureIngestController` and `IseActionController` live in different classes, call different service beans (`PostureService` vs `IseActionService`), so "ingest posture" can never fall through into "call ISE" inside one method.
 
-### B.3.3 Sample requests — all designed endpoints
+### B.3.3 Sample requests - all designed endpoints
 
-**Posture ingestion** (unchanged from original — see original §B.3.3)
+**Posture ingestion** (unchanged from original - see original §B.3.3)
 
 **Hardware health ingestion**
 ```json
@@ -383,15 +383,15 @@ POST /api/v1/ise/enforcement/clear
 ```
 Both return `200/4xx/5xx` with `{ success, detail }`, and **both write to `ise_action_audit` unconditionally**, even on 5xx.
 
-## B.4 Sequence Diagrams — Completed Set
+## B.4 Sequence Diagrams - Completed Set
 
-### B.4.1 / B.4.2 / B.4.3 — unchanged (already ✅ built, see original doc)
+### B.4.1 / B.4.2 / B.4.3 - unchanged (already ✅ built, see original doc)
 
-### B.4.4 Posture ingestion — unchanged from original (already fully designed there)
+### B.4.4 Posture ingestion - unchanged from original (already fully designed there)
 
-### B.4.5 Share posture — unchanged from original (already fully designed there); Restrict/Clear follow the identical shape swapping `publishPosture` for `publishEnforcement`.
+### B.4.5 Share posture - unchanged from original (already fully designed there); Restrict/Clear follow the identical shape swapping `publishPosture` for `publishEnforcement`.
 
-### B.4.6 Hardware health ingestion (new — completed this revision)
+### B.4.6 Hardware health ingestion (new - completed this revision)
 ```mermaid
 sequenceDiagram
     participant Agent as PowerShell HW Agent
@@ -403,15 +403,15 @@ sequenceDiagram
     HC->>HS: recordHealth(endpointId, rawReport)
     HS->>Scorers: score(rawReport) for cpu/memory/storage/battery
     Scorers-->>HS: 4 component scores (0-100)
-    HS->>HS: overallScore = min(components); band = bandFor(overallScore)
+    Note right of HS: overallScore = min(components)<br/>band = bandFor(overallScore)
     HS->>DB: INSERT endpoint_hardware_health
-    HS->>HS: derive recommendations (e.g. storage < 60 -> HIGH/Storage)
-    HS->>DB: INSERT endpoint_hardware_recommendations (0..n)
+    Note right of HS: derive recommendations<br/>(e.g. storage < 60 HIGH Storage)
+    HS->>DB: INSERT endpoint_hardware_recommendations (0 to n)
     HS-->>HC: HardwareHealthResponse
     HC-->>Agent: 201 Created
 ```
 
-### B.4.7 ISE session discovery (new — completed this revision)
+### B.4.7 ISE session discovery (new - completed this revision)
 ```mermaid
 sequenceDiagram
     participant SCH as Spring Scheduler
@@ -439,7 +439,7 @@ sequenceDiagram
     end
 ```
 
-## B.5 Class-Level Design — Completed
+## B.5 Class-Level Design - Completed
 
 ### B.5.1 `IseTransport` (unchanged interface from original, now with the ERS skeleton filled in)
 ```java
@@ -586,9 +586,9 @@ public class IseActionService {
 }
 ```
 
-### B.5.2 / B.5.3 Job & Endpoint domain — unchanged (already ✅ built, see original)
+### B.5.2 / B.5.3 Job & Endpoint domain - unchanged (already ✅ built, see original)
 
-### B.5.4 Posture domain — completed
+### B.5.4 Posture domain - completed
 ```java
 @Entity @Table(name = "assessments")
 public class Assessment {
@@ -636,7 +636,7 @@ public interface CheckEvaluator {
         return CheckResult.of("APPLICATION", CheckStatus.valueOf(in.status()), in.detail());
     }
 }
-// Deliberately not a configurable Policy entity — see A.3 non-goals: generalize only
+// Deliberately not a configurable Policy entity - see A.3 non-goals: generalize only
 // once a second, genuinely different policy exists in real use.
 
 @Service
@@ -666,7 +666,7 @@ public class PostureService {
         results.forEach(r -> { r.setAssessmentId(a.getId()); checkResults.save(r); });
 
         return toResponse(a, results);
-        // No ISE call anywhere in this method — non-negotiable per A.2.
+        // No ISE call anywhere in this method - non-negotiable per A.2.
     }
 
     private CheckResult dispatch(RawCheckDto raw) {
@@ -692,7 +692,7 @@ public class PostureService {
 }
 ```
 
-`PostureIngestController` (own class, per B.3.2) and `PostureQueryController` (separate — read-side, no reason to share a class with the write-side ingestion path):
+`PostureIngestController` (own class, per B.3.2) and `PostureQueryController` (separate - read-side, no reason to share a class with the write-side ingestion path):
 ```java
 @RestController
 public class PostureIngestController {
@@ -712,7 +712,7 @@ public class PostureQueryController {
 }
 ```
 
-### B.5.5 Inventory domain — completed
+### B.5.5 Inventory domain - completed
 ```java
 @Entity @Table(name = "endpoint_apps")
 public class EndpointApp { @Id @GeneratedValue UUID id; UUID endpointId; String appName; String version; Instant collectedAt; }
@@ -736,7 +736,7 @@ public class InventoryController {
 }
 ```
 
-### B.5.6 Session domain — completed
+### B.5.6 Session domain - completed
 ```java
 @Component
 public class IseSessionWatcher {
@@ -776,16 +776,16 @@ public class IseSessionClient {
 }
 public record IseActiveSession(String mac, String ip) {}
 ```
-`EndpointService.markConnected/markDisconnected` also each write one row to `endpoint_session_log` (CONNECTED/DISCONNECTED) — this is the one addition to the already-built `EndpointService` required to support this module; everything else in that service is reused unchanged, per the "never a bare `repository.save()`" rule in B.5.3.
+`EndpointService.markConnected/markDisconnected` also each write one row to `endpoint_session_log` (CONNECTED/DISCONNECTED) - this is the one addition to the already-built `EndpointService` required to support this module; everything else in that service is reused unchanged, per the "never a bare `repository.save()`" rule in B.5.3.
 
-### B.5.7 Audit domain — completed
+### B.5.7 Audit domain - completed
 ```java
 @Entity @Table(name = "ise_action_audit")
 public class IseActionAudit {
     @Id @GeneratedValue UUID id;
     UUID endpointId;
     String actionType;   // SHARE_POSTURE / RESTRICT / CLEAR_RESTRICTION
-    UUID initiatedBy;    // FK -> app_user(id), from authenticated principal — never blank
+    UUID initiatedBy;    // FK -> app_user(id), from authenticated principal - never blank
     boolean succeeded;
     String detail;
     Instant occurredAt;
@@ -808,7 +808,7 @@ public class AuditQueryController {
 }
 ```
 
-### B.5.8 Hardware scoring — completed (thresholds still explicitly illustrative, per original doc — not finalized business rules)
+### B.5.8 Hardware scoring - completed (thresholds still explicitly illustrative, per original doc - not finalized business rules)
 ```java
 public interface ComponentScorer {
     int score(HardwareRawReport report); // 0-100
@@ -848,7 +848,7 @@ public class HardwareHealthService {
         Integer batScore = battery.score(raw); // nullable
         int overall = Stream.of(cpuScore, memScore, stoScore, batScore == null ? 100 : batScore)
             .mapToInt(Integer::intValue).min().orElse(0); // min() of components, per original design note
-        String band = bandFor(overall); // 85+ HEALTHY, 70-84 WARNING, 50-69 DEGRADED, <50 CRITICAL — ILLUSTRATIVE
+        String band = bandFor(overall); // 85+ HEALTHY, 70-84 WARNING, 50-69 DEGRADED, <50 CRITICAL - ILLUSTRATIVE
 
         HardwareHealthReport entity = HardwareHealthReport.builder()
             .endpointId(endpointId).cpuScore(cpuScore).memoryScore(memScore)
@@ -864,7 +864,7 @@ public class HardwareHealthService {
 
     private List<HardwareRecommendation> deriveRecommendations(HardwareHealthReport r) {
         List<HardwareRecommendation> out = new ArrayList<>();
-        if (r.getStorageScore() < 60) out.add(new HardwareRecommendation("HIGH", "Storage", "Disk health degraded — plan replacement"));
+        if (r.getStorageScore() < 60) out.add(new HardwareRecommendation("HIGH", "Storage", "Disk health degraded - plan replacement"));
         if (r.getBatteryScore() != null && r.getBatteryScore() < 50) out.add(new HardwareRecommendation("MEDIUM", "Battery", "Battery wear exceeds 50% capacity loss"));
         if (r.getCpuScore() < 40) out.add(new HardwareRecommendation("MEDIUM", "CPU", "Sustained high CPU utilization observed"));
         return out;
@@ -889,52 +889,52 @@ public class HardwareHealthController {
 }
 ```
 
-## B.6 Security Design (unchanged, see original §B.6 — already ✅ built and compatible with every module above; every `initiated_by`/`Authentication auth` parameter in the new services above is populated from the existing `JwtAuthFilter`-set `SecurityContext`, no changes required there)
+## B.6 Security Design (unchanged, see original §B.6 - already ✅ built and compatible with every module above; every `initiated_by`/`Authentication auth` parameter in the new services above is populated from the existing `JwtAuthFilter`-set `SecurityContext`, no changes required there)
 
-## B.7 Job / Scheduling Design — one addition
+## B.7 Job / Scheduling Design - one addition
 
 | Mechanism | Status |
 |---|---|
-| `job/JobWorker` — posture/hardware job claim | ✅ Built (Stage 3) |
-| `session/IseSessionWatcher` — ISE MNT polling | 📐 Completed this revision (B.5.6) |
+| `job/JobWorker` - posture/hardware job claim | ✅ Built (Stage 3) |
+| `session/IseSessionWatcher` - ISE MNT polling | 📐 Completed this revision (B.5.6) |
 
 `JobService` gains one new method used by `IseSessionWatcher`:
 ```java
 public void enqueueIfDue(UUID endpointId, JobType type) {
     // checks last completed job of this type for this endpoint against the
-    // configured recheck interval before enqueueing — prevents the watcher
+    // configured recheck interval before enqueueing - prevents the watcher
     // from flooding the queue with a job every 15s for the same endpoint
 }
 ```
 
-## B.8 Configuration Reference — additions
+## B.8 Configuration Reference - additions
 
 | Key | Purpose | Default |
 |---|---|---|
-| `app.ise.base-url` | ERS/MNT base URL | none — required |
-| `app.ise.username` / `.password` | HTTP Basic creds | none — required, env-injected |
+| `app.ise.base-url` | ERS/MNT base URL | none - required |
+| `app.ise.username` / `.password` | HTTP Basic creds | none - required, env-injected |
 | `app.ise.enforcement-mode` | `attribute` \| `anc` | `attribute` |
 | `app.ise.session-poll-interval-ms` | `IseSessionWatcher` tick rate | `15000` |
 | `app.jobs.recheck-interval-hours` | posture recheck cadence used by `enqueueIfDue` | `24` |
 
-## B.9 Error Handling Design — additions
+## B.9 Error Handling Design - additions
 
 - `AssessmentNotFoundException` → `404`, same pattern as `EndpointNotFoundException`.
 - `@Valid` + `@ControllerAdvice` on `PostureIngestController` and `HardwareHealthController` → `400` with field-level messages (now required, since both are live ingestion endpoints).
-- `IseSessionClient` transport failures are caught and logged, never thrown into `@Scheduled` — a failed ISE poll skips this tick and retries next interval rather than killing the scheduler thread.
+- `IseSessionClient` transport failures are caught and logged, never thrown into `@Scheduled` - a failed ISE poll skips this tick and retries next interval rather than killing the scheduler thread.
 - ISE transport failures in `IseActionService` → non-2xx response **and** an audit row with `succeeded=false`, written before the response is returned (already specified in original §B.9, now backed by concrete code in B.5.1).
 
-## B.10 Testing Strategy — additions
+## B.10 Testing Strategy - additions
 
 | Layer | Approach |
 |---|---|
 | `PostureService.recordAssessment` | `@DataJpaTest` (Testcontainers) asserting assessment + check_results + inventory rows all land atomically in one transaction |
-| `HardwareHealthService` scoring | Pure unit tests per `ComponentScorer`, plus a table-driven test for `bandFor()` thresholds (flagged illustrative — test documents current behavior, not a locked spec) |
+| `HardwareHealthService` scoring | Pure unit tests per `ComponentScorer`, plus a table-driven test for `bandFor()` thresholds (flagged illustrative - test documents current behavior, not a locked spec) |
 | `IseSessionWatcher` | Unit test with a fake `IseSessionClient` returning a fixed active-session list; assert `markConnected`/`markDisconnected`/`enqueueIfDue` are called exactly once per state transition, never per tick for an unchanged state |
 | `IseActionService` | Fake `IseTransport` returning both success and failure; assert an audit row is written in both cases before the method returns |
 
-## B.11 What the Design Explicitly Must Not Lose (unchanged, see original §B.11 — every item is honored by the completed designs above; item 5, PROTECTED_KEYWORDS, remains a requirement for remediation *when that module is eventually taken out of 💤*, not before)
+## B.11 What the Design Explicitly Must Not Lose (unchanged, see original §B.11 - every item is honored by the completed designs above; item 5, PROTECTED_KEYWORDS, remains a requirement for remediation *when that module is eventually taken out of 💤*, not before)
 
 ---
 
-*End of completed document. Build order unchanged: posture ingestion → ISE integration → hardware health → session watcher, in that order, each independently testable against the schema in B.2.2 before the next one starts. Remediation and Endpoint 360 stay 💤 until explicitly pulled into scope — this document does not pre-build them.*
+*End of completed document. Build order unchanged: posture ingestion → ISE integration → hardware health → session watcher, in that order, each independently testable against the schema in B.2.2 before the next one starts. Remediation and Endpoint 360 stay 💤 until explicitly pulled into scope - this document does not pre-build them.*
