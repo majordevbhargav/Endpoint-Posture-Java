@@ -18,7 +18,7 @@
     <description>VE Compliance Engine - Spring Boot rewrite</description>
 
     <properties>
-        <java.version>22</java.version>
+        <java.version>21</java.version>
         <jjwt.version>0.12.6</jjwt.version>
         <springdoc.version>2.6.0</springdoc.version>
         <!-- Explicit main class - avoids Maven's auto-detection failing
