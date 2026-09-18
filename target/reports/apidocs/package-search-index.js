@@ -1,1 +1,0 @@
-packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"com.endpointposture"},{"l":"com.endpointposture.config"},{"l":"com.endpointposture.endpoint"},{"l":"com.endpointposture.endpoint.dto"},{"l":"com.endpointposture.job"},{"l":"com.endpointposture.job.dto"},{"l":"com.endpointposture.security"}];updateSearchResults();
