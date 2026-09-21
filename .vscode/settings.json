@@ -1,3 +1,25 @@
 {
-    "java.configuration.updateBuildConfiguration": "interactive"
+      "java.configuration.updateBuildConfiguration": "interactive",
+    "pgsql.connections": [
+        {
+            "id": "A8A3F64F-C6E7-43DD-8323-2BAD6C273B86",
+            "groupId": "91F855B0-2C07-4B2D-9FD4-8746BEE782A3",
+            "authenticationType": "SqlLogin",
+            "connectTimeout": 15,
+            "applicationName": "vscode-pgsql",
+            "clientEncoding": "utf8",
+            "sslmode": "prefer",
+            "sshSavePassword": true,
+            "savePassword": true,
+            "sslRootCertMode": "none",
+            "server": "localhost",
+            "port": "5434",
+            "user": "ep_app",
+            "password": "",
+            "database": "endpoint_posture",
+            "profileName": "endpoint-posture-local",
+            "expiresOn": 0,
+            "sshPassword": ""
+        }
+    ]
 }
