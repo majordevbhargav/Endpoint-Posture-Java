@@ -9,6 +9,12 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Read-only REST API for endpoints: {@code /api/v1/endpoints}.
+ *
+ * <p>Endpoints are created by the collectors (posture ingestion, ISE
+ * watcher), not through this controller.</p>
+ */
 @RestController
 @RequestMapping("/api/v1/endpoints")
 @Tag(name = "Endpoints", description = "Devices discovered through Cisco ISE or posture ingestion. Requires a bearer token.")
@@ -20,6 +26,7 @@ public class EndpointController {
         this.service = service;
     }
 
+    /** @return every known endpoint */
     @Operation(
             summary = "List all known endpoints",
             description = "Returns every endpoint this platform has ever seen, connected "
@@ -31,6 +38,10 @@ public class EndpointController {
         return service.listAll();
     }
 
+    /**
+     * @param id the endpoint's internal UUID
+     * @return the endpoint, or {@code 404} if the ID is unknown
+     */
     @Operation(
             summary = "Get one endpoint by its internal ID",
             description = "Looks up by the platform's internal UUID, not the device's MAC "

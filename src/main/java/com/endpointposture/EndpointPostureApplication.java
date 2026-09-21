@@ -1,27 +1,29 @@
 package com.endpointposture;
 
+import com.endpointposture.hardware.config.HardwareAgentProperties;
+import com.endpointposture.posture.config.PostureAgentProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
- * Application entry point.
+ * Entry point of the VE Compliance Engine backend.
  *
- * {@link UserDetailsServiceAutoConfiguration} is explicitly excluded:
- * authentication in this project is handled entirely by
- * {@link com.endpointposture.security.AuthController}, which looks users
- * up directly via {@link com.endpointposture.security.UserRepository} and
- * verifies passwords with {@link org.springframework.security.crypto.password.PasswordEncoder}
- * - it never goes through Spring Security's {@code AuthenticationManager}/
- * {@code UserDetailsService} machinery. Without this exclusion, Spring Boot
- * auto-configures its own default in-memory user (a random UUID password
- * logged on every startup) that this application never actually uses,
- * which is confusing dead weight rather than a real second auth path.
+ * <ul>
+ *   <li>{@code @EnableScheduling} switches on the {@code @Scheduled} job worker.</li>
+ *   <li>{@code @EnableConfigurationProperties} registers the agent settings
+ *       classes so they can be injected.</li>
+ *   <li>Spring's default in-memory user is switched off: users come from the
+ *       {@code app_user} table and JWTs, not from Spring's generated password.</li>
+ * </ul>
  */
-@SpringBootApplication(exclude = { UserDetailsServiceAutoConfiguration.class })
+@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 @EnableScheduling
+@EnableConfigurationProperties({PostureAgentProperties.class, HardwareAgentProperties.class})
 public class EndpointPostureApplication {
+
     public static void main(String[] args) {
         SpringApplication.run(EndpointPostureApplication.class, args);
     }

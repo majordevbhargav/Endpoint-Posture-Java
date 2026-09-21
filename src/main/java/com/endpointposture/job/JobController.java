@@ -3,15 +3,22 @@ package com.endpointposture.job;
 import com.endpointposture.job.dto.JobResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * REST API for the job queue: {@code /api/v1/jobs}.
+ *
+ * <p>Manual enqueueing exists for testing the dispatch pipeline; later,
+ * the ISE session watcher enqueues jobs automatically.</p>
+ */
 @RestController
 @RequestMapping("/api/v1/jobs")
-@Tag(name = "Jobs", description = "The posture-check job queue. Stage 3: manual enqueue for testing the claim/complete/fail mechanics before real ISE/PowerShell dispatch exists.")
+@Tag(name = "Jobs", description = "The posture-check job queue. Manual enqueue for testing dispatch before ISE-triggered enqueueing exists.")
 public class JobController {
 
     private final JobService jobService;
@@ -20,25 +27,42 @@ public class JobController {
         this.jobService = jobService;
     }
 
-    public record EnqueueRequest(@NotNull UUID endpointId, Integer priority) {}
+    /**
+     * Body of {@code POST /api/v1/jobs}.
+     *
+     * @param endpointId the endpoint to run against (required)
+     * @param jobType    what to run; defaults to {@code POSTURE_CHECK} when omitted
+     * @param priority   higher values are claimed first; defaults to 0
+     */
+    public record EnqueueRequest(@NotNull UUID endpointId, JobType jobType, Integer priority) {}
 
-    @Operation(summary = "Manually enqueue a posture-check job for an endpoint (testing only, until Stage 4 wires real ISE-triggered enqueueing)")
+    /**
+     * Manually enqueues a job.
+     *
+     * @return the new job, status {@code QUEUED}
+     */
+    @Operation(summary = "Manually enqueue a job for an endpoint (testing only, until ISE-triggered enqueueing exists)")
     @PostMapping
-    public JobResponse enqueue(@RequestBody EnqueueRequest request) {
+    public JobResponse enqueue(@Valid @RequestBody EnqueueRequest request) {
         PostureJob job = jobService.enqueue(
                 request.endpointId(),
-                JobType.POSTURE_CHECK,
+                request.jobType() != null ? request.jobType() : JobType.POSTURE_CHECK,
                 request.priority() != null ? request.priority() : 0
         );
         return toResponse(job);
     }
 
+    /** @return all jobs, newest first */
     @Operation(summary = "List all jobs, newest first")
     @GetMapping
     public List<JobResponse> listAll() {
         return jobService.listAll().stream().map(this::toResponse).toList();
     }
 
+    /**
+     * @param endpointId the endpoint's internal UUID
+     * @return that endpoint's jobs, newest first
+     */
     @Operation(summary = "List jobs for one endpoint")
     @GetMapping("/endpoint/{endpointId}")
     public List<JobResponse> listForEndpoint(@PathVariable UUID endpointId) {
