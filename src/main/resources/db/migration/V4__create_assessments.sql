@@ -1,4 +1,3 @@
--- SQLBook: Code
 -- V4__create_assessments.sql
 -- Append-only posture history. Every posture check ever run produces a
 -- new `assessment` row (never updated, never deleted except via

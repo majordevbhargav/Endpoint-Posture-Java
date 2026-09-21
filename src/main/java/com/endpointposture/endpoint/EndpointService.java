@@ -51,6 +51,20 @@ public class EndpointService {
 
         return repository.save(endpoint);
     }
+    /**
+ * Records the hardware identity reported by the posture agent.
+ * Null arguments leave the stored value untouched. Does nothing if the
+ * endpoint no longer exists.
+ */
+@Transactional
+public void updateHardware(UUID endpointId, String manufacturer, String model, String serialNumber) {
+    repository.findById(endpointId).ifPresent(e -> {
+        if (manufacturer != null) e.setManufacturer(manufacturer);
+        if (model != null) e.setModel(model);
+        if (serialNumber != null) e.setSerialNumber(serialNumber);
+        repository.save(e);
+    });
+}
 
     @Transactional
     public void markConnected(String macAddress, String ip) {

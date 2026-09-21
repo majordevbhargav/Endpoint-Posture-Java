@@ -14,6 +14,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.List;
 
+/**
+ * Authenticates human/API callers from an {@code Authorization: Bearer <jwt>} header.
+ *
+ * <p>If the header carries a valid token, the request is marked as
+ * authenticated with the token's user and role. If the header is missing or
+ * the token is invalid, the filter does nothing and lets the request
+ * continue unauthenticated - the rules in {@link SecurityConfig} then reject
+ * it for any protected route.</p>
+ */
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
 

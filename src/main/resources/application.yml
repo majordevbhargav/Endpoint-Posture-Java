@@ -3,6 +3,7 @@ spring:
     name: endpoint-posture-java
 
   datasource:
+    # Port 5434 is the host side of the docker-compose mapping (5434:5432).
     url: jdbc:postgresql://localhost:5434/endpoint_posture
     username: ${DB_USERNAME:ep_app}
     password: ${DB_PASSWORD:devpassword123}
@@ -23,15 +24,38 @@ spring:
 server:
   port: 8090
 
+# Spring logging settings live at the top level (not under "app:").
+# Switch security to DEBUG when chasing a 401/403.
+logging:
+  level:
+    org.springframework.security: INFO
+
 app:
   jwt:
     secret: ${JWT_SECRET:dev-only-change-this-to-a-real-256-bit-secret-before-anything-real}
     expiration-minutes: 480
+
   seed-admin:
     username: ${SEED_ADMIN_USER:admin}
     password: ${SEED_ADMIN_PASSWORD:Login@123}
+
   jobs:
-    poll-interval-ms: 3000  
-  logging:
-    level:
-    org.springframework.security: DEBUG
+    poll-interval-ms: 3000   # how often JobWorker looks for the next queued job
+
+  # Posture agent (scripts/posture_agent.ps1). Relative paths resolve against
+  # the folder you start the app from (the repo root for mvn spring-boot:run).
+  posture:
+    script-path: scripts/posture_agent.ps1
+    server-url: http://localhost:8090/api/v1/posture
+    api-key: ${POSTURE_API_KEY:dev-only-agent-key-change-me}   # shared secret the agent sends; change before anything real
+    cim-timeout-seconds: 30
+    server-timeout-seconds: 15
+    process-timeout-seconds: 60   # outer kill switch; raise it (e.g. 120) when testing against slow remote endpoints
+
+  # Hardware-health agent (scripts/hardware_health_agent.ps1).
+  hardware:
+    script-path: scripts/hardware_health_agent.ps1
+    server-base-url: http://localhost:8090
+    cim-timeout-seconds: 30
+    submit-timeout-seconds: 20
+    process-timeout-seconds: 70
