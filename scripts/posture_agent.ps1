@@ -191,7 +191,16 @@ $ErrorActionPreference = "Stop"
 # machine above, so this script still runs perfectly well stand-alone.
 # ---------------------------------------------------------------------------
 
-$IsRemote = $ComputerName -ne $env:COMPUTERNAME
+# ComputerName may be an IP (JobWorker prefers the endpoint's stored IP
+# over its hostname), so a plain hostname comparison isn't enough - it
+# would misclassify this same machine as "remote" whenever dispatched by
+# its own IP, sending it into Get-HardwareHealthCred's Read-Host prompt,
+# which then fails outright under JobWorker's -NonInteractive launch.
+$LocalIPs = @(
+    Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty IPAddress
+)
+$IsRemote = ($ComputerName -ne $env:COMPUTERNAME) -and ($ComputerName -notin $LocalIPs) -and ($ComputerName -ne '127.0.0.1') -and ($ComputerName -ne 'localhost')
 
 $CimParams = @{}
 $Session = $null

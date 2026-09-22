@@ -7,146 +7,53 @@
     the original Python collector (identity, CPU/memory, storage health,
     battery, hardware events), but POSTs the report to the Spring Boot
     backend's /api/v1/hardware-health endpoint so results land in the
-    shared Postgres database. JobWorker launches this once per
-    HARDWARE_CHECK job via ProcessBuilder, the same way it launches
-    posture_agent.ps1 for POSTURE_CHECK jobs, passing -ComputerName,
-    -JobId, -PostureAppBase, and timeouts from application.yml.
-
-    Supports BOTH local and REMOTE collection:
-      - Local (default, no -ComputerName): runs directly on this machine,
-        same as the original collector.
-      - Remote (-ComputerName <target>): connects over WinRM/CIM using the
-        same DCOM-then-WSMan fallback pattern already implemented in
-        posture_agent.ps1 - including that file's -OperationTimeoutSec fix,
-        so a hung/unreachable target fails fast with a real error instead
-        of hanging. Credentials are loaded the same way posture_agent.ps1
-        does: an explicit -Username/-Password/-PlainPassword override, or
-        the shared DPAPI-encrypted common credential
-        (Save-PostureCredential.ps1's posture_common_cred.xml) if none is
-        given.
-
-    This lets Hardware Health be collected centrally from the console the
-    same way posture checks already are, rather than needing to be
-    deployed to every endpoint individually. Warranty CSV/API lookup
-    (Section 15, question 10) is still deferred until that question is
-    answered.
-
-.PARAMETER PostureAppBase
-    Base URL of the backend (no path). The script appends
-    /api/v1/hardware-health. JobWorker passes it from
-    app.hardware.server-base-url in application.yml.
-
-.PARAMETER SubmitTimeoutSec
-    Timeout for the HTTP POST back to the backend, in seconds
-    (app.hardware.submit-timeout-seconds).
-
-.PARAMETER ComputerName
-    Machine to collect from. Defaults to this machine, which means
-    "local run". Anything else, including this machine's own IP address,
-    is treated as a REMOTE target.
-
-.PARAMETER JobId
-    The posture_job UUID that triggered this run. Optional. Echoed in
-    RESULT_JSON.
-
-.PARAMETER Username
-    Optional explicit account for a remote target. Overrides the stored
-    common credential.
-
-.PARAMETER Password
-    Password for -Username as a SecureString. Optional.
-
-.PARAMETER PlainPassword
-    Password for -Username as plain text. Optional. Convenient for manual
-    tests, but it ends up in shell history.
-
-.PARAMETER CommonCredPath
-    Path of the DPAPI-encrypted credential created by
-    Save-PostureCredential.ps1. Defaults to posture_common_cred.xml next
-    to this script.
-
-.PARAMETER CimOperationTimeoutSec
-    Timeout for every CIM/WinRM operation, in seconds
-    (app.hardware.cim-timeout-seconds). Must stay well below the outer
-    process timeout that JobWorker enforces
-    (app.hardware.process-timeout-seconds).
-
-.OUTPUTS
-    Human-readable progress on the console, plus one machine-readable line
-    on stdout that starts with "RESULT_JSON:" followed by compact JSON.
-    JobWorker keys off its "submitted" field (true means success). Exit
-    code is 1 when the run failed or the submission failed.
+    shared Postgres database.
 
 .NOTES
-    STATUS: the backend route POST /api/v1/hardware-health is not built
-    yet (the hardware module is designed, not implemented). Until it
-    exists, a HARDWARE_CHECK job collects the data and then fails at the
-    submit step; JobWorker retries it with backoff and finally leaves it
-    FAILED. Do not enqueue hardware jobs until that route exists.
-
-    AUTHENTICATION: no API-key header is sent yet, because there is no
-    route to send it to. When the route is added, send the same
-    X-Posture-Api-Key header as posture_agent.ps1 does (from the
-    POSTURE_API_KEY environment variable), have JobWorker set that
-    variable for hardware jobs too, and permit the route for ROLE_AGENT in
-    SecurityConfig.
+    AUTHENTICATION: the backend rejects unauthenticated hardware-health
+    reports (same as posture ingestion). This script sends the shared
+    secret from the POSTURE_API_KEY environment variable as the
+    X-Posture-Api-Key header. For a manual run:
+        $env:POSTURE_API_KEY = "<value of app.posture.api-key>"
+        .\hardware_health_agent.ps1
 
     LOCAL VS REMOTE: -ComputerName is compared with $env:COMPUTERNAME.
     Only an exact (case-insensitive) match counts as local.
 
-.EXAMPLE
-    .\hardware_health_agent.ps1
-    (local collection - runs against this machine, posts to localhost:8090)
-
-.EXAMPLE
-    .\hardware_health_agent.ps1 -ComputerName 10.66.1.12 -JobId 3f9e...c2a1
-    (remote collection - uses the stored common credential automatically)
-
-.EXAMPLE
-    .\hardware_health_agent.ps1 -ComputerName 10.66.1.12 -Username Administrator -PlainPassword "secret"
+    FIELD NAMES: cpuMemory / hardwareEvents / proactiveRecommendations /
+    serialNumber / biosVersion are camelCase to match the Java DTO
+    (HardwareReportRequest), which binds JSON keys by exact record
+    field name with no snake_case mapping.
 #>
 
 param(
-    # Points at the Spring Boot backend's hardware-health ingestion
-    # route, not the old Python posture_ui.py. Like posture_agent.ps1,
-    # this is meant to be supplied explicitly by JobWorker on every
-    # invocation (from application.yml under app.hardware.*) - the
-    # default here only supports running this script by hand.
     [string]$PostureAppBase = "http://localhost:8090",
     [int]$SubmitTimeoutSec = 20,
-
-    # Defaults to the local machine - same "local first, then remote"
-    # story as posture_agent.ps1.
     [string]$ComputerName = $env:COMPUTERNAME,
-
-    # Carried through into RESULT_JSON so JobWorker can link this run
-    # back to the posture_job row that triggered it. Optional.
     [string]$JobId,
-
     [string]$Username,
     [securestring]$Password,
     [string]$PlainPassword,
     [string]$CommonCredPath = "$PSScriptRoot\posture_common_cred.xml",
-
-    # Explicit, shorter-than-outer-process CIM timeout - exposed as a
-    # parameter so JobWorker can tune it from application.yml, same
-    # rationale as posture_agent.ps1.
     [int]$CimOperationTimeoutSec = 30
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$IsRemote = $ComputerName -ne $env:COMPUTERNAME
+# ComputerName may be an IP (JobWorker prefers the endpoint's stored IP
+# over its hostname), so a plain hostname comparison isn't enough - it
+# would misclassify this same machine as "remote" whenever dispatched by
+# its own IP, sending it into Get-HardwareHealthCred's Read-Host prompt,
+# which then fails outright under JobWorker's -NonInteractive launch.
+$LocalIPs = @(
+    Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty IPAddress
+)
+$IsRemote = ($ComputerName -ne $env:COMPUTERNAME) -and ($ComputerName -notin $LocalIPs) -and ($ComputerName -ne '127.0.0.1') -and ($ComputerName -ne 'localhost')
 $CimParams = @{}
 $Session = $null
 $Cred = $null
-
-# ---------------------------------------------------------------------------
-# Credential loading - same logic as posture_agent.ps1's Get-PostureCred,
-# reused so both agents behave identically against the same shared common
-# credential (and give the same requalification warnings).
-# ---------------------------------------------------------------------------
 
 function Get-HardwareHealthCred {
     $HasExplicitOverride = [bool]($Username -or $Password -or $PlainPassword)
@@ -177,7 +84,6 @@ function Get-HardwareHealthCred {
                 if ($PrefixIsIp -and $Prefix -ne $ComputerName) {
                     Write-Host "Stored credential was saved scoped to $Prefix, not $ComputerName - re-qualifying for this target." -ForegroundColor DarkYellow
                 }
-
                 $QualifiedStoredUser = "$ComputerName\$BareUser"
                 $Stored = New-Object System.Management.Automation.PSCredential($QualifiedStoredUser, $Stored.Password)
             }
@@ -217,15 +123,6 @@ function Get-HardwareHealthCred {
 function Submit-FailureAndExit {
     param([string]$Detail)
 
-    # No partial report is submitted here - /api/v1/hardware-health requires
-    # a MAC address to accept a report at all, and at this stage of
-    # collection we may not have one yet. Matches posture_agent.ps1's own
-    # behavior on a connection failure: print the real cause clearly,
-    # emit a RESULT_JSON line so JobWorker can fail the job with the real
-    # reason, and exit non-zero rather than attempt a doomed submission.
-    # (JobWorker writes a fallback ERROR assessment only for POSTURE_CHECK
-    # jobs. Hardware jobs have no assessment row, so the reason is kept
-    # on the job's error_message instead.)
     Write-Host ""
     Write-Host "ERROR: $Detail" -ForegroundColor Red
 
@@ -237,22 +134,9 @@ function Submit-FailureAndExit {
         submitted = $false
     }
 
-    Write-Output (
-        "RESULT_JSON:" +
-        ($FailResult | ConvertTo-Json -Compress)
-    )
-
+    Write-Output ("RESULT_JSON:" + ($FailResult | ConvertTo-Json -Compress))
     exit 1
 }
-
-# ---------------------------------------------------------------------------
-# Establish the CIM session for remote targets.
-#
-# Same DCOM-then-WSMan fallback pattern as posture_agent.ps1, including that
-# file's -OperationTimeoutSec fix: without an explicit operation timeout, a
-# target whose WinRM listener is up but not actually responding can hang for
-# WinRM's own long default instead of failing fast with a real error.
-# ---------------------------------------------------------------------------
 
 if ($IsRemote) {
     try {
@@ -300,13 +184,13 @@ try {
     $reportHostname = if ($IsRemote) { $ComputerName } else { $env:COMPUTERNAME }
 
     $identity = @{
-        manufacturer   = $cs.Manufacturer
-        model          = $cs.Model
-        serial_number  = $csp.IdentifyingNumber
-        bios_version   = $bios.SMBIOSBIOSVersion
-        mac            = $nic.MACAddress
-        hostname       = $reportHostname
-        ip             = ($nic.IPAddress | Where-Object { $_ -and $_ -notmatch ':' } | Select-Object -First 1)
+        manufacturer = $cs.Manufacturer
+        model        = $cs.Model
+        serialNumber = $csp.IdentifyingNumber
+        biosVersion  = $bios.SMBIOSBIOSVersion
+        mac          = $nic.MACAddress
+        hostname     = $reportHostname
+        ip           = ($nic.IPAddress | Where-Object { $_ -and $_ -notmatch ':' } | Select-Object -First 1)
     }
 
     if (-not $identity.mac) {
@@ -328,10 +212,6 @@ try {
     }
 
     # --- Storage --------------------------------------------------------
-    # Get-PhysicalDisk is a storage cmdlet, not a plain CIM class lookup -
-    # it takes -CimSession directly (same parameter name) rather than the
-    # @CimParams splat used for Get-CimInstance above, so it's called
-    # explicitly for the remote case.
     $disks = if ($IsRemote) {
         @(Get-PhysicalDisk -CimSession $Session -ErrorAction SilentlyContinue | Select-Object FriendlyName, HealthStatus, MediaType)
     } else {
@@ -345,12 +225,6 @@ try {
     $battery = @{ battery_static = $batteryStatic }
 
     # --- Hardware events (7 days) ------------------------------------------
-    # Get-WinEvent is not a CIM cmdlet - it uses -ComputerName/-Credential
-    # directly (EventLog remoting, not WinRM/DCOM), and needs the Remote
-    # Event Log Management firewall rule enabled on the target. Failures
-    # here are non-fatal to the rest of the report - just recorded as zero
-    # events with a note, same "best effort" spirit as posture_agent.ps1's
-    # optional collection sections.
     $hwEventsError = $null
     try {
         $winEventParams = @{
@@ -370,10 +244,10 @@ try {
     }
     $events = @{ lookback_days = 7; event_count = $hwEvents.Count; collection_error = $hwEventsError }
 
-    # --- Warranty (Section 15 question 10 pending; UNKNOWN until answered) --
+    # --- Warranty (pending) --------------------------------------------------
     $warranty = @{ status = "UNKNOWN"; days_remaining = $null; reason = "Warranty data source not yet configured (see project plan Section 15, question 10)." }
 
-    # --- Proactive recommendations (mirrors the original collector) -------
+    # --- Proactive recommendations -------------------------------------------
     $recommendations = @()
     foreach ($d in $disks) {
         if ($d.HealthStatus -and $d.HealthStatus -notin @("Healthy", "0")) {
@@ -387,40 +261,68 @@ try {
     }
 
     $report = @{
-        jobId                       = $JobId
-        endpoint                    = $identity
-        cpu_memory                  = $cpuMemory
-        storage                     = $storage
-        battery                     = $battery
-        hardware_events             = $events
-        warranty                    = $warranty
-        proactive_recommendations   = $recommendations
+        jobId                    = $JobId
+        endpoint                 = $identity
+        cpuMemory                = $cpuMemory
+        storage                  = $storage
+        battery                  = $battery
+        hardwareEvents           = $events
+        warranty                 = $warranty
+        proactiveRecommendations = $recommendations
     }
 
     $payload = $report | ConvertTo-Json -Depth 8
 
-    # NOTE: this route does not exist in the backend yet, so the call
-    # below currently fails (expect a 404 or 401). It also sends no
-    # X-Posture-Api-Key header yet - see .NOTES in the help block above.
+    # ---------------------------------------------------------------------
+    # Submit - authenticated the same way posture_agent.ps1 authenticates.
+    # ---------------------------------------------------------------------
+    $ApiKey = $env:POSTURE_API_KEY
+    $SubmitHeaders = @{}
+
+    if ([string]::IsNullOrWhiteSpace($ApiKey)) {
+        Write-Host "WARNING: POSTURE_API_KEY is not set in this session - the submit below will get 401/403'd. Set it with `$env:POSTURE_API_KEY = '<key>'` before running this script." -ForegroundColor Yellow
+    }
+    else {
+        $SubmitHeaders["X-Posture-Api-Key"] = $ApiKey.Trim()
+        Write-Host "Using POSTURE_API_KEY (length=$($ApiKey.Trim().Length)) for submission." -ForegroundColor DarkGray
+    }
+
     try {
-        $resp = Invoke-RestMethod -Uri "$PostureAppBase/api/v1/hardware-health" -Method Post -Body $payload -ContentType "application/json" -TimeoutSec $SubmitTimeoutSec
-        Write-Host "Submitted hardware health for $($identity.hostname) ($($identity.mac)): overall_score=$($resp.overall_score) band=$($resp.band)" -ForegroundColor Green
+        $resp = Invoke-RestMethod `
+            -Uri "$PostureAppBase/api/v1/hardware-health" `
+            -Method Post `
+            -Body $payload `
+            -ContentType "application/json" `
+            -Headers $SubmitHeaders `
+            -TimeoutSec $SubmitTimeoutSec
+
+        Write-Host "Submitted hardware health for $($identity.hostname) ($($identity.mac)): overall_score=$($resp.overallScore) band=$($resp.overallBand)" -ForegroundColor Green
 
         $ResultOut = [ordered]@{
             jobId     = $JobId
             computer  = $identity.hostname
             mac       = $identity.mac
-            status    = "COMPLIANT"
-            detail    = "overall_score=$($resp.overall_score) band=$($resp.band)"
+            status    = $resp.overallBand
+            detail    = "overall_score=$($resp.overallScore) band=$($resp.overallBand)"
             submitted = $true
         }
         Write-Output ("RESULT_JSON:" + ($ResultOut | ConvertTo-Json -Compress))
     } catch {
-        Write-Host "ERROR submitting hardware health: $($_.Exception.Message)" -ForegroundColor Red
+        $StatusCode = $null
+        $ResponseBody = $null
+        if ($_.Exception.Response) {
+            $StatusCode = [int]$_.Exception.Response.StatusCode
+            try {
+                $Stream = $_.Exception.Response.GetResponseStream()
+                $Reader = New-Object System.IO.StreamReader($Stream)
+                $ResponseBody = $Reader.ReadToEnd()
+            } catch { }
+        }
 
-        # Collection itself succeeded - only the HTTP submission failed.
-        # JobWorker uses submitted=false + detail here to fail the job with
-        # this reason (retried with backoff while attempts remain).
+        Write-Host "ERROR submitting hardware health: $($_.Exception.Message)" -ForegroundColor Red
+        if ($StatusCode) { Write-Host "HTTP status: $StatusCode" -ForegroundColor Red }
+        if ($ResponseBody) { Write-Host "Response body: $ResponseBody" -ForegroundColor Red }
+
         $ResultOut = [ordered]@{
             jobId       = $JobId
             computer    = $identity.hostname
@@ -429,6 +331,7 @@ try {
             detail      = "Collected OK but could not submit: $($_.Exception.Message)"
             submitted   = $false
             submitError = $_.Exception.Message
+            httpStatus  = $StatusCode
         }
         Write-Output ("RESULT_JSON:" + ($ResultOut | ConvertTo-Json -Compress))
 

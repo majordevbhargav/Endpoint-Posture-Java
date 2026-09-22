@@ -17,9 +17,10 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  * Central Spring Security setup: which routes are public, which need a
  * token, how requests are authenticated, and the first-run admin account.
  *
- * <p>The API is stateless - no sessions, no cookies. Every protected request
- * must carry either a JWT ({@link JwtAuthFilter}) or, for the posture
- * ingestion route only, the agent API key ({@link PostureApiKeyFilter}).</p>
+ * <p>The API is stateless — no sessions, no cookies. Every protected request
+ * must carry either a JWT ({@link JwtAuthFilter}) or, for the two agent
+ * ingestion routes only, the shared agent API key
+ * ({@link PostureApiKeyFilter}).</p>
  */
 @Configuration
 @EnableWebSecurity
@@ -42,9 +43,10 @@ public class SecurityConfig {
     /**
      * Builds the request-security rules.
      *
-     * <p>Public: login, health, Swagger UI. Posture ingestion
-     * ({@code POST /api/v1/posture}) accepts an admin JWT or the agent key.
-     * Everything else requires an authenticated user.</p>
+     * <p>Public: login, health, Swagger UI. Posture and hardware-health
+     * ingestion ({@code POST /api/v1/posture}, {@code POST /api/v1/hardware-health})
+     * accept an admin JWT or the agent key. Everything else requires an
+     * authenticated user.</p>
      */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -55,15 +57,19 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/auth/**",
                                 "/actuator/health",
+                                "/error",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
-                                "/v3/api-docs/**")
+                                "/v3/api-docs",
+                                "/v3/api-docs/**"
+                                )
                         .permitAll()
-                        // Ingestion is open to the agent key (ROLE_AGENT) and to
-                        // admins (handy for testing from Swagger). Because the
-                        // agent role is granted only for this exact route, the
-                        // key cannot read or change anything else.
-                        .requestMatchers(HttpMethod.POST, "/api/v1/posture")
+                        // Both agent ingestion routes are open to the agent key
+                        // (ROLE_AGENT) and to admins (handy for testing from
+                        // Swagger). The agent role is granted only for these
+                        // two exact routes, so the key cannot read or change
+                        // anything else.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/posture", "/api/v1/hardware-health")
                         .hasAnyRole("AGENT", "ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)

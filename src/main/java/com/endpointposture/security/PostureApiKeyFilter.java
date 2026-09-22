@@ -18,25 +18,30 @@ import java.security.MessageDigest;
 import java.util.List;
 
 /**
- * Lets the PowerShell posture agent submit results without a user login.
+ * Lets the PowerShell posture and hardware-health agents submit results
+ * without a user login.
  *
- * <p>The agent runs as a child process of the backend and cannot easily hold
- * a JWT, so it authenticates with a shared secret sent in the
+ * <p>Both agents run as child processes of the backend and cannot easily
+ * hold a JWT, so they authenticate with a shared secret sent in the
  * {@value #HEADER_NAME} header. The secret is configured as
  * {@code app.posture.api-key} (override with the {@code POSTURE_API_KEY}
- * environment variable) and is handed to the agent through its process
+ * environment variable) and is handed to each agent through its process
  * environment, not its command line.</p>
  *
- * <p>Scope is deliberately narrow: this filter only looks at
- * {@code POST /api/v1/posture}, and a valid key grants only the
- * {@code ROLE_AGENT} authority - enough to submit a report, nothing else.
- * Behaviour by case:</p>
+ * <p>Scope is deliberately narrow: this filter only looks at the two
+ * ingestion routes below, and a valid key grants only the
+ * {@code ROLE_AGENT} authority — enough to submit a report, nothing
+ * else. Behaviour by case:</p>
  * <ul>
  *   <li>No key header: the filter steps aside (a normal admin JWT still works).</li>
  *   <li>Valid key: request is authenticated as {@code posture-agent}.</li>
  *   <li>Wrong key, or no key configured on the server: {@code 401}. An empty
  *       configured key never matches anything (fail closed).</li>
  * </ul>
+ *
+ * <p>Originally scoped to posture ingestion only; extended to also cover
+ * hardware-health ingestion once that module was built, rather than
+ * duplicating this filter for a second route with identical logic.</p>
  */
 @Component
 public class PostureApiKeyFilter extends OncePerRequestFilter {
@@ -44,7 +49,8 @@ public class PostureApiKeyFilter extends OncePerRequestFilter {
     /** Name of the HTTP header carrying the agent's API key. */
     public static final String HEADER_NAME = "X-Posture-Api-Key";
 
-    private static final String INGEST_PATH = "/api/v1/posture";
+    private static final String POSTURE_INGEST_PATH = "/api/v1/posture";
+    private static final String HARDWARE_INGEST_PATH = "/api/v1/hardware-health";
 
     private final byte[] expectedKey;
 
@@ -58,8 +64,9 @@ public class PostureApiKeyFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
-        return !("POST".equalsIgnoreCase(request.getMethod())
-                && INGEST_PATH.equals(request.getRequestURI()));
+        boolean isIngestRoute = POSTURE_INGEST_PATH.equals(request.getRequestURI())
+                || HARDWARE_INGEST_PATH.equals(request.getRequestURI());
+        return !("POST".equalsIgnoreCase(request.getMethod()) && isIngestRoute);
     }
 
     @Override

@@ -1,6 +1,7 @@
 package com.endpointposture.job;
 
 import com.endpointposture.endpoint.Endpoint;
+import com.endpointposture.hardware.HardwareHealthService;
 import com.endpointposture.hardware.config.HardwareAgentProperties;
 import com.endpointposture.posture.AssessmentService;
 import com.endpointposture.posture.config.PostureAgentProperties;
@@ -35,15 +36,18 @@ import java.util.concurrent.TimeUnit;
  *   <li>The agent collects data and POSTs it to the backend itself, then
  *       prints one {@code RESULT_JSON:} line describing what happened.</li>
  *   <li>If that line says the submission worked, the job is {@code COMPLETE}
- *       (the real assessment was already saved by the ingestion endpoint).</li>
+ *       (the real assessment/hardware-health row was already saved by the
+ *       ingestion endpoint).</li>
  *   <li>Otherwise - timeout, crash, no {@code RESULT_JSON}, or a failed
- *       submission - a posture job writes an {@code ERROR} assessment row
- *       (a failed attempt is still evidence) and the job is failed, which
- *       retries with backoff while attempts remain.</li>
+ *       submission - a failure row is written (an {@code ERROR} assessment
+ *       for {@code POSTURE_CHECK}, a {@code succeeded=false} hardware-health
+ *       row for {@code HARDWARE_CHECK} - a failed attempt is still evidence)
+ *       and the job is failed, which retries with backoff while attempts
+ *       remain.</li>
  * </ol>
  *
- * <p>Because a posture job can be attempted several times, one job may leave
- * several {@code ERROR} assessments before it finally succeeds or gives up.</p>
+ * <p>Because a job can be attempted several times, one job may leave
+ * several failure rows before it finally succeeds or gives up.</p>
  *
  * <p>Known gap: if the whole backend dies while a job is {@code RUNNING},
  * that job stays {@code RUNNING} after restart. A recovery sweep for stale
@@ -64,17 +68,20 @@ public class JobWorker {
 
     private final JobService jobService;
     private final AssessmentService assessmentService;
+    private final HardwareHealthService hardwareHealthService;
     private final PostureAgentProperties postureProps;
     private final HardwareAgentProperties hardwareProps;
     private final ObjectMapper objectMapper;
 
     public JobWorker(JobService jobService,
                      AssessmentService assessmentService,
+                     HardwareHealthService hardwareHealthService,
                      PostureAgentProperties postureProps,
                      HardwareAgentProperties hardwareProps,
                      ObjectMapper objectMapper) {
         this.jobService = jobService;
         this.assessmentService = assessmentService;
+        this.hardwareHealthService = hardwareHealthService;
         this.postureProps = postureProps;
         this.hardwareProps = hardwareProps;
         this.objectMapper = objectMapper;
@@ -139,18 +146,21 @@ public class JobWorker {
         }
 
         // submitted=true means the ingestion endpoint already wrote the real
-        // assessment over HTTP - nothing more to persist here.
+        // row over HTTP - nothing more to persist here.
         jobService.markComplete(job.getId());
     }
 
     /**
-     * Records a failed attempt. Posture jobs also get an {@code ERROR}
-     * assessment row so the attempt leaves permanent evidence; the job
-     * itself is failed (retry with backoff, or {@code FAILED} when out of attempts).
+     * Records a failed attempt so it leaves permanent evidence, then fails
+     * the job itself (retry with backoff, or {@code FAILED} when out of
+     * attempts). Which evidence table gets the row depends on the job type:
+     * an {@code ERROR} assessment for {@code POSTURE_CHECK}, a
+     * {@code succeeded=false} hardware-health row for {@code HARDWARE_CHECK}.
      */
     private void fail(PostureJob job, Endpoint endpoint, String reason) {
-        if (job.getJobType() == JobType.POSTURE_CHECK) {
-            assessmentService.recordFailure(endpoint.getId(), job.getId(), reason);
+        switch (job.getJobType()) {
+            case POSTURE_CHECK -> assessmentService.recordFailure(endpoint.getId(), job.getId(), reason);
+            case HARDWARE_CHECK -> hardwareHealthService.recordFailure(endpoint.getId(), job.getId(), reason);
         }
         jobService.markFailed(job.getId(), reason);
     }
@@ -172,7 +182,7 @@ public class JobWorker {
         return runProcess(command, postureProps.getProcessTimeoutSeconds(), env);
     }
 
-    /** Builds and runs the hardware-health agent command. */
+    /** Builds and runs the hardware-health agent command. The API key travels in the environment, not the command line. */
     private RunResult runHardwareAgent(PostureJob job, Endpoint endpoint) throws IOException, InterruptedException {
         List<String> command = List.of(
                 "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
@@ -183,7 +193,10 @@ public class JobWorker {
                 "-CimOperationTimeoutSec", String.valueOf(hardwareProps.getCimTimeoutSeconds()),
                 "-SubmitTimeoutSec", String.valueOf(hardwareProps.getSubmitTimeoutSeconds())
         );
-        return runProcess(command, hardwareProps.getProcessTimeoutSeconds(), Map.of());
+        Map<String, String> env = isBlank(postureProps.getApiKey())
+                ? Map.of()
+                : Map.of(API_KEY_ENV_VAR, postureProps.getApiKey());
+        return runProcess(command, hardwareProps.getProcessTimeoutSeconds(), env);
     }
 
     /**

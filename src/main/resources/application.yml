@@ -29,6 +29,8 @@ server:
 logging:
   level:
     org.springframework.security: INFO
+    com.endpointposture.security: INFO
+    
 
 app:
   jwt:
@@ -47,7 +49,7 @@ app:
   posture:
     script-path: scripts/posture_agent.ps1
     server-url: http://localhost:8090/api/v1/posture
-    api-key: ${POSTURE_API_KEY:dev-only-agent-key-change-me}   # shared secret the agent sends; change before anything real
+    api-key: ${POSTURE_API_KEY:dev-local-key-123}   # shared secret the agent sends; change before anything real
     cim-timeout-seconds: 30
     server-timeout-seconds: 15
     process-timeout-seconds: 60   # outer kill switch; raise it (e.g. 120) when testing against slow remote endpoints
@@ -59,3 +61,4 @@ app:
     cim-timeout-seconds: 30
     submit-timeout-seconds: 20
     process-timeout-seconds: 70
+  
