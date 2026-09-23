@@ -30,7 +30,6 @@ logging:
   level:
     org.springframework.security: INFO
     com.endpointposture.security: INFO
-    
 
 app:
   jwt:
@@ -43,6 +42,15 @@ app:
 
   jobs:
     poll-interval-ms: 3000   # how often JobWorker looks for the next queued job
+
+  ise:
+    base-url: ${ISE_BASE_URL:https://10.6.1.90}
+    username: ${ISE_USERNAME:Dev}
+    password: ${ISE_PASSWORD:Login@123}
+    verify-tls: false
+    session-poll-interval-ms: 15000
+    enforcement-mode: ATTRIBUTE
+    anc-policy-name: Quarantine
 
   # Posture agent (scripts/posture_agent.ps1). Relative paths resolve against
   # the folder you start the app from (the repo root for mvn spring-boot:run).
@@ -61,4 +69,3 @@ app:
     cim-timeout-seconds: 30
     submit-timeout-seconds: 20
     process-timeout-seconds: 70
-  

@@ -148,4 +148,26 @@ public class JobService {
     public List<PostureJob> listForEndpoint(UUID endpointId) {
         return jobRepository.findByEndpoint_IdOrderByCreatedAtDesc(endpointId);
     }
+        /**
+     * Enqueues a POSTURE_CHECK job for this endpoint only if it isn't
+     * already due — prevents IseSessionWatcher flooding the queue with a
+     * job every poll tick (15s) for the same endpoint. "Due" means: no
+     * QUEUED or RUNNING job already exists for it, and its last completed
+     * job (if any) finished more than the recheck interval ago.
+     *
+     * @param endpointId the endpoint to check
+     * @param type       job type to enqueue
+     */
+    @Transactional
+    public void enqueueIfDue(UUID endpointId, JobType type) {
+        boolean alreadyPending = jobRepository
+                .findByEndpoint_IdOrderByCreatedAtDesc(endpointId)
+                .stream()
+                .anyMatch(j -> j.getJobType() == type
+                        && (j.getStatus() == JobStatus.QUEUED || j.getStatus() == JobStatus.RUNNING));
+
+        if (!alreadyPending) {
+            enqueue(endpointId, type, 0);
+        }
+    }
 }

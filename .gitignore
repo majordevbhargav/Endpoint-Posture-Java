@@ -19,3 +19,7 @@ target/
 
 # Encrypted agent credential (DPAPI, tied to one Windows account) - keep out of git
 scripts/posture_common_cred.xml
+
+#Crash Dumps
+hs_err_pid*.log
+replay_pid*.log

@@ -1,6 +1,9 @@
 package com.endpointposture.endpoint;
 
 import com.endpointposture.endpoint.dto.EndpointResponse;
+import com.endpointposture.session.EndpointSessionLog;
+import com.endpointposture.session.EndpointSessionLogRepository;
+import com.endpointposture.session.SessionEventType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,7 +14,7 @@ import java.util.UUID;
 
 /**
  * Business logic for endpoints: reads for the API, plus the write paths
- * used by collectors (posture ingestion, the future ISE session watcher).
+ * used by collectors (posture ingestion, the ISE session watcher).
  *
  * <p>All MAC addresses pass through {@link #normalizeMac(String)} first, so
  * {@code aa-bb-cc-dd-ee-ff} (how Windows prints it) and
@@ -22,9 +25,11 @@ import java.util.UUID;
 public class EndpointService {
 
     private final EndpointRepository repository;
+    private final EndpointSessionLogRepository sessionLogRepository;
 
-    public EndpointService(EndpointRepository repository) {
+    public EndpointService(EndpointRepository repository, EndpointSessionLogRepository sessionLogRepository) {
         this.repository = repository;
+        this.sessionLogRepository = sessionLogRepository;
     }
 
     /**
@@ -116,6 +121,14 @@ public class EndpointService {
         endpoint.setLastSeenAt(Instant.now());
 
         repository.save(endpoint);
+
+        if (!wasConnected) {
+            sessionLogRepository.save(EndpointSessionLog.builder()
+                    .endpointId(endpoint.getId())
+                    .eventType(SessionEventType.CONNECTED)
+                    .ipAddress(ip)
+                    .build());
+        }
     }
 
     /**
@@ -128,6 +141,11 @@ public class EndpointService {
             endpoint.setConnected(false);
             endpoint.setLastDisconnectedAt(Instant.now());
             repository.save(endpoint);
+
+            sessionLogRepository.save(EndpointSessionLog.builder()
+                    .endpointId(endpoint.getId())
+                    .eventType(SessionEventType.DISCONNECTED)
+                    .build());
         });
     }
 
