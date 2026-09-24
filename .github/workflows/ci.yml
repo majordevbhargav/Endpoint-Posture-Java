@@ -6,9 +6,12 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# ─── Backend build + test ────────────────────────────────────────────────────
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  backend:
+    name: Backend — Maven build & test
+    # Pin to 24.04 so the Oct-2026 ubuntu-latest→26 migration doesn't surprise us.
+    runs-on: ubuntu-24.04
 
     services:
       postgres:
@@ -36,8 +39,40 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build and test
+      - name: Build and test (backend/)
+        # pom.xml lives in backend/ — must cd there before running Maven.
+        # application.properties reads DB_USERNAME / DB_PASSWORD via ${…} placeholders.
+        # SPRING_DATASOURCE_URL overrides the localhost:5434 JDBC URL explicitly so
+        # the test context connects to the service container on the correct mapped port.
+        working-directory: backend
         env:
           DB_USERNAME: ep_app
           DB_PASSWORD: ci_test_password
-        run: mvn -B clean verify
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5434/endpoint_posture
+          # Provide a stable JWT secret so security auto-config doesn't error in tests.
+          JWT_SECRET: ci-test-jwt-secret-at-least-256-bits-long-placeholder-value
+        run: mvn -B clean verify -Duser.timezone=UTC
+
+# ─── Frontend type-check ─────────────────────────────────────────────────────
+  frontend:
+    name: Frontend — TypeScript type-check
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript type-check
+        working-directory: frontend
+        run: npx tsc --noEmit --skipLibCheck
