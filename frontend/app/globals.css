@@ -1,6 +1,8 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 
 /* Dark: warm graphite + vibrant teal. Light: crisp warm paper + deep teal. */
 :root {

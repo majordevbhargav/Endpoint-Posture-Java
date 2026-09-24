@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-// @ts-expect-error Next.js processes this stylesheet import at build time.
+
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,7 +8,11 @@ export const metadata: Metadata = {
   description: "Endpoint posture and compliance visibility",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>

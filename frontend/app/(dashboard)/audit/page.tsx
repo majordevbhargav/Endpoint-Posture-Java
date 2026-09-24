@@ -10,12 +10,96 @@ import {
   Search,
   RefreshCw,
   CheckCircle2,
-  XCircle,
   ExternalLink,
   User,
 } from "lucide-react";
 import { api, IseActionAudit } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Column, DataTable } from "@/components/ui/DataTable";
+
+const columns: Column<IseActionAudit>[] = [
+  {
+    key: "actionType",
+    header: "Action Type",
+    className: "font-semibold text-ink",
+    render: (r) => (
+      <span className="flex items-center gap-1.5">
+        {r.actionType === "SHARE_POSTURE" && <ShieldCheck size={14} className="text-accent" />}
+        {r.actionType === "RESTRICT" && <ShieldX size={14} className="text-bad" />}
+        {r.actionType === "CLEAR_RESTRICTION" && <ShieldAlert size={14} className="text-good" />}
+        <span>{r.actionType}</span>
+      </span>
+    ),
+    csv: (r) => r.actionType,
+  },
+  {
+    key: "outcome",
+    header: "Outcome",
+    render: (r) => <StatusBadge value={r.succeeded ? "COMPLIANT" : "ERROR"} />,
+    csv: (r) => (r.succeeded ? "SUCCESS" : "FAILED"),
+  },
+  {
+    key: "operator",
+    header: "Operator",
+    className: "text-ink",
+    render: (r) => (
+      <span className="flex items-center gap-1.5">
+        <User size={12} className="text-muted" />
+        <span>{r.operator || "System"}</span>
+      </span>
+    ),
+    csv: (r) => r.operator || "System",
+  },
+  {
+    key: "endpointId",
+    header: "Target Endpoint",
+    className: "font-mono text-muted",
+    render: (r) => (
+      <Link href={`/endpoints/${r.endpointId}`} className="text-accent hover:underline" title={r.endpointId}>
+        {r.endpointId ? r.endpointId.substring(0, 8) + "…" : "—"}
+      </Link>
+    ),
+    // CSV carries the full UUID so rows can be joined back to the database.
+    csv: (r) => r.endpointId,
+  },
+  {
+    key: "detail",
+    header: "Execution Detail",
+    className: "max-w-sm truncate text-muted",
+    render: (r) => <span title={r.detail ?? ""}>{r.detail}</span>,
+    csv: (r) => r.detail,
+  },
+  {
+    key: "occurredAt",
+    header: "Timestamp",
+    className: "text-muted",
+    render: (r) =>
+      new Date(r.occurredAt).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+    csv: (r) => r.occurredAt,
+  },
+  {
+    key: "inspect",
+    header: "Inspect",
+    headerClassName: "text-right",
+    className: "text-right",
+    exportable: false,
+    render: (r) => (
+      <Link
+        href={`/endpoints/${r.endpointId}`}
+        className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+      >
+        <span>Device</span>
+        <ExternalLink size={10} />
+      </Link>
+    ),
+  },
+];
 
 export default function AuditPage() {
   const [rows, setRows] = useState<IseActionAudit[] | null>(null);
@@ -45,14 +129,13 @@ export default function AuditPage() {
     const total = list.length;
     const shareCount = list.filter((r) => r.actionType === "SHARE_POSTURE").length;
     const restrictCount = list.filter((r) => r.actionType === "RESTRICT").length;
-    const clearCount = list.filter((r) => r.actionType === "CLEAR_RESTRICTION").length;
     const successCount = list.filter((r) => r.succeeded).length;
     const successRate = total === 0 ? 100 : Math.round((successCount / total) * 100);
-    return { total, shareCount, restrictCount, clearCount, successRate };
+    return { total, shareCount, restrictCount, successRate };
   }, [rows]);
 
   const shown = useMemo(() => {
-    if (!rows) return [];
+    if (!rows) return null;
     return rows.filter((r) => {
       if (actionFilter !== "ALL" && r.actionType !== actionFilter) return false;
       if (resultFilter === "SUCCESS" && !r.succeeded) return false;
@@ -60,11 +143,12 @@ export default function AuditPage() {
 
       if (q.trim()) {
         const query = q.toLowerCase();
-        const matchesAction = r.actionType.toLowerCase().includes(query);
-        const matchesOp = r.operator?.toLowerCase().includes(query);
-        const matchesDetail = r.detail?.toLowerCase().includes(query);
-        const matchesEp = r.endpointId?.toLowerCase().includes(query);
-        if (!matchesAction && !matchesOp && !matchesDetail && !matchesEp) return false;
+        const matches =
+          r.actionType.toLowerCase().includes(query) ||
+          r.operator?.toLowerCase().includes(query) ||
+          r.detail?.toLowerCase().includes(query) ||
+          r.endpointId?.toLowerCase().includes(query);
+        if (!matches) return false;
       }
       return true;
     });
@@ -85,7 +169,7 @@ export default function AuditPage() {
           <button
             onClick={loadData}
             disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink hover:border-accent/40 disabled:opacity-50 transition"
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent/40 disabled:opacity-50"
           >
             <RefreshCw size={13} className={loading ? "animate-spin text-accent" : "text-muted"} />
             <span>Refresh</span>
@@ -134,14 +218,14 @@ export default function AuditPage() {
 
       {/* Filter and Search Bar */}
       <div className="panel flex flex-col justify-between gap-3 p-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative max-w-md flex-1">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="text"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search by action, operator, or details…"
-            className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink placeholder:text-muted outline-none focus:border-accent"
+            className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink outline-none placeholder:text-muted focus:border-accent"
           />
         </div>
 
@@ -169,94 +253,17 @@ export default function AuditPage() {
         </div>
       </div>
 
-      {/* Audit Table */}
-      <div className="panel overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-            <thead>
-              <tr className="border-b border-border bg-panel2/40 text-[11px] font-semibold text-muted">
-                <th className="py-3 px-4">Action Type</th>
-                <th className="py-3 px-4">Outcome</th>
-                <th className="py-3 px-4">Operator</th>
-                <th className="py-3 px-4">Target Endpoint</th>
-                <th className="py-3 px-4">Execution Detail</th>
-                <th className="py-3 px-4">Timestamp</th>
-                <th className="py-3 px-4 text-right">Inspect</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {rows === null && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-muted">
-                    Loading ISE audit log…
-                  </td>
-                </tr>
-              )}
-              {rows !== null && shown.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-muted">
-                    No matching audit records found. Actions appear here unconditionally as Share Posture or Restrict commands are executed.
-                  </td>
-                </tr>
-              )}
-              {shown.map((r) => (
-                <tr key={r.id} className="transition hover:bg-ink/[0.02]">
-                  <td className="py-3 px-4 font-semibold text-ink">
-                    <span className="flex items-center gap-1.5">
-                      {r.actionType === "SHARE_POSTURE" && <ShieldCheck size={14} className="text-accent" />}
-                      {r.actionType === "RESTRICT" && <ShieldX size={14} className="text-bad" />}
-                      {r.actionType === "CLEAR_RESTRICTION" && <ShieldAlert size={14} className="text-good" />}
-                      <span>{r.actionType}</span>
-                    </span>
-                  </td>
-
-                  <td className="py-3 px-4">
-                    <StatusBadge value={r.succeeded ? "COMPLIANT" : "ERROR"} />
-                  </td>
-
-                  <td className="py-3 px-4 text-ink flex items-center gap-1.5">
-                    <User size={12} className="text-muted" />
-                    <span>{r.operator || "System"}</span>
-                  </td>
-
-                  <td className="py-3 px-4 font-mono text-muted">
-                    <Link
-                      href={`/endpoints/${r.endpointId}`}
-                      className="text-accent hover:underline"
-                    >
-                      {r.endpointId ? r.endpointId.substring(0, 8) + "…" : "—"}
-                    </Link>
-                  </td>
-
-                  <td className="py-3 px-4 max-w-sm truncate text-muted">
-                    {r.detail}
-                  </td>
-
-                  <td className="py-3 px-4 text-muted">
-                    {new Date(r.occurredAt).toLocaleString([], {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                    })}
-                  </td>
-
-                  <td className="py-3 px-4 text-right">
-                    <Link
-                      href={`/endpoints/${r.endpointId}`}
-                      className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
-                    >
-                      <span>Device</span>
-                      <ExternalLink size={10} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Audit Table (paginated + CSV) */}
+      <DataTable<IseActionAudit>
+        rows={shown}
+        columns={columns}
+        rowKey={(r) => r.id}
+        csvFilename="ise-action-audit"
+        loadingMessage="Loading ISE audit log…"
+        emptyMessage="No matching audit records found. Actions appear here unconditionally as Share Posture or Restrict commands are executed."
+        minWidth={860}
+        toolbarLeft={shown ? `${shown.length} matching record${shown.length === 1 ? "" : "s"}` : undefined}
+      />
     </div>
   );
 }

@@ -12,6 +12,9 @@ import {
 } from "@/lib/api";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { ExportCsvButton, PaginationBar } from "@/components/ui/PaginationBar";
+import { usePagination } from "@/lib/usePagination";
+import { datedFilename, downloadCsv } from "@/lib/csv";
 
 interface EndpointWithDetails extends EndpointResponse {
   postureStatus?: AssessmentStatus;
@@ -31,7 +34,7 @@ function timeSince(dateStr: string): string {
 }
 
 function ScoreBar({ value }: { value: number | null | undefined }) {
-  if (value == null) return <span className="text-muted text-[11px]">—</span>;
+  if (value == null) return <span className="text-[11px] text-muted">—</span>;
   const color = value >= 80 ? "bg-good" : value >= 60 ? "bg-warn" : "bg-bad";
   const textColor = value >= 80 ? "text-good" : value >= 60 ? "text-warn" : "text-bad";
   return (
@@ -56,7 +59,7 @@ function ExpandedPanel({ ep }: { ep: EndpointWithDetails }) {
           <div className="grid grid-cols-2 gap-2 text-[11px]">
             <div className="rounded-lg bg-base/70 p-2.5">
               <div className="text-muted">MAC Address</div>
-              <div className="mt-0.5 font-mono font-semibold text-ink break-all">{ep.macAddress}</div>
+              <div className="mt-0.5 break-all font-mono font-semibold text-ink">{ep.macAddress}</div>
             </div>
             <div className="rounded-lg bg-base/70 p-2.5">
               <div className="text-muted">IP Address</div>
@@ -64,20 +67,20 @@ function ExpandedPanel({ ep }: { ep: EndpointWithDetails }) {
             </div>
             <div className="rounded-lg bg-base/70 p-2.5">
               <div className="text-muted">Operating System</div>
-              <div className="mt-0.5 font-semibold text-ink truncate">{ep.osName || "Windows"}</div>
+              <div className="mt-0.5 truncate font-semibold text-ink">{ep.osName || "Windows"}</div>
             </div>
             <div className="rounded-lg bg-base/70 p-2.5">
               <div className="text-muted">OS Version</div>
-              <div className="mt-0.5 font-mono text-ink truncate text-[10px]">{ep.osVersion || "—"}</div>
+              <div className="mt-0.5 truncate font-mono text-[10px] text-ink">{ep.osVersion || "—"}</div>
             </div>
             <div className="col-span-2 rounded-lg bg-base/70 p-2.5">
-              <div className="text-muted mb-1">ISE Session Status</div>
+              <div className="mb-1 text-muted">ISE Session Status</div>
               {ep.connected ? (
-                <span className="inline-flex items-center gap-1.5 text-good font-semibold">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-good">
                   <Wifi size={12} /> Connected — Active ISE session
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1.5 text-muted font-medium">
+                <span className="inline-flex items-center gap-1.5 font-medium text-muted">
                   <WifiOff size={12} /> Offline — Last seen {timeSince(ep.lastSeenAt)}
                 </span>
               )}
@@ -120,7 +123,7 @@ function ExpandedPanel({ ep }: { ep: EndpointWithDetails }) {
                 </div>
               ))}
               {posture.detail && (
-                <div className="rounded-lg bg-base/70 p-2.5 text-[10px] font-mono text-muted break-words">
+                <div className="break-words rounded-lg bg-base/70 p-2.5 font-mono text-[10px] text-muted">
                   {posture.detail}
                 </div>
               )}
@@ -199,7 +202,7 @@ function ExpandedPanel({ ep }: { ep: EndpointWithDetails }) {
         </div>
         <Link
           href={`/endpoints/${ep.id}`}
-          className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/20 transition"
+          className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20"
         >
           <span>Open Full 360° View</span>
           <ExternalLink size={11} />
@@ -315,6 +318,31 @@ export default function EndpointsPage() {
     });
   }, [endpoints, connFilter, statusFilter, search]);
 
+  // Pagination slices the filtered list; the accordion below renders only the current page.
+  const pager = usePagination(filtered, 25);
+  const { resetPage } = pager;
+
+  // A new search/filter should start from page 1.
+  useEffect(() => { resetPage(); }, [search, connFilter, statusFilter, resetPage]);
+
+  function exportCsv() {
+    // Exports EVERY row matching the active filters (all pages), not just the visible page.
+    downloadCsv(
+      datedFilename("endpoints"),
+      ["Hostname", "MAC Address", "IP Address", "Operating System", "OS Version", "ISE Connected", "Posture Status", "Last Seen (UTC)"],
+      filtered.map((ep) => [
+        ep.hostname,
+        ep.macAddress,
+        ep.ipAddress,
+        ep.osName,
+        ep.osVersion,
+        ep.connected ? "Yes" : "No",
+        ep.postureStatus ?? "UNASSESSED",
+        ep.lastSeenAt,
+      ])
+    );
+  }
+
   const offlineCount = endpoints?.filter((e) => !e.connected).length ?? 0;
 
   return (
@@ -328,14 +356,17 @@ export default function EndpointsPage() {
             Disconnected devices retain their last-known posture and hardware data.
           </p>
         </div>
-        <button
-          onClick={loadEndpoints}
-          disabled={loading}
-          className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink hover:border-accent/40 disabled:opacity-50 transition"
-        >
-          <RefreshCw size={13} className={loading ? "animate-spin text-accent" : "text-muted"} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2.5">
+          <ExportCsvButton onClick={exportCsv} disabled={filtered.length === 0} />
+          <button
+            onClick={loadEndpoints}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent/40 disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={loading ? "animate-spin text-accent" : "text-muted"} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {actionMsg && (
@@ -363,14 +394,14 @@ export default function EndpointsPage() {
 
       {/* Filters */}
       <div className="panel flex flex-col justify-between gap-3 p-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative max-w-md flex-1">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by MAC, IP, hostname, or OS…"
-            className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink placeholder:text-muted outline-none focus:border-accent" />
+            className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink outline-none placeholder:text-muted focus:border-accent" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select value={connFilter} onChange={(e) => setConnFilter(e.target.value as any)}
+          <select value={connFilter} onChange={(e) => setConnFilter(e.target.value as "ALL" | "CONNECTED" | "DISCONNECTED")}
             className="rounded-lg border border-border bg-panel px-2.5 py-1.5 text-xs text-ink outline-none focus:border-accent">
             <option value="ALL">All Connections</option>
             <option value="CONNECTED">Connected on ISE</option>
@@ -390,7 +421,7 @@ export default function EndpointsPage() {
       {/* Accordion Table */}
       <div className="panel overflow-hidden">
         {/* Header row */}
-        <div className="border-b border-border bg-panel2/40 px-4 py-3 hidden lg:grid lg:grid-cols-[2fr_1.4fr_1fr_1fr_0.7fr_0.8fr_0.8fr_auto] gap-3 text-[11px] font-semibold text-muted">
+        <div className="hidden gap-3 border-b border-border bg-panel2/40 px-4 py-3 text-[11px] font-semibold text-muted lg:grid lg:grid-cols-[2fr_1.4fr_1fr_1fr_0.7fr_0.8fr_0.8fr_auto]">
           <span>Device / Hostname</span>
           <span>MAC Address</span>
           <span>IP Address</span>
@@ -409,7 +440,7 @@ export default function EndpointsPage() {
             <div className="py-12 text-center text-xs text-muted">No endpoints match the specified criteria.</div>
           )}
 
-          {filtered.map((ep) => {
+          {pager.pageItems.map((ep) => {
             const isExpanded = expandedId === ep.id;
             const isLoadingThis = loadingDetail === ep.id;
             return (
@@ -417,13 +448,13 @@ export default function EndpointsPage() {
                 <div
                   onClick={() => toggleExpand(ep)}
                   className={[
-                    "grid lg:grid-cols-[2fr_1.4fr_1fr_1fr_0.7fr_0.8fr_0.8fr_auto] gap-3 items-center px-4 py-3 text-xs cursor-pointer transition hover:bg-ink/[0.02]",
-                    isExpanded ? "bg-accent/[0.03] border-l-2 border-l-accent" : "",
+                    "grid cursor-pointer items-center gap-3 px-4 py-3 text-xs transition hover:bg-ink/[0.02] lg:grid-cols-[2fr_1.4fr_1fr_1fr_0.7fr_0.8fr_0.8fr_auto]",
+                    isExpanded ? "border-l-2 border-l-accent bg-accent/[0.03]" : "",
                     !ep.connected ? "opacity-75" : "",
                   ].join(" ")}
                 >
                   {/* Device */}
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
                     <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${ep.connected ? "bg-accent/15 text-accent" : "bg-muted/10 text-muted"}`}>
                       <Monitor size={13} />
                     </div>
@@ -434,7 +465,7 @@ export default function EndpointsPage() {
                   </div>
 
                   {/* MAC */}
-                  <div className="flex items-center gap-1 font-mono text-[11px] text-ink min-w-0">
+                  <div className="flex min-w-0 items-center gap-1 font-mono text-[11px] text-ink">
                     <span className="truncate">{ep.macAddress}</span>
                     <button onClick={(e) => { e.stopPropagation(); copyText(ep.macAddress, `mac-${ep.id}`); }}
                       className="flex-shrink-0 text-muted hover:text-ink" title="Copy">
@@ -453,7 +484,7 @@ export default function EndpointsPage() {
 
                   {/* Posture */}
                   <div onClick={(e) => e.stopPropagation()}>
-                    {ep.postureStatus ? <StatusBadge value={ep.postureStatus} /> : <span className="text-muted text-[11px]">—</span>}
+                    {ep.postureStatus ? <StatusBadge value={ep.postureStatus} /> : <span className="text-[11px] text-muted">—</span>}
                   </div>
 
                   {/* Last Seen */}
@@ -464,11 +495,11 @@ export default function EndpointsPage() {
                   {/* Actions */}
                   <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <button onClick={() => triggerJob(ep.id, "POSTURE_CHECK")} title="Posture Check"
-                      className="rounded border border-border bg-panel p-1.5 text-muted hover:border-accent/40 hover:text-accent transition">
+                      className="rounded border border-border bg-panel p-1.5 text-muted transition hover:border-accent/40 hover:text-accent">
                       <Play size={11} />
                     </button>
                     <button onClick={() => triggerJob(ep.id, "HARDWARE_CHECK")} title="Hardware Check"
-                      className="rounded border border-border bg-panel p-1.5 text-muted hover:border-accent/40 hover:text-accent transition">
+                      className="rounded border border-border bg-panel p-1.5 text-muted transition hover:border-accent/40 hover:text-accent">
                       <Cpu size={11} />
                     </button>
                     <button onClick={() => toggleExpand(ep)} title={isExpanded ? "Collapse" : "Expand"}
@@ -482,7 +513,7 @@ export default function EndpointsPage() {
                 {isExpanded && (
                   isLoadingThis ? (
                     <div className="border-t border-border/60 bg-panel2/30 py-6 text-center text-xs text-muted">
-                      <RefreshCw size={13} className="inline animate-spin mr-2 text-accent" />
+                      <RefreshCw size={13} className="mr-2 inline animate-spin text-accent" />
                       Loading telemetry data…
                     </div>
                   ) : <ExpandedPanel ep={ep} />
@@ -491,12 +522,25 @@ export default function EndpointsPage() {
             );
           })}
         </div>
+
+        {endpoints !== null && (
+          <PaginationBar
+            page={pager.page}
+            pageCount={pager.pageCount}
+            pageSize={pager.pageSize}
+            total={pager.total}
+            from={pager.from}
+            to={pager.to}
+            setPage={pager.setPage}
+            setPageSize={pager.setPageSize}
+          />
+        )}
       </div>
 
       {/* Offline notice */}
       {offlineCount > 0 && (
         <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-panel2/40 p-4 text-xs text-muted">
-          <Info size={14} className="flex-shrink-0 text-accent mt-0.5" />
+          <Info size={14} className="mt-0.5 flex-shrink-0 text-accent" />
           <div>
             <span className="font-semibold text-ink">{offlineCount} device{offlineCount > 1 ? "s" : ""} currently offline.</span>{" "}
             These endpoints are not active on the Cisco ISE network right now, but their last-known posture assessments,

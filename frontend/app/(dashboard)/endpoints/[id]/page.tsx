@@ -1,27 +1,20 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, useCallback } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   Monitor,
   ShieldCheck,
-  ShieldAlert,
   ShieldX,
   Play,
   Cpu,
   RefreshCw,
   ArrowLeft,
   CheckCircle2,
-  AlertTriangle,
-  Flame,
-  Clock,
-  History,
   HardDrive,
   Battery,
   Server,
-  Activity,
-  Layers,
 } from "lucide-react";
 import {
   api,
@@ -33,10 +26,19 @@ import {
 } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+
+type ActionResult = { success: boolean; detail: string };
+
+interface ConfirmState {
+  title: string;
+  message: string;
+  danger: boolean;
+  action: () => Promise<ActionResult>;
+}
 
 export default function EndpointDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
 
   const [endpoint, setEndpoint] = useState<EndpointResponse | null>(null);
   const [posture, setPosture] = useState<AssessmentResponse | null>(null);
@@ -49,6 +51,7 @@ export default function EndpointDetailPage() {
   const [actionMsg, setActionMsg] = useState<{ text: string; success: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -80,24 +83,33 @@ export default function EndpointDetailPage() {
     loadAll();
   }, [loadAll]);
 
-  async function runAction(
-    fn: () => Promise<{ success: boolean; detail: string }>,
-    confirmMsg: string
+  /** Opens the confirm dialog. Nothing is sent to ISE until the operator confirms. */
+  function runAction(
+    fn: () => Promise<ActionResult>,
+    title: string,
+    message: string,
+    danger = false
   ) {
-    if (!confirm(confirmMsg)) return;
+    setConfirmState({ title, message, danger, action: fn });
+  }
+
+  async function executeConfirmedAction() {
+    if (!confirmState) return;
+    const { action } = confirmState;
+    setConfirmState(null);
     setBusy(true);
     setActionMsg(null);
     try {
-      const res = await fn();
+      const res = await action();
       setActionMsg({
         text: res.detail || (res.success ? "Operation completed successfully." : "Operation failed."),
         success: res.success,
       });
-      // Refresh audit logs
-      api.auditActions(id).then(setAudits).catch(() => {});
     } catch (e) {
       setActionMsg({ text: (e as Error).message, success: false });
     } finally {
+      // The backend writes an audit row for success AND failure, so always refresh the trail.
+      api.auditActions(id).then(setAudits).catch(() => {});
       setBusy(false);
     }
   }
@@ -153,7 +165,7 @@ export default function EndpointDetailPage() {
       <div>
         <Link
           href="/endpoints"
-          className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-ink transition"
+          className="inline-flex items-center gap-1.5 text-xs text-muted transition hover:text-ink"
         >
           <ArrowLeft size={13} />
           <span>Back to Endpoints</span>
@@ -178,21 +190,25 @@ export default function EndpointDetailPage() {
               </div>
 
               <div className="mt-1.5 flex flex-wrap items-center gap-3 font-mono text-xs text-muted">
-                <span>MAC: <span className="text-ink">{endpoint.macAddress}</span></span>
+                <span>
+                  MAC: <span className="text-ink">{endpoint.macAddress}</span>
+                </span>
                 <span>&bull;</span>
-                <span>IP: <span className="text-ink">{endpoint.ipAddress || "No IP Reported"}</span></span>
+                <span>
+                  IP: <span className="text-ink">{endpoint.ipAddress || "No IP Reported"}</span>
+                </span>
                 <span>&bull;</span>
                 <span className="font-sans text-muted">{endpoint.osName || "Windows"}</span>
               </div>
             </div>
           </div>
 
-          {/* Quick Enqueue & ISE Action Buttons */}
+          {/* Quick Enqueue */}
           <div className="flex flex-wrap items-center gap-2">
             <button
               disabled={busy}
               onClick={() => enqueueCheck("POSTURE_CHECK")}
-              className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/20 disabled:opacity-50 transition"
+              className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-50"
             >
               <Play size={12} />
               <span>Check Posture</span>
@@ -201,7 +217,7 @@ export default function EndpointDetailPage() {
             <button
               disabled={busy}
               onClick={() => enqueueCheck("HARDWARE_CHECK")}
-              className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-semibold text-ink hover:border-accent/40 hover:text-accent disabled:opacity-50 transition"
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-accent/40 hover:text-accent disabled:opacity-50"
             >
               <Cpu size={12} />
               <span>Check Hardware</span>
@@ -210,7 +226,7 @@ export default function EndpointDetailPage() {
             <button
               disabled={busy}
               onClick={loadAll}
-              className="rounded-lg border border-border bg-panel p-2 text-muted hover:text-ink disabled:opacity-50 transition"
+              className="rounded-lg border border-border bg-panel p-2 text-muted transition hover:text-ink disabled:opacity-50"
               title="Refresh telemetry"
             >
               <RefreshCw size={13} className={loading ? "animate-spin text-accent" : ""} />
@@ -236,10 +252,11 @@ export default function EndpointDetailPage() {
                 onClick={() =>
                   runAction(
                     () => api.sharePosture(id),
-                    "Transmit this endpoint's latest posture result to Cisco ISE via ERS API?"
+                    "Share Posture with ISE",
+                    "This transmits the endpoint's latest posture result to Cisco ISE via the ERS API. ISE's Authorization Policy will decide what to do with it."
                   )
                 }
-                className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50 transition"
+                className="flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20 disabled:opacity-50"
               >
                 <ShieldCheck size={13} />
                 <span>Share Posture to ISE</span>
@@ -250,10 +267,12 @@ export default function EndpointDetailPage() {
                 onClick={() =>
                   runAction(
                     () => api.restrict(id),
-                    "Enforce immediate network quarantine on this endpoint through Cisco ISE ANC?"
+                    "Restrict Endpoint",
+                    "This requests an immediate network quarantine through Cisco ISE ANC. The user's network access may be disrupted right away.",
+                    true
                   )
                 }
-                className="flex items-center gap-1.5 rounded-lg border border-bad/30 bg-bad/10 px-3 py-1.5 text-xs font-medium text-bad hover:bg-bad/20 disabled:opacity-50 transition"
+                className="flex items-center gap-1.5 rounded-lg border border-bad/30 bg-bad/10 px-3 py-1.5 text-xs font-medium text-bad transition hover:bg-bad/20 disabled:opacity-50"
               >
                 <ShieldX size={13} />
                 <span>Restrict (Quarantine)</span>
@@ -264,10 +283,11 @@ export default function EndpointDetailPage() {
                 onClick={() =>
                   runAction(
                     () => api.clearRestriction(id),
-                    "Clear quarantine restriction on Cisco ISE for this endpoint?"
+                    "Clear Restriction",
+                    "This clears any active quarantine restriction on Cisco ISE for this endpoint."
                   )
                 }
-                className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink hover:bg-ink/[0.04] disabled:opacity-50 transition"
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink transition hover:bg-ink/[0.04] disabled:opacity-50"
               >
                 <CheckCircle2 size={13} className="text-good" />
                 <span>Clear Restriction</span>
@@ -291,49 +311,26 @@ export default function EndpointDetailPage() {
 
       {/* Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-border text-xs font-medium">
-        <button
-          onClick={() => setActiveTab("posture")}
-          className={`border-b-2 px-3 py-2.5 transition ${
-            activeTab === "posture"
-              ? "border-accent text-accent font-semibold"
-              : "border-transparent text-muted hover:text-ink"
-          }`}
-        >
-          Security Posture
-        </button>
-
-        <button
-          onClick={() => setActiveTab("hardware")}
-          className={`border-b-2 px-3 py-2.5 transition ${
-            activeTab === "hardware"
-              ? "border-accent text-accent font-semibold"
-              : "border-transparent text-muted hover:text-ink"
-          }`}
-        >
-          Hardware Health
-        </button>
-
-        <button
-          onClick={() => setActiveTab("jobs")}
-          className={`border-b-2 px-3 py-2.5 transition ${
-            activeTab === "jobs"
-              ? "border-accent text-accent font-semibold"
-              : "border-transparent text-muted hover:text-ink"
-          }`}
-        >
-          Job Queue ({jobs.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab("audit")}
-          className={`border-b-2 px-3 py-2.5 transition ${
-            activeTab === "audit"
-              ? "border-accent text-accent font-semibold"
-              : "border-transparent text-muted hover:text-ink"
-          }`}
-        >
-          ISE Audit Log ({audits.length})
-        </button>
+        {(
+          [
+            ["posture", "Security Posture"],
+            ["hardware", "Hardware Health"],
+            ["jobs", `Job Queue (${jobs.length})`],
+            ["audit", `ISE Audit Log (${audits.length})`],
+          ] as const
+        ).map(([tab, label]) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`border-b-2 px-3 py-2.5 transition ${
+              activeTab === tab
+                ? "border-accent font-semibold text-accent"
+                : "border-transparent text-muted hover:text-ink"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Tab 1: Posture Assessment */}
@@ -346,7 +343,6 @@ export default function EndpointDetailPage() {
             </div>
           ) : (
             <>
-              {/* Latest Posture Result Card */}
               <div className="panel p-5">
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                   <div>
@@ -360,13 +356,12 @@ export default function EndpointDetailPage() {
                   </div>
 
                   {posture.detail && (
-                    <div className="rounded-lg bg-base px-3 py-1.5 text-xs text-muted font-mono">
+                    <div className="rounded-lg bg-base px-3 py-1.5 font-mono text-xs text-muted">
                       {posture.detail}
                     </div>
                   )}
                 </div>
 
-                {/* Individual Checks Grid */}
                 <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
                   {posture.checks.map((c) => {
                     const isFirewall = c.checkType === "FIREWALL";
@@ -399,9 +394,8 @@ export default function EndpointDetailPage() {
                           )}
                         </div>
 
-                        {/* Extra details for ports */}
                         {isPorts && c.details && (
-                          <div className="mt-3 space-y-1 border-t border-border/60 pt-2 text-[11px] font-mono">
+                          <div className="mt-3 space-y-1 border-t border-border/60 pt-2 font-mono text-[11px]">
                             {Array.isArray((c.details as any).openPorts) && (
                               <div className="text-good">
                                 Open: {(c.details as any).openPorts.join(", ") || "None"}
@@ -420,7 +414,6 @@ export default function EndpointDetailPage() {
                 </div>
               </div>
 
-              {/* Assessment History Timeline */}
               {postureHistory.length > 1 && (
                 <div className="panel p-5">
                   <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">
@@ -461,7 +454,6 @@ export default function EndpointDetailPage() {
             </div>
           ) : (
             <>
-              {/* Overall Score Banner */}
               <div className="panel p-5">
                 <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                   <div>
@@ -480,7 +472,6 @@ export default function EndpointDetailPage() {
                   </div>
                 </div>
 
-                {/* Score Cells */}
                 <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <ScoreCard label="CPU Health" value={hardware.cpuScore} icon={Cpu} />
                   <ScoreCard label="Memory Health" value={hardware.memoryScore} icon={Server} />
@@ -489,12 +480,11 @@ export default function EndpointDetailPage() {
                 </div>
               </div>
 
-              {/* Hardware Specifications */}
               <div className="panel p-5">
                 <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">
                   System Specifications
                 </div>
-                <div className="grid grid-cols-2 gap-4 text-xs sm:grid-cols-4 font-mono">
+                <div className="grid grid-cols-2 gap-4 font-mono text-xs sm:grid-cols-4">
                   <div className="rounded-lg bg-base p-3">
                     <div className="font-sans text-muted">Manufacturer</div>
                     <div className="mt-1 font-semibold text-ink">{hardware.manufacturer || "—"}</div>
@@ -514,7 +504,6 @@ export default function EndpointDetailPage() {
                 </div>
               </div>
 
-              {/* Recommendations */}
               {hardware.recommendations.length > 0 && (
                 <div className="panel p-5">
                   <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">
@@ -558,12 +547,12 @@ export default function EndpointDetailPage() {
             <table className="w-full border-collapse text-left text-xs">
               <thead>
                 <tr className="border-b border-border bg-panel2/40 text-[11px] font-semibold text-muted">
-                  <th className="py-2.5 px-4">Job Type</th>
-                  <th className="py-2.5 px-4">Status</th>
-                  <th className="py-2.5 px-4">Attempts</th>
-                  <th className="py-2.5 px-4">Error Message</th>
-                  <th className="py-2.5 px-4">Enqueued</th>
-                  <th className="py-2.5 px-4">Completed</th>
+                  <th className="px-4 py-2.5">Job Type</th>
+                  <th className="px-4 py-2.5">Status</th>
+                  <th className="px-4 py-2.5">Attempts</th>
+                  <th className="px-4 py-2.5">Error Message</th>
+                  <th className="px-4 py-2.5">Enqueued</th>
+                  <th className="px-4 py-2.5">Completed</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
@@ -576,12 +565,12 @@ export default function EndpointDetailPage() {
                 )}
                 {jobs.map((j) => (
                   <tr key={j.id} className="transition hover:bg-ink/[0.02]">
-                    <td className="py-2.5 px-4 font-semibold text-ink">{j.jobType}</td>
-                    <td className="py-2.5 px-4"><StatusBadge value={j.status} /></td>
-                    <td className="py-2.5 px-4 text-muted">{j.attemptCount} / {j.maxAttempts}</td>
-                    <td className="max-w-xs truncate py-2.5 px-4 text-bad">{j.errorMessage || "—"}</td>
-                    <td className="py-2.5 px-4 text-muted">{new Date(j.createdAt).toLocaleString()}</td>
-                    <td className="py-2.5 px-4 text-muted">
+                    <td className="px-4 py-2.5 font-semibold text-ink">{j.jobType}</td>
+                    <td className="px-4 py-2.5"><StatusBadge value={j.status} /></td>
+                    <td className="px-4 py-2.5 text-muted">{j.attemptCount} / {j.maxAttempts}</td>
+                    <td className="max-w-xs truncate px-4 py-2.5 text-bad">{j.errorMessage || "—"}</td>
+                    <td className="px-4 py-2.5 text-muted">{new Date(j.createdAt).toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-muted">
                       {j.completedAt ? new Date(j.completedAt).toLocaleString() : "—"}
                     </td>
                   </tr>
@@ -599,11 +588,11 @@ export default function EndpointDetailPage() {
             <table className="w-full border-collapse text-left text-xs">
               <thead>
                 <tr className="border-b border-border bg-panel2/40 text-[11px] font-semibold text-muted">
-                  <th className="py-2.5 px-4">Action Type</th>
-                  <th className="py-2.5 px-4">Result</th>
-                  <th className="py-2.5 px-4">Operator</th>
-                  <th className="py-2.5 px-4">Details</th>
-                  <th className="py-2.5 px-4">Timestamp</th>
+                  <th className="px-4 py-2.5">Action Type</th>
+                  <th className="px-4 py-2.5">Result</th>
+                  <th className="px-4 py-2.5">Operator</th>
+                  <th className="px-4 py-2.5">Details</th>
+                  <th className="px-4 py-2.5">Timestamp</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
@@ -616,13 +605,13 @@ export default function EndpointDetailPage() {
                 )}
                 {audits.map((a) => (
                   <tr key={a.id} className="transition hover:bg-ink/[0.02]">
-                    <td className="py-2.5 px-4 font-semibold text-ink">{a.actionType}</td>
-                    <td className="py-2.5 px-4">
+                    <td className="px-4 py-2.5 font-semibold text-ink">{a.actionType}</td>
+                    <td className="px-4 py-2.5">
                       <StatusBadge value={a.succeeded ? "COMPLIANT" : "ERROR"} />
                     </td>
-                    <td className="py-2.5 px-4 text-muted">{a.operator || "System"}</td>
-                    <td className="max-w-md truncate py-2.5 px-4 text-muted">{a.detail}</td>
-                    <td className="py-2.5 px-4 text-muted">{new Date(a.occurredAt).toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-muted">{a.operator || "System"}</td>
+                    <td className="max-w-md truncate px-4 py-2.5 text-muted">{a.detail}</td>
+                    <td className="px-4 py-2.5 text-muted">{new Date(a.occurredAt).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -630,6 +619,16 @@ export default function EndpointDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Confirm dialog for Share / Restrict / Clear */}
+      <ConfirmDialog
+        open={confirmState !== null}
+        title={confirmState?.title ?? ""}
+        message={confirmState?.message ?? ""}
+        danger={confirmState?.danger}
+        onConfirm={executeConfirmedAction}
+        onCancel={() => setConfirmState(null)}
+      />
     </div>
   );
 }
@@ -646,13 +645,7 @@ function ScoreCard({
   const isGood = value != null && value >= 80;
   const isWarn = value != null && value >= 60 && value < 80;
   const color =
-    value == null
-      ? "text-muted"
-      : isGood
-      ? "text-good"
-      : isWarn
-      ? "text-warn"
-      : "text-bad";
+    value == null ? "text-muted" : isGood ? "text-good" : isWarn ? "text-warn" : "text-bad";
 
   return (
     <div className="rounded-xl border border-border/80 bg-base/50 p-3.5">
