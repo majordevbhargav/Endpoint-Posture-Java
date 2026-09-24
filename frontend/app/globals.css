@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark: warm graphite + vibrant teal. Light: crisp warm paper + deep teal. */
+:root {
+  --color-base: 15 17 16;
+  --color-panel: 22 25 24;
+  --color-panel2: 18 21 20;
+  --color-border: 38 43 41;
+  --color-ink: 240 242 239;
+  --color-muted: 148 156 151;
+  --color-accent: 45 212 191;
+  --color-accent2: 94 234 212;
+  --color-warn: 245 158 11;
+  --color-medium: 234 179 8;
+  --color-bad: 248 113 113;
+  --color-good: 52 211 153;
+}
+
+.light {
+  --color-base: 246 245 241;
+  --color-panel: 255 255 255;
+  --color-panel2: 240 238 233;
+  --color-border: 226 222 214;
+  --color-ink: 24 28 26;
+  --color-muted: 104 112 108;
+  --color-accent: 13 148 136;
+  --color-accent2: 15 118 110;
+  --color-warn: 194 106 5;
+  --color-medium: 161 98 7;
+  --color-bad: 220 38 38;
+  --color-good: 16 185 129;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  @apply bg-base text-ink font-sans;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+::selection {
+  @apply bg-accent/25 text-ink;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-border/80 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted;
+}
+
+.panel {
+  @apply rounded-xl border border-border bg-panel shadow-sm transition-all duration-150;
+}
+
+.panel-hover {
+  @apply hover:border-accent/40 hover:shadow-md;
+}
+
+.glass-panel {
+  @apply rounded-xl border border-border/80 backdrop-blur-md;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.15); opacity: 0.4; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
