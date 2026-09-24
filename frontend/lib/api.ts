@@ -134,10 +134,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => null);
     throw new Error(body?.error ?? body?.message ?? `Request failed: ${res.status}`);
   }
-
-  if (res.status === 401) { clearToken(); window.location.href = "/login"; throw new Error("Session expired"); }
-
-  if (res.status === 204) return undefined as T;
   return res.json();
 }
 

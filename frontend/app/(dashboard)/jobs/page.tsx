@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { api, JobResponse, JobStatus, JobType, EndpointResponse } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { usePolling } from "@/lib/usePolling";
 
 export default function JobsPage() {
   const [jobs, setJobs] = useState<JobResponse[] | null>(null);
@@ -55,11 +56,7 @@ export default function JobsPage() {
     api.listEndpoints().then(setEndpoints).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const interval = setInterval(loadJobs, 4000);
-    return () => clearInterval(interval);
-  }, [autoRefresh]);
+usePolling(loadJobs, 20000);
 
   const stats = useMemo(() => {
     const list = jobs ?? [];

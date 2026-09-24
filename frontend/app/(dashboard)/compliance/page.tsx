@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePolling } from "@/lib/usePolling";
 import Link from "next/link";
 import {
   ShieldCheck,
@@ -51,11 +52,7 @@ export default function CompliancePage() {
     }
   };
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 20000);
-    return () => clearInterval(interval);
-  }, []);
+usePolling(loadData, 20000);
 
   const checkTypes = useMemo(() => {
     const defaultTypes = ["FIREWALL", "OPEN_PORTS", "APPLICATIONS"];

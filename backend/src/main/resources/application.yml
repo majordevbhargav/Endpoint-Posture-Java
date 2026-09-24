@@ -55,7 +55,7 @@ app:
   # Posture agent (scripts/posture_agent.ps1). Relative paths resolve against
   # the folder you start the app from (the repo root for mvn spring-boot:run).
   posture:
-    script-path: scripts/posture_agent.ps1
+    script-path: ../scripts/posture_agent.ps1
     server-url: http://localhost:8090/api/v1/posture
     api-key: ${POSTURE_API_KEY:dev-local-key-123}   # shared secret the agent sends; change before anything real
     cim-timeout-seconds: 30
@@ -64,7 +64,7 @@ app:
 
   # Hardware-health agent (scripts/hardware_health_agent.ps1).
   hardware:
-    script-path: scripts/hardware_health_agent.ps1
+    script-path: ../scripts/hardware_health_agent.ps1
     server-base-url: http://localhost:8090
     cim-timeout-seconds: 30
     submit-timeout-seconds: 20

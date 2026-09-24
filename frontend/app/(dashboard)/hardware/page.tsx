@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { api, EndpointResponse, HardwareHealthResponse, HardwareBand } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { usePolling } from "@/lib/usePolling";
 
 type Row = {
   e: EndpointResponse;
@@ -79,11 +80,7 @@ export default function HardwarePage() {
     }
   };
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 30000);
-    return () => clearInterval(interval);
-  }, []);
+usePolling(loadData, 20000);
 
   const stats = useMemo(() => {
     const list = rows ?? [];

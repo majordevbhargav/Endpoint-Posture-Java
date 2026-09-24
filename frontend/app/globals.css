@@ -16,6 +16,9 @@
   --color-medium: 234 179 8;
   --color-bad: 248 113 113;
   --color-good: 52 211 153;
+  --font-sans: "Segoe UI", Inter, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  /* ...existing --color-* vars stay as-is */
 }
 
 .light {
@@ -31,6 +34,9 @@
   --color-medium: 161 98 7;
   --color-bad: 220 38 38;
   --color-good: 16 185 129;
+}
+.panel {
+  @apply rounded-2xl border border-border bg-panel shadow-sm transition-all duration-150;
 }
 
 html, body {

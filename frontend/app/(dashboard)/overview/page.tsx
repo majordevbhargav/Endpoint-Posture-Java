@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePolling } from "@/lib/usePolling";
 import Link from "next/link";
 import {
   Monitor,
@@ -88,11 +89,7 @@ export default function OverviewPage() {
     }
   }
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 20000);
-    return () => clearInterval(interval);
-  }, []);
+usePolling(loadData, 20000);
 
   const stats = useMemo(() => {
     const list = rows ?? [];
@@ -228,7 +225,7 @@ export default function OverviewPage() {
       </div>
 
       {/* Main Posture Overview Section */}
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
         {/* Environment Posture Ring Gauge & Quick KPI Cards */}
         <div className="panel flex flex-col justify-between p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -240,7 +237,7 @@ export default function OverviewPage() {
 
           <div className="flex flex-col items-center gap-6 sm:flex-row">
             <RingGauge value={stats.score} />
-            <div className="grid w-full min-w-0 flex-1 grid-cols-2 gap-3">
+            <div className="grid w-full min-w-0 flex-1 grid-cols-2 gap-4">
               <StatCard icon={Monitor} label="Endpoints" value={stats.total} tone="accent" />
               <StatCard icon={ShieldCheck} label="Compliant" value={stats.healthy} tone="good" />
               <StatCard icon={AlertTriangle} label="At risk" value={stats.atRisk} tone="warn" />
@@ -257,7 +254,7 @@ export default function OverviewPage() {
 
         {/* Posture Breakdown & Needs Attention */}
         <div className="flex min-w-0 flex-col gap-5">
-          <div className="panel p-5">
+          <div className="panel p-6">
             <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">
               Posture Distribution
             </div>

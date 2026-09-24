@@ -69,7 +69,7 @@ function SystemStatus() {
   }, []);
 
   return (
-    <div className="space-y-1.5 p-3">
+    <div className="space-y-2 p-4">
       <div className="flex items-center justify-between text-[11px] text-muted">
         <span className="flex items-center gap-1.5">
           <Server size={12} className="text-muted" />
@@ -109,8 +109,11 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-screen w-64 flex-shrink-0 flex-col border-r border-border bg-panel2">
-      {/* Platform Header */}
-      <div className="flex items-center gap-3 border-b border-border px-4 py-4">
+      {/* Platform Header — click to go home */}
+      <Link
+        href="/overview"
+        className="flex items-center gap-3 border-b border-border px-5 py-5 transition hover:bg-ink/[0.03]"
+      >
         <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent shadow-sm">
           <ShieldCheck size={22} className="text-accent" />
           <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-panel2 bg-good" />
@@ -124,16 +127,16 @@ export function Sidebar() {
           </div>
           <div className="truncate text-[11px] text-muted">Endpoint Zero-Trust</div>
         </div>
-      </div>
+      </Link>
 
       {/* Navigation Sections */}
-      <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
+      <nav className="flex-1 space-y-6 overflow-y-auto px-4 py-5">
         {NAV_SECTIONS.map((sec) => (
           <div key={sec.title}>
-            <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted/70">
+            <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted/70">
               {sec.title}
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               {sec.items.map((item) => {
                 const active = pathname === item.href || (item.href !== "/overview" && pathname?.startsWith(item.href));
                 const Icon = item.icon;
@@ -141,7 +144,7 @@ export function Sidebar() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`group relative flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium transition ${
+                    className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition ${
                       active
                         ? "bg-accent/15 text-accent shadow-xs"
                         : "text-muted hover:bg-ink/[0.04] hover:text-ink"
