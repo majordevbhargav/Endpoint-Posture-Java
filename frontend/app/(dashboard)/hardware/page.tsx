@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Cpu,
@@ -51,6 +51,14 @@ function ScoreBar({ value }: { value: number | null | undefined }) {
   );
 }
 
+const shortTime = (iso: string) =>
+  new Date(iso).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 export default function HardwarePage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -81,13 +89,15 @@ export default function HardwarePage() {
 
   const stats = useMemo(() => {
     const list = rows ?? [];
-    const withReport = list.filter((r) => r.hw !== null);
+    // Only rows that carry scores count. The backend now returns the last successful run
+    // when the newest attempt failed, so a flaky device still contributes its last good scores.
+    const withReport = list.filter((r) => r.hw?.succeeded);
     const avgScore =
       withReport.length === 0
         ? 0
         : Math.round(
-            withReport.reduce((acc, r) => acc + (r.hw?.overallScore ?? 0), 0) / withReport.length
-          );
+          withReport.reduce((acc, r) => acc + (r.hw?.overallScore ?? 0), 0) / withReport.length
+        );
     const criticalCount = withReport.filter(
       (r) => r.hw?.overallBand === "CRITICAL" || r.hw?.overallBand === "DEGRADED"
     ).length;
@@ -121,9 +131,16 @@ export default function HardwarePage() {
   const filtered = useMemo(() => {
     if (!rows) return [];
     return rows.filter(({ e, hw }) => {
-      if (bandFilter !== "ALL") {
-        if (bandFilter === "NO_REPORT" && hw !== null) return false;
-        if (bandFilter !== "NO_REPORT" && hw?.overallBand !== bandFilter) return false;
+      if (bandFilter === "FAILED") {
+        // Never produced a successful run at all.
+        if (hw?.succeeded !== false) return false;
+      } else if (bandFilter === "LAST_FAILED") {
+        // Has good scores, but the newest attempt failed.
+        if (!hw?.succeeded || !hw.lastAttemptFailedAt) return false;
+      } else if (bandFilter === "NO_REPORT") {
+        if (hw !== null) return false;
+      } else if (bandFilter !== "ALL" && hw?.overallBand !== bandFilter) {
+        return false;
       }
 
       if (search.trim()) {
@@ -146,6 +163,7 @@ export default function HardwarePage() {
           <h1 className="text-xl font-bold tracking-tight text-ink">Hardware Health Telemetry</h1>
           <p className="mt-1 text-xs text-muted">
             Telemetry metrics for CPU utilization, memory pressure, storage life, and battery health.
+            If the newest check failed, the last successful scores are shown with a warning.
           </p>
         </div>
 
@@ -240,6 +258,8 @@ export default function HardwarePage() {
             <option value="WARNING">Warning</option>
             <option value="DEGRADED">Degraded</option>
             <option value="CRITICAL">Critical</option>
+            <option value="LAST_FAILED">Latest Attempt Failed</option>
+            <option value="FAILED">Never Collected (Failed)</option>
             <option value="NO_REPORT">No Report</option>
           </select>
         </div>
@@ -279,6 +299,7 @@ export default function HardwarePage() {
               )}
               {filtered.map(({ e, hw }) => {
                 const isExpanded = expandedId === e.id;
+                const lastFailed = hw?.succeeded && hw.lastAttemptFailedAt ? hw : null;
                 return (
                   <tr key={e.id} className="transition hover:bg-ink/[0.02]">
                     <td className="py-3 px-4 font-medium text-ink">
@@ -297,15 +318,28 @@ export default function HardwarePage() {
                     </td>
 
                     <td className="py-3 px-4">
-                      {hw ? (
+                      {!hw ? (
+                        <span className="text-muted text-[11px]">No Report</span>
+                      ) : !hw.succeeded ? (
+                        <span title={hw.errorMessage ?? "Collection failed"}>
+                          <StatusBadge value="FAILED" />
+                        </span>
+                      ) : (
                         <div className="flex items-center gap-1.5">
-                          <StatusBadge value={hw.overallBand} />
+                          {hw.overallBand && <StatusBadge value={hw.overallBand} />}
                           <span className="font-mono text-xs font-bold text-ink">
                             {hw.overallScore}
                           </span>
+                          {lastFailed && (
+                            <span
+                              className="rounded-full border border-warn/30 bg-warn/10 p-1 text-warn"
+                              title={`Latest check failed ${shortTime(lastFailed.lastAttemptFailedAt!)}: ${lastFailed.lastAttemptError ?? "Unknown error"
+                                }`}
+                            >
+                              <AlertTriangle size={10} />
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-muted text-[11px]">No Report</span>
                       )}
                     </td>
 
@@ -336,14 +370,12 @@ export default function HardwarePage() {
                     </td>
 
                     <td className="py-3 px-4 text-muted">
-                      {hw
-                        ? new Date(hw.collectedAt).toLocaleString([], {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        : "—"}
+                      {hw ? shortTime(hw.collectedAt) : "—"}
+                      {lastFailed && (
+                        <div className="text-[10px] text-warn">
+                          check failed {shortTime(lastFailed.lastAttemptFailedAt!)}
+                        </div>
+                      )}
                     </td>
 
                     <td className="py-3 px-4 text-right">
@@ -389,13 +421,12 @@ export default function HardwarePage() {
                         className="flex items-start gap-2 rounded-lg border border-border/80 bg-panel p-2.5 text-xs"
                       >
                         <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                            rec.priority === "HIGH"
-                              ? "bg-bad/15 text-bad"
-                              : rec.priority === "MEDIUM"
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${rec.priority === "HIGH"
+                            ? "bg-bad/15 text-bad"
+                            : rec.priority === "MEDIUM"
                               ? "bg-warn/15 text-warn"
                               : "bg-good/15 text-good"
-                          }`}
+                            }`}
                         >
                           {rec.priority}
                         </span>

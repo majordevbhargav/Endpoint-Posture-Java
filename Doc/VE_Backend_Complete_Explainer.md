@@ -543,3 +543,173 @@ To tie every package above together, here's the literal path of one real request
 11. `JobWorker`, which has been draining that stdout on its own thread the entire time, sees the process exit, parses that final `RESULT_JSON` line, sees `submitted: true`, and calls `jobService.markComplete(job.getId())` — the very last step, closing the loop the whole `job/` package exists to manage.
 
 Every package in this document is a link in that one chain — nothing here is incidental.
+# VE Compliance Engine — Backend Explainer: Addendum (New Features)
+### Same format as `VE_Backend_Complete_Explainer.md`: what it is, why it exists, how it works, what it does.
+
+**How to use this file:** append it after Part 14 of the main explainer (or merge Section A into the matching Parts). 
+- **Section A** = features that are already in the code but missing from the explainer.
+- **Section B** = corrections where the explainer no longer matches the code.
+- **Section C** = new features that follow the same line as the original Python project and are the next candidates to build, each explained in the same style.
+
+---
+
+# SECTION A — Features already built, not yet explained
+
+## Part 15 — `inventory/` — Raw Facts Kept Beside The Verdict
+
+**Why this package exists:** a posture assessment says "APPLICATIONS: COMPLIANT". That is a verdict. Auditors and operators also ask "which 95 apps, exactly?" and "which ports were listening?". The verdict lives in `check_result`; the underlying facts live here. Keeping them apart means a verdict table stays small and fast, while the bulky raw data has its own append-only table.
+
+### `EndpointInventory.java`
+**What it is:** the `@Entity` for `endpoint_inventory` (migration `V12`). One row = the raw inventory captured during one posture run.
+- `endpointId` (real FK, cascade delete) and `assessmentId` (FK, `ON DELETE SET NULL`). Same reasoning as `job_id` elsewhere: the facts should survive even if the parent assessment is later purged.
+- `listeningPorts`, `installedApps`, `topProcesses` are `List<Map<String,Object>>`; `resourceUsage` is a `Map`. All use `@JdbcTypeCode(SqlTypes.JSON)` + `columnDefinition = "jsonb"`, so Hibernate 6 round-trips them to native JSONB with no extra library.
+- `@PrePersist onCreate()` fills `collectedAt`.
+**Why JSONB and not four typed tables:** the design doc originally planned `endpoint_apps`, `endpoint_ports`, `endpoint_processes` tables. The built version deliberately chose one JSONB row per run: the agent's shape may still change, and no query yet needs to filter inside these lists in SQL. Promote a field to a real column only when a real query needs it.
+**Effect:** every posture run leaves one immutable inventory snapshot, so "what was installed on this machine last Tuesday" is answerable.
+
+### `EndpointInventoryRepository.java`
+- `findLatestPerEndpoint()` is a native query using `SELECT DISTINCT ON (endpoint_id) * ... ORDER BY endpoint_id, collected_at DESC`. `DISTINCT ON` is Postgres-specific: for each `endpoint_id` it keeps only the first row of the ordering, i.e. the newest. This gives "latest snapshot for every device" in one query instead of one query per device (the N+1 problem).
+
+### `PostureIngestService` (change)
+Inside the same `@Transactional` as the assessment, `ingest()` now also saves one `EndpointInventory` row when the request carries an `inventory` block. If anything fails, the assessment and the inventory both roll back, so they can never disagree.
+
+### `InventoryController.java`
+**What it is:** the fleet-wide read API behind the *Installed Software* and *Listening Ports* pages. Read only, never calls ISE.
+- `GET /api/v1/applications` walks each endpoint's latest inventory and flattens `installedApps` into rows (`AppRow`). For each app it classifies: name contains a **blocked** keyword (`uTorrent`, `TeamViewer`) gives `NON_COMPLIANT`; contains a **required** keyword (`Cisco Secure Client`) gives `COMPLIANT`; anything else has no status (just "Installed").
+- `GET /api/v1/ports` flattens `listeningPorts`, and maps the agent's `reachable` boolean to `COMPLIANT` (probe connected) / `BLOCKED` (probe failed) / `null` (untested).
+- Matching is case-insensitive substring, mirroring the agent's `-like "*term*"` logic.
+- `endpointsById()` loads all endpoints once into a map to attach hostname and MAC without a query per row.
+**Known limitation to be honest about:** `REQUIRED_APPS` / `BLOCKED_APPS` are hardcoded here **and** in `posture_agent.ps1`. Two copies can drift. Section C (Policy Management) fixes this.
+
+## Part 16 — ISE Link Health (`session/IseLinkHealth`, `ise/IseStatusController`)
+
+**Why this exists:** the first version of the watcher treated "ISE unreachable" and "nobody connected" identically (both returned an empty list). That would have marked every device disconnected during an ISE outage, a false and alarming picture. The rewritten flow makes "ISE is down" an explicit state.
+
+### `IseSessionClient` (change) and `SessionPoll`
+`fetchActiveSessions()` still never throws, but instead of `List.of()` on failure it returns a `SessionPoll` record: `ok=true` with sessions (possibly legitimately empty), or `ok=false` with an error string. `SessionPoll.ok(...)` and `SessionPoll.failed(...)` are package-private factory methods.
+
+### `IseLinkHealth.java`
+**What it is:** a singleton `@Component` holding the current health of the ISE poll.
+- `AtomicInteger failures`, `volatile lastSuccessAt`, `volatile lastError`: thread-safe because the scheduler thread writes while HTTP request threads read.
+- `FAILURE_THRESHOLD = 2`: ISE is only reported unreachable after two consecutive failed polls, so one network blip does not flap the UI.
+- `success()` resets the counter; `failure(error)` increments it; `reachable()` is `failures < 2`.
+
+### `IseSessionWatcher` (change)
+On a failed poll it records the failure and **returns without touching any endpoint**: "we do not know who is connected, so we do not guess." On a successful poll with zero sessions, everyone really is marked disconnected. It also now skips enqueueing a job for endpoints with neither IP nor hostname (this closes the old "cosmetic log noise" gap).
+
+### `IseStatusController.java`
+`GET /api/v1/ise/status` returns `{reachable, lastSuccessAt, lastError}`. The frontend polls it every 10s (`IseStatusContext`), shows a warning banner, and turns "ISE Active" dots into "Last known" so operators know the data is frozen, not fresh.
+**Effect:** an ISE outage no longer rewrites your fleet's connection state.
+
+## Part 17 — Fleet-Wide "Latest" Reads (`PostureFleetController`, `HardwareFleetController`)
+
+**Why:** the dashboard originally did one request per device (N+1). With 50 devices that is 100+ requests per refresh.
+- `GET /api/v1/posture/latest` and `GET /api/v1/hardware-health/latest` each return the newest row per endpoint in one call, using the `DISTINCT ON` native queries `AssessmentRepository.findLatestPerEndpoint()` and `HardwareHealthRepository.findLatestPerEndpoint()`.
+- Endpoints never assessed are simply absent; the frontend treats "missing" as "Unassessed".
+- Both are separate controller classes from ingest/query, keeping the read-only rule structural.
+**Effect:** every dashboard page now needs two requests total (endpoints + latest) instead of one per device.
+
+## Part 18 — Hardware Failure Evidence (deeper detail)
+`HardwareHealthReport` now carries `succeeded` and `errorMessage`, and scores are nullable `Integer` (migration `V9`). `recordFailure` writes `rawReport = {"error": ...}`. **Frontend follow-up:** `HardwareHealthResponse` in `frontend/lib/api.ts` should add `succeeded: boolean`, `errorMessage: string | null`, and make scores `number | null`; otherwise a failed run displays as blank/`undefined` scores rather than a clear "collection failed".
+
+## Part 19 — Agent-Side Features Worth Documenting
+- **Reachability probing (`posture_agent.ps1`):** for every listening port, a raw `TcpClient.ConnectAsync` with a `PortProbeTimeoutMs` cap (400 ms). Not `Test-NetConnection`, which has no timeout and can hang 10–20 s per port. Result: `openPorts` vs `blockedPorts`, informational (does not flip compliance).
+- **Three-tier app collection:** local registry, else `StdRegProv` over CIM, else WinRM `Invoke-Command`. If all fail, Application Control becomes `ERROR`, not a false `NON_COMPLIANT`.
+- **Local-vs-remote detection by IP:** compares `-ComputerName` to `$env:COMPUTERNAME` **and** local IPs, so a job dispatched to the laptop's own IP is not mistaken for remote (which would trigger an interactive credential prompt that fails under `-NonInteractive`).
+- **Credential re-qualification:** a stored `.\Administrator` or a device-IP-scoped credential is re-qualified to `TARGET\user` per device; `Save-PostureCredential.ps1` now warns at save time about IP-scoped usernames.
+
+## Part 20 — Frontend Summary (for the "who calls what" map)
+| Page | Backend calls |
+|---|---|
+| Command Center `/overview` | `/endpoints`, `/posture/latest`, `/audit/ise-actions` (cached via `useCachedFetch`) |
+| Endpoints Directory | `/endpoints`, `/posture/latest`, lazily `/endpoints/{id}/posture/latest` + `/hardware-health/latest` |
+| Endpoint 360 `/endpoints/[id]` | endpoint, posture history, hardware, jobs, audit; POST share/restrict/clear behind `ConfirmDialog` |
+| Compliance Matrix | `/endpoints`, `/posture/latest` |
+| Hardware Telemetry | `/endpoints`, `/hardware-health/latest` |
+| Installed Software / Listening Ports | `/applications`, `/ports` |
+| Assessment Queue | `/jobs` (4 s poll), POST `/jobs` |
+| ISE Action Audit | `/audit/ise-actions` |
+
+---
+
+# SECTION B — Corrections to the existing explainer
+
+| Where | Says | Reality now |
+|---|---|---|
+| Part 2 layout | migrations end at V11, no `inventory/` | add `V12__create_endpoint_inventory.sql`, `inventory/` package, `IseLinkHealth`, `IseStatusController`, two fleet controllers |
+| Part 9 `IseSessionClient` | failure returns empty `List.of()` | returns `SessionPoll(ok, sessions, error)` |
+| Part 9 `IseSessionWatcher` | empty list means return | failed poll freezes state; empty successful poll disconnects everyone |
+| Part 4 `enqueueIfDue` | (described correctly) | note: it does **not** yet honour a recheck interval; `app.jobs.recheck-interval-hours` in the HLD is not implemented. Only "already QUEUED/RUNNING" is checked |
+| Part 6 | "posture/ persists ports/apps" not mentioned | inventory now stored via `PostureIngestService` |
+| `JobType` javadoc | says hardware endpoint not built | it is built; update the comment |
+| Part 13 | `V4__create_assessments.sql` correct | HLD names differ (`assessments`); trust the real files |
+| Security | JWT + API key | `SecurityConfig` also permits `/error`, `/actuator/health`; `spring-boot-starter-actuator` is on the classpath |
+
+---
+
+# SECTION C — Next features, in the spirit of the Python project
+
+Each is written the way the explainer writes built features, so it can be promoted to a real Part once built.
+
+## C1. `remediation/` — Application Classification & Remote Uninstall
+**Why:** the Python `application_remediation.py` did this; the schema (`app_classification`, `app_uninstall_selection`, `remediation_audit`) is already reserved in the HLD. Detecting blocked software is half the job; removing it is the other half, but it is the **highest-risk** action in the platform, so it must be as guarded as ISE actions.
+- **Entities:** `AppClassification` (`appKey` unique, `category` = BUSINESS_RELEVANT / IRRELEVANT / REVIEW, `protected` flag), `UninstallSelection`, `RemediationAudit`.
+- **`AppKeys.normalize()`:** ONE function collapsing whitespace and lowercasing, used at every read/write site. This is the exact bug the Python version hit (TRIM vs `_norm`). One function, one behaviour.
+- **`ProtectedSoftwareGuard`:** a `PROTECTED_KEYWORDS` list (Windows, drivers, security agents). `RemediationService.uninstall()` calls it first and refuses, but still writes an audit row, same "failure is evidence" rule.
+- **Execution:** a new `JobType.UNINSTALL_APP` dispatched by `JobWorker` to a new `app_uninstall_agent.ps1` using `Invoke-Command` with timeouts shorter than the outer process timeout.
+- **Controller:** separate `RemediationController` (never shared with ingest), operator-triggered only, `initiatedBy` from the JWT.
+- **Effect:** blocked apps found by posture can be removed by an explicit, audited operator action, never automatically.
+
+## C2. `dashboard/` — Summary, Trend, Categories (fills the empty `EndpointSummaryResponse`)
+**Why:** the empty `EndpointSummaryResponse.java` placeholders mark this. Today the frontend computes KPIs in the browser from the full list; at scale the server should.
+- `EndpointSummaryResponse` record: `total, connected, notConnected, compliant, nonCompliant, error, unassessed, complianceIndex`.
+- `DashboardService` runs aggregate SQL (`COUNT(*) FILTER (WHERE ...)` over the `DISTINCT ON` latest-per-endpoint set), with live compliance counted for `connected = true` only, matching Python's Problem 2 fix.
+- `GET /api/v1/dashboard/summary`, `/trend?days=7` (average compliance per day from `assessment.created_at`), `/categories` (pass rate per `check_type`).
+- Later cached in Redis (Roadmap Phase 4) with a short TTL.
+
+## C3. `scheduler/` — Automatic Rechecks (posture 4h, hardware 24h)
+**Why:** Python had a hardware sweep worker with per-MAC failure backoff and a 4 h recheck window. The Java version only rechecks on reconnect, and `enqueueIfDue` has no interval.
+- `RecheckScheduler` (`@Scheduled`, e.g. every 5 min): selects connected endpoints whose latest **completed** assessment is older than `app.jobs.recheck-interval-hours`, then calls `enqueueIfDue`.
+- `enqueueIfDue` is fixed to also compare the last `COMPLETE` job's `completedAt` against the interval (as its javadoc already promises).
+- Hardware: same sweep with `HARDWARE_CHECK` and 24 h, skipping endpoints whose last hardware run failed within the backoff window. Because backoff lives in `posture_job.next_attempt_at`, it survives restarts, unlike Python's in-memory `_HW_HEALTH_LAST_FAILURE` dict.
+
+## C4. Stale-`RUNNING` Job Recovery
+**Why:** documented known gap: if the backend dies mid-job, the row stays `RUNNING` forever and blocks `enqueueIfDue` for that endpoint.
+- New `JobService.recoverStaleJobs()` (`@Scheduled` every minute): `RUNNING` rows with `started_at < now() - (processTimeout + margin)` are passed to `markFailed("Recovered: worker died")`, reusing the existing retry/backoff path.
+- Add a `recovered` note to `errorMessage`; no schema change.
+
+## C5. `endpoint360/` — Experience & Security Indicators
+**Why:** Python's Endpoint 360 (schema already reserved in `V9` of the HLD).
+- **Diagnostic job:** `JobType.DIAGNOSTIC_CHECK` runs a `diagnostic_agent.ps1` (ping gateway, DNS resolve, TCP-443, `tracert`) against the *selected fleet endpoint*, stores JSONB in `endpoint_360_diagnostics`, and a `DiagnosticScorer` produces a transparent 0–100 score with a deducted-points root-cause list.
+- **Security indicators:** sampled TCP connections analysed for lateral movement (fan-out on SMB/RPC/RDP/WinRM/SSH) and beaconing (periodicity across snapshots). Findings feed a "Needs attention" list only; they inform the human, and never trigger Restrict automatically (core rule preserved).
+- Legal note carried over: browser-history collection stays out of scope without HR/legal sign-off.
+
+## C6. Policy Management (replaces hardcoded lists)
+**Why:** required/blocked apps live in two places today. 
+- New `policy_rule` table (`rule_type` REQUIRED_APP/BLOCKED_APP, `pattern`, `enabled`) and `PolicyService`.
+- `GET /api/v1/policy` for the agent (API-key authenticated, added to `PostureApiKeyFilter`'s allowed routes) so `posture_agent.ps1` fetches rules instead of using `-RequiredApps` defaults; `InventoryController` reads the same rules.
+- Admin CRUD behind JWT, every change audited.
+
+## C7. ISE Actions Page & Endpoint Detail Extensions
+- `GET /api/v1/endpoints/{id}/sessions` (already designed in the HLD): reads `EndpointSessionLogRepository.findByEndpointIdOrderByEventAtDesc`, giving connection history with offline durations.
+- `GET /api/v1/ise/endpoints`: live ISE endpoint list for a dedicated ISE Actions page with Share/Restrict/Clear per row and last-known state.
+- Attach `initiatedBy` role checks once a second role exists (Network Operator can restrict, Viewer cannot), adding RBAC only when actually enforced differently.
+
+## C8. Warranty, Hardware Trend, System Health
+- **Warranty:** `WarrantyProvider` interface with a CSV implementation first (serial to expiry), OEM API later, so `warrantyStatus` stops being always `UNKNOWN`.
+- **Hardware trend:** `GET /endpoints/{id}/hardware-health` already returns history; add a trend chart in the UI.
+- **System Health:** `GET /api/v1/system/health` combining DB connectivity, `IseLinkHealth`, queue depth by status, oldest `QUEUED` age, last worker tick, feeding Actuator/Prometheus later.
+
+## C9. Production Hardening Items (from the checklist)
+- Login rate limiting (Bucket4j filter on `/auth/login`), secrets via env only, `verify-tls: true`, structured JSON logging, Postgres backups, a `Dockerfile` per service, Redis lock so `session/` and `job/` never double-trigger.
+
+---
+
+# Suggested build order
+1. C4 stale-job recovery and the `enqueueIfDue` interval fix (small, fixes real gaps).
+2. C3 scheduled rechecks.
+3. C6 policy management (removes duplicated hardcoded lists).
+4. C2 dashboard summary API.
+5. C7 sessions history and ISE Actions page.
+6. C1 remediation (highest risk, build last, with the guard first).
+7. C5 Endpoint 360.

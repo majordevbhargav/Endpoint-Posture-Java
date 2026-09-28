@@ -5,16 +5,24 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Reads and writes {@link HardwareHealthReport} + {@link HardwareRecommendation}.
+ * Reads and writes {@link HardwareHealthReport} +
+ * {@link HardwareRecommendation}.
  * The single persistence path - called by {@link HardwareIngestService} once
  * scoring succeeds, or by {@link com.endpointposture.job.JobWorker} via
  * {@link #recordFailure} when a hardware job fails before a report could be
  * produced.
+ *
+ * <p>
+ * Every run, failed or not, is stored (evidence first). Only the "latest"
+ * reads are smart: they prefer the newest successful run and attach the
+ * newer failure, if any, as a notice.
+ * </p>
  */
 @Service
 public class HardwareHealthService {
@@ -29,12 +37,13 @@ public class HardwareHealthService {
     private final HardwareRecommendationRepository recommendationRepository;
 
     public HardwareHealthService(HardwareHealthRepository healthRepository,
-                                  HardwareRecommendationRepository recommendationRepository) {
+            HardwareRecommendationRepository recommendationRepository) {
         this.healthRepository = healthRepository;
         this.recommendationRepository = recommendationRepository;
     }
 
-    public record RecommendationInput(String priority, String area, String action) {}
+    public record RecommendationInput(String priority, String area, String action) {
+    }
 
     @Transactional
     public HardwareHealthResponse recordReport(
@@ -43,8 +52,7 @@ public class HardwareHealthService {
             int cpuScore, int memoryScore, int storageScore, Integer batteryScore,
             Integer hardwareEventCount, String warrantyStatus, Integer warrantyDaysRemaining,
             Map<String, Object> rawReport, Instant collectedAt,
-            List<RecommendationInput> recommendations
-    ) {
+            List<RecommendationInput> recommendations) {
         // Overall = simple average of the components that actually apply.
         // Battery is only folded in when present.
         int componentSum = cpuScore + memoryScore + storageScore;
@@ -82,7 +90,8 @@ public class HardwareHealthService {
 
         UUID reportId = report.getId();
         for (RecommendationInput r : recommendations) {
-            if (r.area() == null || r.action() == null) continue; // skip malformed entries silently
+            if (r.area() == null || r.action() == null)
+                continue; // skip malformed entries silently
             HardwareRecommendation.RecommendationPriority priority = parsePriority(r.priority());
             recommendationRepository.save(HardwareRecommendation.builder()
                     .hardwareHealthId(reportId)
@@ -117,35 +126,69 @@ public class HardwareHealthService {
         return toResponse(report);
     }
 
+    /** Raw history, newest first, failures included. */
     @Transactional(readOnly = true)
     public List<HardwareHealthResponse> getHistoryForEndpoint(UUID endpointId) {
         return healthRepository.findByEndpointIdOrderByCollectedAtDesc(endpointId)
                 .stream().map(this::toResponse).toList();
     }
 
+    /**
+     * Newest successful run for the endpoint. If a newer attempt failed, the
+     * failure is attached as {@code lastAttemptFailedAt}/{@code lastAttemptError}.
+     * If the endpoint has never had a successful run, the newest (failed) row
+     * is returned as-is.
+     */
     @Transactional(readOnly = true)
     public HardwareHealthResponse getLatestForEndpoint(UUID endpointId) {
-        return healthRepository.findFirstByEndpointIdOrderByCollectedAtDesc(endpointId)
-                .map(this::toResponse)
+        HardwareHealthReport newest = healthRepository.findFirstByEndpointIdOrderByCollectedAtDesc(endpointId)
                 .orElseThrow(() -> new HardwareHealthNotFoundException(endpointId.toString()));
+
+        if (newest.isSucceeded()) {
+            return toResponse(newest);
+        }
+
+        return healthRepository.findFirstByEndpointIdAndSucceededTrueOrderByCollectedAtDesc(endpointId)
+                .map(good -> toResponse(good, newest.getCollectedAt(), newest.getErrorMessage()))
+                .orElseGet(() -> toResponse(newest));
     }
 
-    /** @return the newest hardware report for every endpoint that has one; others are simply absent */
+    /**
+     * @return one row per endpoint that has any report, preferring the last
+     *         successful run (see above)
+     */
     @Transactional(readOnly = true)
     public List<HardwareHealthResponse> getLatestForAllEndpoints() {
-        return healthRepository.findLatestPerEndpoint()
-                .stream().map(this::toResponse).toList();
+        Map<UUID, HardwareHealthReport> lastGood = new HashMap<>();
+        for (HardwareHealthReport ok : healthRepository.findLatestSuccessfulPerEndpoint()) {
+            lastGood.put(ok.getEndpointId(), ok);
+        }
+
+        return healthRepository.findLatestPerEndpoint().stream()
+                .map(newest -> {
+                    if (newest.isSucceeded())
+                        return toResponse(newest);
+                    HardwareHealthReport good = lastGood.get(newest.getEndpointId());
+                    return good == null
+                            ? toResponse(newest)
+                            : toResponse(good, newest.getCollectedAt(), newest.getErrorMessage());
+                })
+                .toList();
     }
 
     HardwareBand bandFor(int score) {
-        if (score >= HEALTHY_THRESHOLD) return HardwareBand.HEALTHY;
-        if (score >= WARNING_THRESHOLD) return HardwareBand.WARNING;
-        if (score >= DEGRADED_THRESHOLD) return HardwareBand.DEGRADED;
+        if (score >= HEALTHY_THRESHOLD)
+            return HardwareBand.HEALTHY;
+        if (score >= WARNING_THRESHOLD)
+            return HardwareBand.WARNING;
+        if (score >= DEGRADED_THRESHOLD)
+            return HardwareBand.DEGRADED;
         return HardwareBand.CRITICAL;
     }
 
     private HardwareRecommendation.RecommendationPriority parsePriority(String raw) {
-        if (raw == null) return HardwareRecommendation.RecommendationPriority.MEDIUM;
+        if (raw == null)
+            return HardwareRecommendation.RecommendationPriority.MEDIUM;
         try {
             return HardwareRecommendation.RecommendationPriority.valueOf(raw.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
@@ -154,11 +197,16 @@ public class HardwareHealthService {
     }
 
     private HardwareHealthResponse toResponse(HardwareHealthReport r) {
-        List<HardwareHealthResponse.RecommendationDto> recs =
-                recommendationRepository.findByHardwareHealthId(r.getId()).stream()
-                        .map(rec -> new HardwareHealthResponse.RecommendationDto(
-                                rec.getPriority().name(), rec.getArea(), rec.getAction()))
-                        .toList();
+        return toResponse(r, null, null);
+    }
+
+    private HardwareHealthResponse toResponse(HardwareHealthReport r, Instant lastAttemptFailedAt,
+            String lastAttemptError) {
+        List<HardwareHealthResponse.RecommendationDto> recs = recommendationRepository.findByHardwareHealthId(r.getId())
+                .stream()
+                .map(rec -> new HardwareHealthResponse.RecommendationDto(
+                        rec.getPriority().name(), rec.getArea(), rec.getAction()))
+                .toList();
 
         return new HardwareHealthResponse(
                 r.getId(), r.getEndpointId(), r.getJobId(),
@@ -166,7 +214,7 @@ public class HardwareHealthService {
                 r.getCpuScore(), r.getMemoryScore(), r.getStorageScore(), r.getBatteryScore(),
                 r.getOverallScore(), r.getOverallBand(),
                 r.getHardwareEventCount(), r.getWarrantyStatus(), r.getWarrantyDaysRemaining(),
-                r.getCollectedAt(), r.isSucceeded(), r.getErrorMessage(), recs
-        );
+                r.getCollectedAt(), r.isSucceeded(), r.getErrorMessage(),
+                lastAttemptFailedAt, lastAttemptError, recs);
     }
 }

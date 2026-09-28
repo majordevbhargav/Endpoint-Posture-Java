@@ -40,16 +40,22 @@ export interface HardwareHealthResponse {
   model: string | null;
   serialNumber: string | null;
   biosVersion: string | null;
-  cpuScore: number;
-  memoryScore: number;
-  storageScore: number;
+  // Null when the run failed and no earlier good run exists (never zero).
+  cpuScore: number | null;
+  memoryScore: number | null;
+  storageScore: number | null;
   batteryScore: number | null;
-  overallScore: number;
-  overallBand: HardwareBand;
+  overallScore: number | null;
+  overallBand: HardwareBand | null;
   hardwareEventCount: number | null;
   warrantyStatus: string | null;
   warrantyDaysRemaining: number | null;
   collectedAt: string;
+  succeeded: boolean;
+  errorMessage: string | null;
+  // Set on the "latest" endpoints when a newer attempt failed after this (successful) run.
+  lastAttemptFailedAt: string | null;
+  lastAttemptError: string | null;
   recommendations: { priority: string; area: string; action: string }[];
 }
 
@@ -161,9 +167,9 @@ export const api = {
   latestHardwareAll: () => request<HardwareHealthResponse[]>("/api/v1/hardware-health/latest"),
   hardwareHistory: (id: string) => request<HardwareHealthResponse[]>(`/api/v1/endpoints/${id}/hardware-health`),
   latestPostureOrNull: async (id: string): Promise<AssessmentResponse | null> => {
-  const history = await request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`);
-  return history[0] ?? null; // history is newest first; empty list means never assessed
-},
+    const history = await request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`);
+    return history[0] ?? null; // history is newest first; empty list means never assessed
+  },
 
   listJobs: () => request<JobResponse[]>("/api/v1/jobs"),
   listJobsForEndpoint: (id: string) => request<JobResponse[]>(`/api/v1/jobs/endpoint/${id}`),

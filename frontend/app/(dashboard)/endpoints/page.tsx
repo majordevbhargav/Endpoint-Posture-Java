@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Monitor, Search, RefreshCw, Copy, Check, Play, Cpu, ExternalLink,
   ShieldAlert, Radio, ChevronDown, ChevronUp, Wifi, WifiOff,
-  HardDrive, Battery, Server, Info,
+  HardDrive, Battery, Server, Info, AlertTriangle,
 } from "lucide-react";
 import {
   api, EndpointResponse, AssessmentResponse, HardwareHealthResponse, AssessmentStatus,
@@ -32,6 +32,14 @@ function timeSince(dateStr: string): string {
   if (mins > 0) return `${mins}m ago`;
   return "just now";
 }
+
+const shortTime = (iso: string) =>
+  new Date(iso).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
 function ScoreBar({ value }: { value: number | null | undefined }) {
   if (value == null) return <span className="text-[11px] text-muted">—</span>;
@@ -116,8 +124,8 @@ function ExpandedPanel({ ep }: { ep: EndpointWithDetails }) {
                   <span className="text-muted">
                     {c.checkType === "FIREWALL" ? "Windows Firewall"
                       : c.checkType === "OPEN_PORTS" ? "Listening Ports"
-                      : c.checkType === "APPLICATIONS" ? "Application Control"
-                      : c.checkType}
+                        : c.checkType === "APPLICATIONS" ? "Application Control"
+                          : c.checkType}
                   </span>
                   <StatusBadge value={c.status} />
                 </div>
@@ -140,13 +148,39 @@ function ExpandedPanel({ ep }: { ep: EndpointWithDetails }) {
               <div className="text-xs text-muted">No hardware report</div>
               <div className="mt-0.5 text-[10px] text-muted/70">Click CPU icon to dispatch check</div>
             </div>
+          ) : !hardware.succeeded ? (
+            /* Never had a successful run: nothing good to show, only the failure. */
+            <div className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-[11px]">
+              <div className="flex items-center gap-2 font-semibold text-bad">
+                <AlertTriangle size={13} />
+                <span>Hardware check failed</span>
+              </div>
+              <div className="mt-1 text-muted">Attempted {shortTime(hardware.collectedAt)}</div>
+              <div className="mt-1 break-words font-mono text-[10px] text-bad">
+                {hardware.errorMessage ?? "Unknown error"}
+              </div>
+            </div>
           ) : (
             <div className="space-y-2">
+              {hardware.lastAttemptFailedAt && (
+                <div className="rounded-lg border border-warn/30 bg-warn/10 p-2.5 text-[11px]">
+                  <div className="flex items-center gap-1.5 font-semibold text-warn">
+                    <AlertTriangle size={12} />
+                    <span>Latest check failed {shortTime(hardware.lastAttemptFailedAt)}</span>
+                  </div>
+                  <div className="mt-0.5 text-muted">
+                    Showing last good data from {shortTime(hardware.collectedAt)}.
+                  </div>
+                  <div className="mt-1 break-words font-mono text-[10px] text-warn">
+                    {hardware.lastAttemptError ?? "Unknown error"}
+                  </div>
+                </div>
+              )}
               <div className="flex items-center justify-between rounded-lg bg-base/70 p-2.5 text-[11px]">
                 <span className="text-muted">Overall Score</span>
                 <div className="flex items-center gap-2">
                   <ScoreBar value={hardware.overallScore} />
-                  <StatusBadge value={hardware.overallBand} />
+                  {hardware.overallBand && <StatusBadge value={hardware.overallBand} />}
                 </div>
               </div>
               <div className="flex items-center justify-between rounded-lg bg-base/70 p-2.5 text-[11px]">
@@ -305,9 +339,9 @@ export default function EndpointsPage() {
       if (search.trim()) {
         const q = search.toLowerCase();
         if (!ep.macAddress.toLowerCase().includes(q) &&
-            !ep.ipAddress?.toLowerCase().includes(q) &&
-            !ep.hostname?.toLowerCase().includes(q) &&
-            !ep.osName?.toLowerCase().includes(q)) return false;
+          !ep.ipAddress?.toLowerCase().includes(q) &&
+          !ep.hostname?.toLowerCase().includes(q) &&
+          !ep.osName?.toLowerCase().includes(q)) return false;
       }
       return true;
     });

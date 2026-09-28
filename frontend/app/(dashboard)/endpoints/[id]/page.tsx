@@ -15,6 +15,7 @@ import {
   HardDrive,
   Battery,
   Server,
+  AlertTriangle,
 } from "lucide-react";
 import {
   api,
@@ -109,7 +110,7 @@ export default function EndpointDetailPage() {
       setActionMsg({ text: (e as Error).message, success: false });
     } finally {
       // The backend writes an audit row for success AND failure, so always refresh the trail.
-      api.auditActions(id).then(setAudits).catch(() => {});
+      api.auditActions(id).then(setAudits).catch(() => { });
       setBusy(false);
     }
   }
@@ -122,7 +123,7 @@ export default function EndpointDetailPage() {
         text: `${type === "POSTURE_CHECK" ? "Posture Check" : "Hardware Check"} job enqueued. JobWorker will dispatch momentarily.`,
         success: true,
       });
-      api.listJobsForEndpoint(id).then(setJobs).catch(() => {});
+      api.listJobsForEndpoint(id).then(setJobs).catch(() => { });
     } catch (e) {
       setActionMsg({ text: `Failed to enqueue job: ${(e as Error).message}`, success: false });
     } finally {
@@ -297,11 +298,10 @@ export default function EndpointDetailPage() {
 
           {actionMsg && (
             <div
-              className={`mt-4 rounded-lg border p-3 text-xs font-medium ${
-                actionMsg.success
-                  ? "border-good/30 bg-good/10 text-good"
-                  : "border-bad/30 bg-bad/10 text-bad"
-              }`}
+              className={`mt-4 rounded-lg border p-3 text-xs font-medium ${actionMsg.success
+                ? "border-good/30 bg-good/10 text-good"
+                : "border-bad/30 bg-bad/10 text-bad"
+                }`}
             >
               {actionMsg.text}
             </div>
@@ -322,11 +322,10 @@ export default function EndpointDetailPage() {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`border-b-2 px-3 py-2.5 transition ${
-              activeTab === tab
-                ? "border-accent font-semibold text-accent"
-                : "border-transparent text-muted hover:text-ink"
-            }`}
+            className={`border-b-2 px-3 py-2.5 transition ${activeTab === tab
+              ? "border-accent font-semibold text-accent"
+              : "border-transparent text-muted hover:text-ink"
+              }`}
           >
             {label}
           </button>
@@ -378,10 +377,10 @@ export default function EndpointDetailPage() {
                             {isFirewall
                               ? "Windows Firewall"
                               : isPorts
-                              ? "Listening Ports"
-                              : isApps
-                              ? "Application Control"
-                              : c.checkType}
+                                ? "Listening Ports"
+                                : isApps
+                                  ? "Application Control"
+                                  : c.checkType}
                           </span>
                           <StatusBadge value={c.status} />
                         </div>
@@ -452,14 +451,50 @@ export default function EndpointDetailPage() {
               No hardware report recorded yet. Click &ldquo;Check Hardware&rdquo; above to dispatch the
               hardware agent.
             </div>
+          ) : !hardware.succeeded ? (
+            /* Never had a successful run: only the failure is available. */
+            <div className="panel p-5">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-ink">Hardware check failed</span>
+                <StatusBadge value="FAILED" />
+              </div>
+              <div className="mt-1 text-xs text-muted">
+                Attempted: {new Date(hardware.collectedAt).toLocaleString()}
+              </div>
+              <div className="mt-3 break-words rounded-lg bg-base px-3 py-2 font-mono text-xs text-bad">
+                {hardware.errorMessage ?? "Unknown error"}
+              </div>
+              <div className="mt-3 text-xs text-muted">
+                No successful hardware run exists for this device yet, so there are no scores to show.
+              </div>
+            </div>
           ) : (
             <>
+              {hardware.lastAttemptFailedAt && (
+                <div className="rounded-xl border border-warn/30 bg-warn/10 p-4 text-xs">
+                  <div className="flex items-center gap-2 font-semibold text-warn">
+                    <AlertTriangle size={14} />
+                    <span>
+                      Latest hardware check failed on{" "}
+                      {new Date(hardware.lastAttemptFailedAt).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-muted">
+                    The scores below are from the last successful run (
+                    {new Date(hardware.collectedAt).toLocaleString()}).
+                  </div>
+                  <div className="mt-2 break-words rounded-lg bg-base px-3 py-2 font-mono text-[11px] text-warn">
+                    {hardware.lastAttemptError ?? "Unknown error"}
+                  </div>
+                </div>
+              )}
+
               <div className="panel p-5">
                 <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-ink">Hardware Score</span>
-                      <StatusBadge value={hardware.overallBand} />
+                      {hardware.overallBand && <StatusBadge value={hardware.overallBand} />}
                     </div>
                     <div className="mt-1 text-xs text-muted">
                       Telemetry collected: {new Date(hardware.collectedAt).toLocaleString()}
@@ -467,7 +502,7 @@ export default function EndpointDetailPage() {
                   </div>
 
                   <div className="flex items-baseline gap-1">
-                    <span className="text-3xl font-extrabold text-ink">{hardware.overallScore}</span>
+                    <span className="text-3xl font-extrabold text-ink">{hardware.overallScore ?? "—"}</span>
                     <span className="text-sm font-semibold text-muted">/ 100</span>
                   </div>
                 </div>
@@ -516,13 +551,12 @@ export default function EndpointDetailPage() {
                         className="flex items-start gap-2.5 rounded-lg border border-border/70 bg-base/40 p-3 text-xs"
                       >
                         <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                            r.priority === "HIGH"
-                              ? "bg-bad/15 text-bad"
-                              : r.priority === "MEDIUM"
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${r.priority === "HIGH"
+                            ? "bg-bad/15 text-bad"
+                            : r.priority === "MEDIUM"
                               ? "bg-warn/15 text-warn"
                               : "bg-good/15 text-good"
-                          }`}
+                            }`}
                         >
                           {r.priority}
                         </span>
