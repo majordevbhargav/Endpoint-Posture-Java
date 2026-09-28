@@ -98,15 +98,15 @@ flowchart TD
 | Layer | Technology | Version / detail |
 |---|---|---|
 | Backend language | Java | 21 |
-| Backend framework | Spring Boot | 3.5.6 (web, validation, data-jpa, security, actuator) |
+| Backend framework | Spring Boot | 3.5.16 (web, validation, data-jpa, security, actuator) |
 | Persistence | Hibernate/JPA + PostgreSQL | `ddl-auto: validate`; schema owned by Flyway |
-| Migrations | Flyway (`flyway-core`, `flyway-database-postgresql`) | files in `db/migration` |
+| Migrations | Flyway Flyway versions jump V4 to V8; this is harmless (`flyway-core`, `flyway-database-postgresql`) | files in `db/migration` |
 | Auth | Spring Security + JJWT | JJWT 0.12.6, HMAC-SHA256 tokens, 480-minute lifetime |
-| API docs | springdoc-openapi | 2.8.6; Swagger UI at `/swagger-ui.html` |
+| API docs | springdoc-openapi | 2.8.15; Swagger UI at `/swagger-ui.html` |
 | Boilerplate | Lombok | entities only |
 | Build | Maven | `spring-boot-maven-plugin` forces `-Duser.timezone=UTC`; `maven-javadoc-plugin` 3.10.1 runs at `package` |
 | Collectors | PowerShell 5+ | CIM, WinRM/DCOM, DPAPI credential |
-| Frontend | Next.js 14.2.32 (App Router), React 18.3, TypeScript 5.5 | |
+| Frontend | Next.js 16.3.x (App Router), React 19.x, TypeScript 5.5 | |
 | Styling | Tailwind CSS 3.4 + CSS variables | dark default, light via `.light` class |
 | Icons | lucide-react | |
 | Database container | `postgres:16` and `adminer:4` | docker-compose |

@@ -240,10 +240,10 @@ Posture information can be published to ISE, while restriction actions can be ex
 
 **Frontend**
 
-* HTML
-* CSS
-* JavaScript
-* Chart.js
+* Next.js 16
+* React 19
+* TypeScript
+* Tailwind CSS
 
 ---
 
