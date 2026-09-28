@@ -9,23 +9,27 @@ import com.endpointposture.session.IseSessionClient.SessionPoll;
 import com.endpointposture.session.dto.IseActiveSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
  * Polls ISE for active sessions, updates endpoint connect/disconnect state,
  * and enqueues a posture recheck for anything that just reconnected.
  *
- * <p>If the poll itself fails (ISE unreachable, bad credentials, malformed
- * response) endpoint state is left untouched: we do not know who is
- * connected, so we do not guess. {@link IseLinkHealth} records the outage
- * so the UI can show sessions as "last known". A successful poll with zero
- * sessions is a real answer, and marks everyone disconnected.</p>
+ * <p>If the poll itself fails, endpoint state is left untouched (and no misses
+ * are counted). A successful poll with zero sessions is a real answer.</p>
+ *
+ * <p>An endpoint is only marked disconnected after it is missing from
+ * {@code app.ise.disconnect-grace-polls} consecutive successful polls, so a
+ * roaming device or a single odd poll does not flap its state.</p>
  */
 @Component
 public class IseSessionWatcher {
@@ -37,15 +41,21 @@ public class IseSessionWatcher {
     private final EndpointService endpointService;
     private final JobService jobService;
     private final IseLinkHealth linkHealth;
+    private final int gracePolls;
+
+    /** Consecutive missed polls per (normalized) MAC. */
+    private final Map<String, Integer> misses = new ConcurrentHashMap<>();
 
     public IseSessionWatcher(IseSessionClient client, EndpointRepository endpoints,
                              EndpointService endpointService, JobService jobService,
-                             IseLinkHealth linkHealth) {
+                             IseLinkHealth linkHealth,
+                             @Value("${app.ise.disconnect-grace-polls:2}") int gracePolls) {
         this.client = client;
         this.endpoints = endpoints;
         this.endpointService = endpointService;
         this.jobService = jobService;
         this.linkHealth = linkHealth;
+        this.gracePolls = Math.max(1, gracePolls);
     }
 
     @Scheduled(fixedDelayString = "${app.ise.session-poll-interval-ms:15000}")
@@ -58,7 +68,7 @@ public class IseSessionWatcher {
             if (wasReachable && !linkHealth.reachable()) {
                 log.warn("ISE marked unreachable - endpoint session state frozen at last known values");
             }
-            return; // we don't know who is connected: leave state alone
+            return; // we don't know who is connected: leave state and miss counters alone
         }
 
         if (!linkHealth.reachable()) {
@@ -66,7 +76,7 @@ public class IseSessionWatcher {
         }
         linkHealth.success();
 
-        List<IseActiveSession> active = poll.sessions(); // empty now genuinely means nobody is connected
+        List<IseActiveSession> active = poll.sessions();
 
         Set<String> activeMacs = active.stream()
                 .map(s -> normalizeMacForCompare(s.mac()))
@@ -74,6 +84,8 @@ public class IseSessionWatcher {
 
         for (IseActiveSession session : active) {
             String mac = normalizeMacForCompare(session.mac());
+            misses.remove(mac); // seen this poll: reset its miss counter
+
             boolean wasConnected = endpoints.findByMacAddress(mac)
                     .map(Endpoint::isConnected)
                     .orElse(false);
@@ -91,12 +103,25 @@ public class IseSessionWatcher {
             }
         }
 
-        endpoints.findAllByConnectedTrue().stream()
-                .filter(ep -> !activeMacs.contains(ep.getMacAddress()))
-                .forEach(ep -> {
-                    log.info("Endpoint {} dropped off ISE's active list - marking disconnected", ep.getMacAddress());
-                    endpointService.markDisconnected(ep.getMacAddress());
-                });
+        List<Endpoint> connected = endpoints.findAllByConnectedTrue();
+
+        // Drop counters for endpoints that are no longer flagged connected.
+        Set<String> connectedMacs = connected.stream().map(Endpoint::getMacAddress).collect(Collectors.toSet());
+        misses.keySet().retainAll(connectedMacs);
+
+        for (Endpoint ep : connected) {
+            if (activeMacs.contains(ep.getMacAddress())) continue;
+
+            int count = misses.merge(ep.getMacAddress(), 1, Integer::sum);
+            if (count >= gracePolls) {
+                log.info("Endpoint {} missing from {} consecutive ISE polls - marking disconnected",
+                        ep.getMacAddress(), count);
+                endpointService.markDisconnected(ep.getMacAddress());
+                misses.remove(ep.getMacAddress());
+            } else {
+                log.debug("Endpoint {} missing from ISE poll ({}/{})", ep.getMacAddress(), count, gracePolls);
+            }
+        }
     }
 
     private static boolean hasTarget(Endpoint ep) {

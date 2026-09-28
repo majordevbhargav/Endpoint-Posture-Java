@@ -3,7 +3,7 @@ spring:
     name: endpoint-posture-java
   jackson:
     deserialization:
-      accept-single-value-as-array: true  
+      accept-single-value-as-array: true
 
   datasource:
     # Port 5434 is the host side of the docker-compose mapping (5434:5432).
@@ -27,8 +27,6 @@ spring:
 server:
   port: 8090
 
-# Spring logging settings live at the top level (not under "app:").
-# Switch security to DEBUG when chasing a 401/403.
 logging:
   level:
     org.springframework.security: INFO
@@ -36,36 +34,43 @@ logging:
 
 app:
   jwt:
-    secret: ${JWT_SECRET:dev-only-change-this-to-a-real-256-bit-secret-before-anything-real}
+    secret: ${JWT_SECRET}                    # no default: startup fails if unset (dev profile supplies one)
     expiration-minutes: 480
 
   seed-admin:
     username: ${SEED_ADMIN_USER:admin}
-    password: ${SEED_ADMIN_PASSWORD:Login@123}
+    password: ${SEED_ADMIN_PASSWORD}         # no default
 
   jobs:
-    poll-interval-ms: 3000   # how often JobWorker looks for the next queued job
+    poll-interval-ms: 3000          # idle sleep when the queue is empty
+    worker-threads: 4               # each running job starts a powershell.exe: size to the host
+    stale-sweep-interval-ms: 60000  # how often stuck RUNNING jobs are looked for
+    stale-margin-seconds: 60        # added on top of the largest agent process timeout
+    recheck:
+      enabled: true
+      posture-hours: 4              # re-run posture for connected endpoints older than this
+      hardware-hours: 24            # re-run hardware health for connected endpoints older than this
+      failure-backoff-hours: 6      # after a FAILED job, wait this long before auto-retrying
+      sweep-interval-ms: 300000     # how often the recheck sweep runs (5 min)
 
   ise:
-    base-url: ${ISE_BASE_URL:https://10.6.1.90}
-    username: ${ISE_USERNAME:Dev}
-    password: ${ISE_PASSWORD:Login@123}
+    base-url: ${ISE_BASE_URL:}               # blank = ISE features safely disabled
+    username: ${ISE_USERNAME:}
+    password: ${ISE_PASSWORD:}
     verify-tls: false
     session-poll-interval-ms: 15000
+    disconnect-grace-polls: 2                # missed polls in a row before marking disconnected
     enforcement-mode: ATTRIBUTE
     anc-policy-name: Quarantine
 
-  # Posture agent (scripts/posture_agent.ps1). Relative paths resolve against
-  # the folder you start the app from (the repo root for mvn spring-boot:run).
   posture:
     script-path: ../scripts/posture_agent.ps1
     server-url: http://localhost:8090/api/v1/posture
-    api-key: ${POSTURE_API_KEY:dev-local-key-123}   # shared secret the agent sends; change before anything real
+    api-key: ${POSTURE_API_KEY}              # no default
     cim-timeout-seconds: 30
     server-timeout-seconds: 15
-    process-timeout-seconds: 60   # outer kill switch; raise it (e.g. 120) when testing against slow remote endpoints
+    process-timeout-seconds: 60
 
-  # Hardware-health agent (scripts/hardware_health_agent.ps1).
   hardware:
     script-path: ../scripts/hardware_health_agent.ps1
     server-base-url: http://localhost:8090

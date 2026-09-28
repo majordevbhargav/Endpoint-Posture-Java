@@ -1,0 +1,11 @@
+app:
+  jwt:
+    secret: dev-only-change-this-to-a-real-256-bit-secret-before-anything-real
+  seed-admin:
+    password: Login@123
+  posture:
+    api-key: dev-local-key-123
+  ise:
+    base-url: https://10.6.1.90
+    username: Dev
+    password: Login@123

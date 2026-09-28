@@ -13,13 +13,16 @@ import java.util.UUID;
 /**
  * REST API for the job queue: {@code /api/v1/jobs}.
  *
- * <p>Manual enqueueing exists for testing the dispatch pipeline; later,
- * the ISE session watcher enqueues jobs automatically.</p>
+ * <p>Manual jobs default to priority 10 so they run ahead of automatic
+ * (priority 0) rechecks.</p>
  */
 @RestController
 @RequestMapping("/api/v1/jobs")
-@Tag(name = "Jobs", description = "The posture-check job queue. Manual enqueue for testing dispatch before ISE-triggered enqueueing exists.")
+@Tag(name = "Jobs", description = "The posture/hardware job queue.")
 public class JobController {
+
+    /** Priority given to jobs enqueued by a person. Automatic jobs use 0. */
+    private static final int MANUAL_PRIORITY = 10;
 
     private final JobService jobService;
 
@@ -31,38 +34,28 @@ public class JobController {
      * Body of {@code POST /api/v1/jobs}.
      *
      * @param endpointId the endpoint to run against (required)
-     * @param jobType    what to run; defaults to {@code POSTURE_CHECK} when omitted
-     * @param priority   higher values are claimed first; defaults to 0
+     * @param jobType    what to run; defaults to {@code POSTURE_CHECK}
+     * @param priority   higher values are claimed first; defaults to 10 (manual)
      */
     public record EnqueueRequest(@NotNull UUID endpointId, JobType jobType, Integer priority) {}
 
-    /**
-     * Manually enqueues a job.
-     *
-     * @return the new job, status {@code QUEUED}
-     */
-    @Operation(summary = "Manually enqueue a job for an endpoint (testing only, until ISE-triggered enqueueing exists)")
+    @Operation(summary = "Manually enqueue a job for an endpoint")
     @PostMapping
     public JobResponse enqueue(@Valid @RequestBody EnqueueRequest request) {
         PostureJob job = jobService.enqueue(
                 request.endpointId(),
                 request.jobType() != null ? request.jobType() : JobType.POSTURE_CHECK,
-                request.priority() != null ? request.priority() : 0
+                request.priority() != null ? request.priority() : MANUAL_PRIORITY
         );
         return toResponse(job);
     }
 
-    /** @return all jobs, newest first */
     @Operation(summary = "List all jobs, newest first")
     @GetMapping
     public List<JobResponse> listAll() {
         return jobService.listAll().stream().map(this::toResponse).toList();
     }
 
-    /**
-     * @param endpointId the endpoint's internal UUID
-     * @return that endpoint's jobs, newest first
-     */
     @Operation(summary = "List jobs for one endpoint")
     @GetMapping("/endpoint/{endpointId}")
     public List<JobResponse> listForEndpoint(@PathVariable UUID endpointId) {

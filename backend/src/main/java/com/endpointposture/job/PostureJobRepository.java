@@ -4,6 +4,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,17 +16,9 @@ import java.util.UUID;
 public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
 
     /**
-     * Finds and locks the single highest-priority, oldest, currently-
-     * eligible QUEUED job - FOR UPDATE SKIP LOCKED is what makes this
-     * safe under concurrency (see JobService.claimNextJob() for why this
-     * must be called inside a @Transactional method).
-     *
-     * This is native SQL, so JOIN FETCH (a JPQL-only concept) can't be
-     * used here. That's why JobService.claimNextJob() explicitly touches
-     * job.getEndpoint() before its transaction ends - see the comment
-     * there for why that one line matters.
-     *
-     * @return the claimed job, or empty if nothing is eligible right now
+     * Finds and locks the single highest-priority, oldest, currently-eligible
+     * QUEUED job. FOR UPDATE SKIP LOCKED makes this safe under concurrency; it
+     * must be called inside a @Transactional method (see JobService.claimNextJob()).
      */
     @Query(value = """
             SELECT * FROM posture_job
@@ -36,23 +30,25 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
             """, nativeQuery = true)
     Optional<PostureJob> findNextClaimable();
 
-    /**
-     * JOIN FETCH pulls the related Endpoint back in the SAME query,
-     * instead of leaving it as a lazy proxy that would throw
-     * LazyInitializationException the moment JobController touches
-     * job.getEndpoint() after this method's transaction has closed.
-     *
-     * @return all jobs, newest first, with their endpoints loaded
-     */
+    /** @return all jobs, newest first, with their endpoints loaded */
     @Query("SELECT j FROM PostureJob j JOIN FETCH j.endpoint ORDER BY j.createdAt DESC")
     List<PostureJob> findAllByOrderByCreatedAtDesc();
 
-    /**
-     * Same JOIN FETCH approach as above, limited to one endpoint.
-     *
-     * @param endpointId the endpoint's internal UUID
-     * @return that endpoint's jobs, newest first
-     */
+    /** @return that endpoint's jobs, newest first, with the endpoint loaded */
     @Query("SELECT j FROM PostureJob j JOIN FETCH j.endpoint WHERE j.endpoint.id = :endpointId ORDER BY j.createdAt DESC")
     List<PostureJob> findByEndpoint_IdOrderByCreatedAtDesc(@Param("endpointId") UUID endpointId);
+
+    /** @return jobs still RUNNING that started before the cutoff (stalled), endpoints loaded */
+    @Query("SELECT j FROM PostureJob j JOIN FETCH j.endpoint WHERE j.status = com.endpointposture.job.JobStatus.RUNNING AND j.startedAt < :cutoff")
+    List<PostureJob> findStaleRunning(@Param("cutoff") Instant cutoff);
+
+    /** @return true if a job of this type for this endpoint is in one of the given statuses */
+    boolean existsByEndpoint_IdAndJobTypeAndStatusIn(UUID endpointId, JobType jobType, Collection<JobStatus> statuses);
+
+    /** @return the most recent job of this type with this status (by completion time) */
+    Optional<PostureJob> findFirstByEndpoint_IdAndJobTypeAndStatusOrderByCompletedAtDesc(
+            UUID endpointId, JobType jobType, JobStatus status);
+
+    /** @return the most recently created job of this type for this endpoint, any status */
+    Optional<PostureJob> findFirstByEndpoint_IdAndJobTypeOrderByCreatedAtDesc(UUID endpointId, JobType jobType);
 }

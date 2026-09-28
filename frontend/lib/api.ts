@@ -93,6 +93,37 @@ export interface IseStatus {
   lastError: string | null;
 }
 
+export interface SessionEvent {
+  id: string;
+  eventType: "CONNECTED" | "DISCONNECTED";
+  ipAddress: string | null;
+  eventAt: string;
+}
+
+export interface DashboardSummary {
+  total: number;
+  connected: number;
+  notConnected: number;
+  compliant: number;
+  nonCompliant: number;
+  error: number;
+  unassessed: number;
+  stale: number;
+}
+
+export interface TrendPoint {
+  date: string;
+  assessed: number;
+  compliantPercent: number | null;
+}
+
+export interface CategoryRate {
+  checkType: string;
+  total: number;
+  passing: number;
+  passPercent: number;
+}
+
 export interface AppRow {
   name: string;
   version?: string;
@@ -170,6 +201,12 @@ export const api = {
     const history = await request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`);
     return history[0] ?? null; // history is newest first; empty list means never assessed
   },
+
+  sessionHistory: (id: string) => request<SessionEvent[]>(`/api/v1/endpoints/${id}/sessions`),
+
+  dashboardSummary: () => request<DashboardSummary>("/api/v1/dashboard/summary"),
+  dashboardTrend: (days = 7) => request<TrendPoint[]>(`/api/v1/dashboard/trend?days=${days}`),
+  dashboardCategories: () => request<CategoryRate[]>("/api/v1/dashboard/categories"),
 
   listJobs: () => request<JobResponse[]>("/api/v1/jobs"),
   listJobsForEndpoint: (id: string) => request<JobResponse[]>(`/api/v1/jobs/endpoint/${id}`),

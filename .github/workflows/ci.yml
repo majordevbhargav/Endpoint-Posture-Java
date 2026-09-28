@@ -51,6 +51,8 @@ jobs:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5434/endpoint_posture
           # Provide a stable JWT secret so security auto-config doesn't error in tests.
           JWT_SECRET: ci-test-jwt-secret-at-least-256-bits-long-placeholder-value
+          SEED_ADMIN_PASSWORD: ci-test-admin-password
+          POSTURE_API_KEY: ci-test-agent-key
         run: mvn -B clean verify -Duser.timezone=UTC
 
 # ─── Frontend type-check ─────────────────────────────────────────────────────
@@ -75,4 +77,4 @@ jobs:
 
       - name: TypeScript type-check
         working-directory: frontend
-        run: npx tsc --noEmit --skipLibCheck
+        run: npx tsc --noEmit --skipLibCheck

@@ -13,17 +13,14 @@ import java.util.UUID;
  */
 public interface AssessmentRepository extends JpaRepository<Assessment, UUID> {
 
-    /**
-     * @param endpointId the endpoint's internal UUID
-     * @return that endpoint's assessments, newest first
-     */
+    /** @return that endpoint's assessments, newest first */
     List<Assessment> findByEndpointIdOrderByCreatedAtDesc(UUID endpointId);
 
-    /**
-     * @param endpointId the endpoint's internal UUID
-     * @return its most recent assessment, or empty if it has never been assessed
-     */
+    /** @return its most recent assessment, or empty if it has never been assessed */
     Optional<Assessment> findFirstByEndpointIdOrderByCreatedAtDesc(UUID endpointId);
+
+    /** @return true if the endpoint has at least one assessment whose status is not the given one */
+    boolean existsByEndpointIdAndStatusNot(UUID endpointId, AssessmentStatus status);
 
     /** @return the newest assessment for every endpoint that has at least one */
     @Query(value = """

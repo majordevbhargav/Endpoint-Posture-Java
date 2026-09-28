@@ -17,7 +17,14 @@ import {
   ShieldX,
   User,
 } from "lucide-react";
-import { api, EndpointResponse, AssessmentStatus, IseActionAudit } from "@/lib/api";
+import {
+  api,
+  EndpointResponse,
+  AssessmentStatus,
+  IseActionAudit,
+  DashboardSummary,
+  TrendPoint,
+} from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { useCachedFetch } from "@/lib/useCachedFetch";
 import { useIsLive } from "@/lib/IseStatusContext";
@@ -25,6 +32,7 @@ import { datedFilename, downloadCsv } from "@/lib/csv";
 import { RingGauge } from "@/components/dashboard/RingGauge";
 import { StatusDonut } from "@/components/dashboard/StatusDonut";
 import { StatCard } from "@/components/dashboard/StatCard";
+import { TrendChart } from "@/components/dashboard/TrendChart";
 import { RiskList, RiskItem } from "@/components/dashboard/RiskList";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
@@ -65,11 +73,18 @@ function SectionHeader({
 interface OverviewData {
   rows: EndpointRow[];
   audit: IseActionAudit[];
+  summary: DashboardSummary | null;
+  trend: TrendPoint[];
 }
 
 async function fetchOverview(): Promise<OverviewData> {
-  // Two requests total, instead of one per device.
-  const [endpoints, latest] = await Promise.all([api.listEndpoints(), api.latestPostureAll()]);
+  // Per-row status still comes from the fleet call; KPI numbers and the trend come from the dashboard APIs.
+  const [endpoints, latest, summary, trend] = await Promise.all([
+    api.listEndpoints(),
+    api.latestPostureAll(),
+    api.dashboardSummary().catch(() => null),
+    api.dashboardTrend(7).catch(() => [] as TrendPoint[]),
+  ]);
   const byEndpoint = new Map(latest.map((a) => [a.endpointId, a]));
   const rows: EndpointRow[] = endpoints.map((e) => ({ ...e, status: byEndpoint.get(e.id)?.status }));
 
@@ -79,7 +94,7 @@ async function fetchOverview(): Promise<OverviewData> {
   } catch {
     /* audit table is optional */
   }
-  return { rows, audit };
+  return { rows, audit, summary, trend };
 }
 
 export default function OverviewPage() {
@@ -90,20 +105,28 @@ export default function OverviewPage() {
   });
   const rows = data?.rows ?? null;
   const audit = data?.audit ?? [];
+  const summary = data?.summary ?? null;
+  const trendPoints = useMemo(
+    () => (data?.trend ?? []).map((t) => t.compliantPercent).filter((v): v is number => v != null),
+    [data?.trend]
+  );
   const [searchFilter, setSearchFilter] = useState("");
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const stats = useMemo(() => {
     const list = rows ?? [];
-    const healthy = list.filter((r) => bandFor(r.status) === "healthy").length;
-    const atRisk = list.filter((r) => bandFor(r.status) === "atRisk").length;
-    const critical = list.filter((r) => bandFor(r.status) === "critical").length;
+    const healthy = summary ? summary.compliant : list.filter((r) => bandFor(r.status) === "healthy").length;
+    const atRisk = summary ? summary.nonCompliant : list.filter((r) => bandFor(r.status) === "atRisk").length;
+    const critical = summary ? summary.error : list.filter((r) => bandFor(r.status) === "critical").length;
     const assessed = healthy + atRisk + critical;
+    // "Connected" stays ISE-aware: while ISE is down nothing counts as live.
     const connected = list.filter((r) => isLive(r.connected)).length;
+    const total = summary ? summary.total : list.length;
     const score = assessed === 0 ? 0 : Math.round((healthy / assessed) * 100);
-    return { healthy, atRisk, critical, assessed, connected, total: list.length, score };
+    const stale = summary ? summary.stale : 0;
+    return { healthy, atRisk, critical, assessed, connected, total, score, stale };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, isLive]);
+  }, [rows, summary, isLive]);
 
   const risks: RiskItem[] = useMemo(
     () =>
@@ -242,6 +265,7 @@ export default function OverviewPage() {
             <div className="text-sm font-semibold text-ink">Cisco ISE integration active</div>
             <div className="text-xs text-muted">
               {stats.connected} of {stats.total} devices have a live session. Sessions refresh every 15 seconds.
+              {stats.stale > 0 && <> {stats.stale} result{stats.stale > 1 ? "s are" : " is"} stale.</>}
             </div>
           </div>
         </div>
@@ -292,6 +316,15 @@ export default function OverviewPage() {
           </div>
         </section>
       </div>
+
+      {/* 2b. Trend */}
+      <section className="panel p-6">
+        <SectionHeader
+          title="Compliance trend (7 days)"
+          hint="Daily share of assessed devices whose latest result was compliant."
+        />
+        <TrendChart points={trendPoints} />
+      </section>
 
       {/* 3. Live endpoints */}
       <section className="panel p-6">
