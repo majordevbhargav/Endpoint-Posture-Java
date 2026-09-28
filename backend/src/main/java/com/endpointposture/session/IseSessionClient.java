@@ -1,4 +1,3 @@
-// src/main/java/com/endpointposture/session/IseSessionClient.java
 package com.endpointposture.session;
 
 import com.endpointposture.ise.config.IseProperties;
@@ -31,16 +30,26 @@ import java.util.List;
 /**
  * Polls ISE's MNT ActiveList API for currently-active sessions.
  *
- * <p>Every failure mode (ISE unreachable, wrong creds, malformed XML,
- * ISE not configured at all) returns an empty list rather than throwing,
- * so {@link IseSessionWatcher}'s {@code @Scheduled} tick never dies —
- * a bad poll just means "nothing to do this tick," and the next tick
- * tries again.</p>
+ * <p>Never throws. A failed poll is reported as {@link SessionPoll#failed}
+ * (distinct from a successful poll that found zero sessions), so
+ * {@link IseSessionWatcher} can tell "ISE is down" from "nobody is connected".</p>
  */
 @Component
 public class IseSessionClient {
 
     private static final Logger log = LoggerFactory.getLogger(IseSessionClient.class);
+
+    /**
+     * Result of one poll.
+     *
+     * @param ok       {@code true} if ISE answered and the response parsed
+     * @param sessions active sessions; empty on failure (and legitimately empty on success)
+     * @param error    failure reason when {@code ok} is false
+     */
+    public record SessionPoll(boolean ok, List<IseActiveSession> sessions, String error) {
+        static SessionPoll ok(List<IseActiveSession> s) { return new SessionPoll(true, s, null); }
+        static SessionPoll failed(String e)             { return new SessionPoll(false, List.of(), e); }
+    }
 
     private final IseProperties props;
     private final RestClient restClient;
@@ -55,11 +64,6 @@ public class IseSessionClient {
 
         RestClient.Builder builder = RestClient.builder().baseUrl(props.getBaseUrl());
         if (!props.isVerifyTls()) {
-            // Lab/self-signed ISE deployments commonly present a certificate
-            // the JVM's default trust store won't recognize. Mirrors
-            // ErsIseTransport's same insecure-client setup — both clients
-            // must honor app.ise.verify-tls the same way, or one silently
-            // fails TLS validation while the other works.
             builder = builder.requestFactory(new JdkClientHttpRequestFactory(insecureHttpClient()));
         }
         this.restClient = builder.build();
@@ -83,11 +87,11 @@ public class IseSessionClient {
         }
     }
 
-    /** @return currently active sessions, or an empty list on any failure / if ISE isn't configured */
-    public List<IseActiveSession> fetchActiveSessions() {
+    /** @return the poll outcome; never throws */
+    public SessionPoll fetchActiveSessions() {
         if (!props.isConfigured()) {
-            log.debug("ISE not configured (app.ise.base-url is blank) — skipping session poll");
-            return List.of();
+            log.debug("ISE not configured (app.ise.base-url is blank) - skipping session poll");
+            return SessionPoll.failed("ISE not configured");
         }
 
         try {
@@ -100,13 +104,13 @@ public class IseSessionClient {
                     .retrieve()
                     .body(String.class);
 
-            return parseActiveList(xml);
+            return SessionPoll.ok(parseActiveList(xml));
         } catch (RestClientException e) {
             log.warn("ISE session poll failed (will retry next tick): {}", e.getMessage());
-            return List.of();
+            return SessionPoll.failed(e.getMessage());
         } catch (Exception e) {
             log.warn("Could not parse ISE ActiveList response (will retry next tick)", e);
-            return List.of();
+            return SessionPoll.failed("Unparseable response: " + e.getMessage());
         }
     }
 

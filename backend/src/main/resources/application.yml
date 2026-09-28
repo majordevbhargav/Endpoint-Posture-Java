@@ -1,6 +1,9 @@
 spring:
   application:
     name: endpoint-posture-java
+  jackson:
+    deserialization:
+      accept-single-value-as-array: true  
 
   datasource:
     # Port 5434 is the host side of the docker-compose mapping (5434:5432).

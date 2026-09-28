@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /**
  * Reads and writes {@link HardwareHealthReport} + {@link HardwareRecommendation}.
- * The single persistence path — called by {@link HardwareIngestService} once
+ * The single persistence path - called by {@link HardwareIngestService} once
  * scoring succeeds, or by {@link com.endpointposture.job.JobWorker} via
  * {@link #recordFailure} when a hardware job fails before a report could be
  * produced.
@@ -19,7 +19,7 @@ import java.util.UUID;
 @Service
 public class HardwareHealthService {
 
-    // Illustrative bands, per project plan Section 15 question 10 —
+    // Illustrative bands, per project plan Section 15 question 10 -
     // not yet confirmed against real fleet data. Change here only.
     private static final int HEALTHY_THRESHOLD = 85;
     private static final int WARNING_THRESHOLD = 70;
@@ -46,9 +46,7 @@ public class HardwareHealthService {
             List<RecommendationInput> recommendations
     ) {
         // Overall = simple average of the components that actually apply.
-        // Battery is only folded in when present — averaging in a phantom
-        // 0 for every battery-less desktop would be wrong, not just
-        // slightly off, per BatteryScorer's own contract.
+        // Battery is only folded in when present.
         int componentSum = cpuScore + memoryScore + storageScore;
         int componentCount = 3;
         if (batteryScore != null) {
@@ -99,16 +97,8 @@ public class HardwareHealthService {
 
     /**
      * Records that a hardware-health check was attempted but never produced
-     * a scoreable report (timeout, crash, unreachable endpoint, collection
-     * failure, or a failed submission). Writes a row with
-     * {@code succeeded = false} and every score field {@code null} — never
-     * zero, since a zero score would read as a genuinely critical hardware
-     * reading rather than "we couldn't check." This is the hardware-side
-     * equivalent of {@link com.endpointposture.posture.AssessmentService#recordFailure}.
-     *
-     * @param endpointId the endpoint that was being checked
-     * @param jobId      the job that made the attempt
-     * @param reason     what went wrong
+     * a scoreable report. Writes a row with {@code succeeded = false} and
+     * every score field {@code null} - never zero.
      */
     @Transactional
     public HardwareHealthResponse recordFailure(UUID endpointId, UUID jobId, String reason) {
@@ -138,6 +128,13 @@ public class HardwareHealthService {
         return healthRepository.findFirstByEndpointIdOrderByCollectedAtDesc(endpointId)
                 .map(this::toResponse)
                 .orElseThrow(() -> new HardwareHealthNotFoundException(endpointId.toString()));
+    }
+
+    /** @return the newest hardware report for every endpoint that has one; others are simply absent */
+    @Transactional(readOnly = true)
+    public List<HardwareHealthResponse> getLatestForAllEndpoints() {
+        return healthRepository.findLatestPerEndpoint()
+                .stream().map(this::toResponse).toList();
     }
 
     HardwareBand bandFor(int score) {

@@ -1,6 +1,7 @@
 package com.endpointposture.posture;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
@@ -23,4 +24,12 @@ public interface AssessmentRepository extends JpaRepository<Assessment, UUID> {
      * @return its most recent assessment, or empty if it has never been assessed
      */
     Optional<Assessment> findFirstByEndpointIdOrderByCreatedAtDesc(UUID endpointId);
+
+    /** @return the newest assessment for every endpoint that has at least one */
+    @Query(value = """
+            SELECT DISTINCT ON (endpoint_id) *
+            FROM assessment
+            ORDER BY endpoint_id, created_at DESC
+            """, nativeQuery = true)
+    List<Assessment> findLatestPerEndpoint();
 }

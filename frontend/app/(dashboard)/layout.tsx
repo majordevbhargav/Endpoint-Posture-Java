@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { api, getToken, clearToken } from "@/lib/api";
 import { clearCurrentUser } from "@/lib/auth";
 import { isTokenValid } from "@/lib/session";
+import { IseStatusProvider } from "@/lib/IseStatusContext";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { IseBanner } from "@/components/ui/IseBanner";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -20,7 +22,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace("/login");
       return;
     }
-    // Confirm the backend still accepts this token before showing anything.
     api
       .listEndpoints()
       .then(() => setReady(true))
@@ -34,12 +35,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!ready) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar />
-        <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-8">{children}</main>
+    <IseStatusProvider>
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Topbar />
+          <IseBanner />
+          <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-8">{children}</main>
+        </div>
       </div>
-    </div>
+    </IseStatusProvider>
   );
 }

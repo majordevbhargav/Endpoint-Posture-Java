@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Cpu,
-  Server,
-  HardDrive,
   Battery,
   RefreshCw,
   Play,
@@ -16,7 +14,7 @@ import {
   ChevronUp,
   Wrench,
 } from "lucide-react";
-import { api, EndpointResponse, HardwareHealthResponse, HardwareBand } from "@/lib/api";
+import { api, EndpointResponse, HardwareHealthResponse } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { usePolling } from "@/lib/usePolling";
 
@@ -25,7 +23,7 @@ type Row = {
   hw: HardwareHealthResponse | null;
 };
 
-function ScoreBar({ value, label }: { value: number | null | undefined; label: string }) {
+function ScoreBar({ value }: { value: number | null | undefined }) {
   if (value == null) {
     return (
       <div className="flex items-center gap-1.5 text-xs text-muted">
@@ -37,7 +35,6 @@ function ScoreBar({ value, label }: { value: number | null | undefined; label: s
   const isGood = value >= 80;
   const isWarn = value >= 60 && value < 80;
   const barColor = isGood ? "bg-good" : isWarn ? "bg-warn" : "bg-bad";
-  const textColor = isGood ? "text-good" : isWarn ? "text-warn" : "text-bad";
 
   return (
     <div className="flex flex-col gap-1 min-w-[70px]">
@@ -65,22 +62,22 @@ export default function HardwarePage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const eps = await api.listEndpoints();
-      const withHw = await Promise.all(
-        eps.map(async (e) => ({
-          e,
-          hw: await api.latestHardware(e.id).catch(() => null),
-        }))
-      );
-      setRows(withHw);
+      // Two requests total, instead of one per device.
+      const [eps, latest] = await Promise.all([api.listEndpoints(), api.latestHardwareAll()]);
+      const byEndpoint = new Map(latest.map((h) => [h.endpointId, h]));
+      setRows(eps.map((e) => ({ e, hw: byEndpoint.get(e.id) ?? null })));
     } catch {
-      setRows([]);
+      setRows((prev) => prev ?? []); // keep the last good data on a failed poll
     } finally {
       setLoading(false);
     }
   };
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-usePolling(loadData, 20000);
+  usePolling(loadData, 20000);
 
   const stats = useMemo(() => {
     const list = rows ?? [];
@@ -313,19 +310,19 @@ usePolling(loadData, 20000);
                     </td>
 
                     <td className="py-3 px-4">
-                      <ScoreBar value={hw?.cpuScore} label="CPU" />
+                      <ScoreBar value={hw?.cpuScore} />
                     </td>
 
                     <td className="py-3 px-4">
-                      <ScoreBar value={hw?.memoryScore} label="RAM" />
+                      <ScoreBar value={hw?.memoryScore} />
                     </td>
 
                     <td className="py-3 px-4">
-                      <ScoreBar value={hw?.storageScore} label="Disk" />
+                      <ScoreBar value={hw?.storageScore} />
                     </td>
 
                     <td className="py-3 px-4">
-                      <ScoreBar value={hw?.batteryScore} label="Bat" />
+                      <ScoreBar value={hw?.batteryScore} />
                     </td>
 
                     <td className="py-3 px-4">

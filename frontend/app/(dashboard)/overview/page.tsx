@@ -20,6 +20,7 @@ import {
 import { api, EndpointResponse, AssessmentStatus, IseActionAudit } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { useCachedFetch } from "@/lib/useCachedFetch";
+import { useIsLive } from "@/lib/IseStatusContext";
 import { datedFilename, downloadCsv } from "@/lib/csv";
 import { RingGauge } from "@/components/dashboard/RingGauge";
 import { StatusDonut } from "@/components/dashboard/StatusDonut";
@@ -67,17 +68,10 @@ interface OverviewData {
 }
 
 async function fetchOverview(): Promise<OverviewData> {
-  const endpoints = await api.listEndpoints();
-  const rows = await Promise.all(
-    endpoints.map(async (e): Promise<EndpointRow> => {
-      try {
-        const latest = await api.latestPosture(e.id);
-        return { ...e, status: latest.status };
-      } catch {
-        return { ...e };
-      }
-    })
-  );
+  // Two requests total, instead of one per device.
+  const [endpoints, latest] = await Promise.all([api.listEndpoints(), api.latestPostureAll()]);
+  const byEndpoint = new Map(latest.map((a) => [a.endpointId, a]));
+  const rows: EndpointRow[] = endpoints.map((e) => ({ ...e, status: byEndpoint.get(e.id)?.status }));
 
   let audit: IseActionAudit[] = [];
   try {
@@ -89,6 +83,7 @@ async function fetchOverview(): Promise<OverviewData> {
 }
 
 export default function OverviewPage() {
+  const isLive = useIsLive();
   const { data, refreshing, error, reload } = useCachedFetch("overview", fetchOverview, {
     ttlMs: 15000,
     pollMs: 20000,
@@ -104,10 +99,11 @@ export default function OverviewPage() {
     const atRisk = list.filter((r) => bandFor(r.status) === "atRisk").length;
     const critical = list.filter((r) => bandFor(r.status) === "critical").length;
     const assessed = healthy + atRisk + critical;
-    const connected = list.filter((r) => r.connected).length;
+    const connected = list.filter((r) => isLive(r.connected)).length;
     const score = assessed === 0 ? 0 : Math.round((healthy / assessed) * 100);
     return { healthy, atRisk, critical, assessed, connected, total: list.length, score };
-  }, [rows]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, isLive]);
 
   const risks: RiskItem[] = useMemo(
     () =>
@@ -126,9 +122,9 @@ export default function OverviewPage() {
     [rows]
   );
 
-  // Live sessions only. Offline devices live in the Endpoints Directory.
+  // Live sessions only. Offline devices (and, while ISE is down, every device) live in the Endpoints Directory.
   const liveRows = useMemo(() => {
-    const live = (rows ?? []).filter((r) => r.connected);
+    const live = (rows ?? []).filter((r) => isLive(r.connected));
     const q = searchFilter.trim().toLowerCase();
     if (!q) return live;
     return live.filter(
@@ -137,12 +133,13 @@ export default function OverviewPage() {
         r.hostname?.toLowerCase().includes(q) ||
         r.ipAddress?.toLowerCase().includes(q)
     );
-  }, [rows, searchFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, searchFilter, isLive]);
 
   const offlineCount = stats.total - stats.connected;
 
   async function triggerScanAll() {
-    const targets = (rows ?? []).filter((r) => r.connected);
+    const targets = (rows ?? []).filter((r) => isLive(r.connected));
     if (targets.length === 0) {
       setActionNotice("No live sessions to scan right now.");
       setTimeout(() => setActionNotice(null), 4000);

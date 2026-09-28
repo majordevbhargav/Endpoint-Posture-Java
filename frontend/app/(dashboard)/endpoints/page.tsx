@@ -228,16 +228,11 @@ export default function EndpointsPage() {
     setLoading(true);
     setError(null);
     try {
-      const list = await api.listEndpoints();
-      const withStatus = await Promise.all(
-        list.map(async (ep): Promise<EndpointWithDetails> => {
-          try {
-            const latest = await api.latestPosture(ep.id);
-            return { ...ep, postureStatus: latest.status };
-          } catch {
-            return { ...ep };
-          }
-        })
+      // Two requests total, instead of one per device.
+      const [list, latest] = await Promise.all([api.listEndpoints(), api.latestPostureAll()]);
+      const byEndpoint = new Map(latest.map((a) => [a.endpointId, a]));
+      const withStatus = list.map(
+        (ep): EndpointWithDetails => ({ ...ep, postureStatus: byEndpoint.get(ep.id)?.status })
       );
       setEndpoints(withStatus);
     } catch (err) {

@@ -1,5 +1,24 @@
-// components/ui/ConnectionDot.tsx
+"use client";
+
+import { useIseStatus } from "@/lib/IseStatusContext";
+
 export function ConnectionDot({ connected }: { connected: boolean }) {
+  const ise = useIseStatus();
+  const iseDown = ise?.reachable === false;
+
+  // Flagged connected, but ISE is down so we can't confirm it.
+  if (connected && iseDown) {
+    return (
+      <span
+        className="inline-flex items-center gap-2 text-xs font-medium text-warn"
+        title="ISE is unreachable, so this is the last known state"
+      >
+        <span className="h-2 w-2 rounded-full bg-warn" />
+        <span>Last known</span>
+      </span>
+    );
+  }
+
   if (connected) {
     return (
       <span className="inline-flex items-center gap-2 text-xs font-medium text-good">

@@ -31,21 +31,8 @@ public class AssessmentService {
     }
 
     /**
-     * The single write path for posture evidence. Called once a finished
-     * result exists (from the HTTP ingestion endpoint). Always inserts a
-     * new row - never updates a prior assessment - per the append-only
-     * decision behind the whole OBSERVATION -> EVIDENCE model.
-     *
-     * <p>No ISE call happens anywhere in this method, deliberately.</p>
-     *
-     * @param endpointId    the endpoint that was assessed
-     * @param jobId         the triggering job, or {@code null} if none
-     * @param startedAt     when collection began
-     * @param completedAt   when the assessment was finished
-     * @param overallStatus overall result across all checks
-     * @param detail        short human-readable summary
-     * @param checks        the individual check results, saved together with the assessment
-     * @return the saved assessment with its checks
+     * The single write path for posture evidence. Always inserts a new row -
+     * never updates a prior assessment. No ISE call happens in this method.
      */
     @Transactional
     public AssessmentResponse recordAssessment(
@@ -84,13 +71,8 @@ public class AssessmentService {
 
     /**
      * Records that a posture check was attempted but did not produce a
-     * report (timeout, crash, unreachable endpoint, failed submission).
-     * Writes an {@code ERROR} assessment with no checks: a failed attempt is
-     * still evidence that a check was tried, so it is kept rather than dropped.
-     *
-     * @param endpointId the endpoint that was being checked
-     * @param jobId      the job that made the attempt
-     * @param detail     what went wrong
+     * report. Writes an {@code ERROR} assessment with no checks: a failed
+     * attempt is still evidence.
      */
     @Transactional
     public void recordFailure(UUID endpointId, UUID jobId, String detail) {
@@ -98,10 +80,7 @@ public class AssessmentService {
         recordAssessment(endpointId, jobId, now, now, AssessmentStatus.ERROR, detail, List.of());
     }
 
-    /**
-     * @param endpointId the endpoint's internal UUID
-     * @return all of its assessments, newest first (empty list if none)
-     */
+    /** @return all of an endpoint's assessments, newest first (empty list if none) */
     @Transactional(readOnly = true)
     public List<AssessmentResponse> getHistoryForEndpoint(UUID endpointId) {
         return assessmentRepository.findByEndpointIdOrderByCreatedAtDesc(endpointId)
@@ -111,8 +90,7 @@ public class AssessmentService {
     }
 
     /**
-     * @param endpointId the endpoint's internal UUID
-     * @return its most recent assessment
+     * @return an endpoint's most recent assessment
      * @throws AssessmentNotFoundException if it has never been assessed
      */
     @Transactional(readOnly = true)
@@ -120,6 +98,15 @@ public class AssessmentService {
         return assessmentRepository.findFirstByEndpointIdOrderByCreatedAtDesc(endpointId)
                 .map(this::toResponse)
                 .orElseThrow(() -> new AssessmentNotFoundException(endpointId.toString()));
+    }
+
+    /** @return the newest assessment for every endpoint that has one; endpoints never assessed are simply absent */
+    @Transactional(readOnly = true)
+    public List<AssessmentResponse> getLatestForAllEndpoints() {
+        return assessmentRepository.findLatestPerEndpoint()
+                .stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     private AssessmentResponse toResponse(Assessment a) {

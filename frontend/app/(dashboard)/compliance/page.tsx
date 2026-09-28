@@ -34,23 +34,23 @@ export default function CompliancePage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const eps = await api.listEndpoints();
-      const withPosture = await Promise.all(
-        eps.map(async (e) => ({
-          e,
-          a: await api.latestPosture(e.id).catch(() => null),
-        }))
-      );
-      setRows(withPosture);
-    } catch {
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+const loadData = async () => {
+  setLoading(true);
+  try {
+    const [eps, latest] = await Promise.all([api.listEndpoints(), api.latestPostureAll()]);
+    const byEndpoint = new Map(latest.map((a) => [a.endpointId, a]));
+    setRows(eps.map((e) => ({ e, a: byEndpoint.get(e.id) ?? null })));
+  } catch {
+    setRows((prev) => prev ?? []);
+  } finally {
+    setLoading(false);
+  }
+};
+
+useEffect(() => {
+  loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
 usePolling(loadData, 20000);
 

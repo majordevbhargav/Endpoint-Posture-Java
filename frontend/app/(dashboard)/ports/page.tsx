@@ -6,30 +6,29 @@ import {
   Network,
   Search,
   RefreshCw,
-  ShieldCheck,
-  ShieldAlert,
-  Radio,
   Monitor,
   ExternalLink,
   CheckCircle2,
   XCircle,
 } from "lucide-react";
 import { PortRow, listPorts } from "@/lib/inventory";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 
 export default function PortsPage() {
   const [rows, setRows] = useState<PortRow[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [reachFilter, setReachFilter] = useState<"ALL" | "REACHABLE" | "BLOCKED">("ALL");
 
   const loadData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await listPorts();
       setRows(data);
     } catch {
       setRows([]);
+      setError("Could not load inventory from the backend.");
     } finally {
       setLoading(false);
     }
@@ -89,6 +88,10 @@ export default function PortsPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-xs text-bad">{error}</div>
+      )}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="panel p-4">
@@ -144,7 +147,7 @@ export default function PortsPage() {
         <div className="flex items-center gap-2">
           <select
             value={reachFilter}
-            onChange={(e) => setReachFilter(e.target.value as any)}
+            onChange={(e) => setReachFilter(e.target.value as "ALL" | "REACHABLE" | "BLOCKED")}
             className="rounded-lg border border-border bg-panel px-2.5 py-1.5 text-xs text-ink outline-none focus:border-accent"
           >
             <option value="ALL">All Reachabilities</option>
@@ -172,7 +175,7 @@ export default function PortsPage() {
               {rows === null && (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-muted">
-                    Loading port inventory from posture checks…
+                    Loading port inventory…
                   </td>
                 </tr>
               )}

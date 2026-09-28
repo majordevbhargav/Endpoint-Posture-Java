@@ -7,7 +7,6 @@ import {
   Search,
   RefreshCw,
   ShieldCheck,
-  ShieldAlert,
   AlertTriangle,
   Monitor,
   CheckCircle2,
@@ -20,16 +19,19 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 export default function ApplicationsPage() {
   const [rows, setRows] = useState<AppRow[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
 
   const loadData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const data = await listApplications();
       setRows(data);
     } catch {
       setRows([]);
+      setError("Could not load inventory from the backend.");
     } finally {
       setLoading(false);
     }
@@ -89,6 +91,10 @@ export default function ApplicationsPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-xs text-bad">{error}</div>
+      )}
+
       {/* Enterprise Policy Baseline Rules Banner */}
       <div className="panel grid grid-cols-1 gap-4 bg-panel2/50 p-4 md:grid-cols-2">
         <div className="flex items-start gap-3">
@@ -124,12 +130,12 @@ export default function ApplicationsPage() {
             <Monitor size={16} className="text-accent" />
           </div>
           <div className="mt-2 text-2xl font-bold text-ink">{stats.uniqueDevices}</div>
-          <div className="text-[11px] text-muted">With application assessments</div>
+          <div className="text-[11px] text-muted">With application inventory</div>
         </div>
 
         <div className="panel p-4">
           <div className="flex items-center justify-between text-xs text-muted">
-            <span>Software Compliant</span>
+            <span>Required Apps Present</span>
             <CheckCircle2 size={16} className="text-good" />
           </div>
           <div className="mt-2 text-2xl font-bold text-good">{stats.compliant}</div>
@@ -138,22 +144,20 @@ export default function ApplicationsPage() {
 
         <div className="panel p-4">
           <div className="flex items-center justify-between text-xs text-muted">
-            <span>Policy Violations</span>
+            <span>Blocked Apps Found</span>
             <AlertTriangle size={16} className="text-bad" />
           </div>
           <div className="mt-2 text-2xl font-bold text-bad">{stats.violations}</div>
-          <div className="text-[11px] text-muted">Missing required / blocked app found</div>
+          <div className="text-[11px] text-muted">Policy violations</div>
         </div>
 
         <div className="panel p-4">
           <div className="flex items-center justify-between text-xs text-muted">
-            <span>Compliance Ratio</span>
+            <span>Total Installed Apps</span>
             <Boxes size={16} className="text-accent" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-ink">
-            {stats.total === 0 ? "—" : `${Math.round((stats.compliant / stats.total) * 100)}%`}
-          </div>
-          <div className="text-[11px] text-muted">Fleet software health</div>
+          <div className="mt-2 text-2xl font-bold text-ink">{stats.total}</div>
+          <div className="text-[11px] text-muted">Across all endpoints</div>
         </div>
       </div>
 
@@ -177,8 +181,8 @@ export default function ApplicationsPage() {
             className="rounded-lg border border-border bg-panel px-2.5 py-1.5 text-xs text-ink outline-none focus:border-accent"
           >
             <option value="ALL">All Statuses</option>
-            <option value="COMPLIANT">Compliant Only</option>
-            <option value="NON_COMPLIANT">Violations Only</option>
+            <option value="COMPLIANT">Required Present</option>
+            <option value="NON_COMPLIANT">Blocked Found</option>
           </select>
         </div>
       </div>
@@ -189,7 +193,7 @@ export default function ApplicationsPage() {
           <table className="w-full min-w-[760px] border-collapse text-left text-xs">
             <thead>
               <tr className="border-b border-border bg-panel2/40 text-[11px] font-semibold text-muted">
-                <th className="py-3 px-4">Application / Policy</th>
+                <th className="py-3 px-4">Application</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Publisher / Source</th>
                 <th className="py-3 px-4">Device Hostname</th>
@@ -202,14 +206,14 @@ export default function ApplicationsPage() {
               {rows === null && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-muted">
-                    Loading application control records from posture checks…
+                    Loading application inventory…
                   </td>
                 </tr>
               )}
               {rows !== null && shown.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-muted">
-                    No matching software records found. Application control results appear once posture checks run.
+                    No matching software records found. Inventory appears once posture checks run.
                   </td>
                 </tr>
               )}
@@ -217,6 +221,7 @@ export default function ApplicationsPage() {
                 <tr key={i} className="transition hover:bg-ink/[0.02]">
                   <td className="py-3 px-4 font-semibold text-ink">
                     {r.name}
+                    {r.version && <span className="ml-2 font-mono text-[10px] font-normal text-muted">{r.version}</span>}
                   </td>
 
                   <td className="py-3 px-4">
@@ -240,7 +245,7 @@ export default function ApplicationsPage() {
                   </td>
 
                   <td className="py-3 px-4 max-w-xs truncate text-muted">
-                    {r.summary || "Policy evaluation verified."}
+                    {r.summary || "—"}
                   </td>
 
                   <td className="py-3 px-4 text-right">

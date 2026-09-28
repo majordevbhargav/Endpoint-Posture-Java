@@ -81,6 +81,12 @@ export interface IseActionAudit {
   occurredAt: string;
 }
 
+export interface IseStatus {
+  reachable: boolean;
+  lastSuccessAt: string | null;
+  lastError: string | null;
+}
+
 export interface AppRow {
   name: string;
   version?: string;
@@ -148,10 +154,16 @@ export const api = {
   getEndpoint: (id: string) => request<EndpointResponse>(`/api/v1/endpoints/${id}`),
 
   latestPosture: (id: string) => request<AssessmentResponse>(`/api/v1/endpoints/${id}/posture/latest`),
+  latestPostureAll: () => request<AssessmentResponse[]>("/api/v1/posture/latest"),
   postureHistory: (id: string) => request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`),
 
   latestHardware: (id: string) => request<HardwareHealthResponse>(`/api/v1/endpoints/${id}/hardware-health/latest`),
+  latestHardwareAll: () => request<HardwareHealthResponse[]>("/api/v1/hardware-health/latest"),
   hardwareHistory: (id: string) => request<HardwareHealthResponse[]>(`/api/v1/endpoints/${id}/hardware-health`),
+  latestPostureOrNull: async (id: string): Promise<AssessmentResponse | null> => {
+  const history = await request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`);
+  return history[0] ?? null; // history is newest first; empty list means never assessed
+},
 
   listJobs: () => request<JobResponse[]>("/api/v1/jobs"),
   listJobsForEndpoint: (id: string) => request<JobResponse[]>(`/api/v1/jobs/endpoint/${id}`),
@@ -179,6 +191,8 @@ export const api = {
 
   auditActions: (endpointId?: string) =>
     request<IseActionAudit[]>(`/api/v1/audit/ise-actions${endpointId ? `?endpointId=${endpointId}` : ""}`),
+
+  iseStatus: () => request<IseStatus>("/api/v1/ise/status"),
 
   listApplications: () => request<AppRow[]>("/api/v1/applications"),
   listPorts: () => request<PortRow[]>("/api/v1/ports"),
