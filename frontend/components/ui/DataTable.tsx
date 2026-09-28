@@ -59,7 +59,7 @@ export function DataTable<T>({
   toolbarLeft,
 }: DataTableProps<T>) {
   const list = rows ?? [];
-  const pager = usePagination(list, defaultPageSize);
+  const pager = usePagination(list, defaultPageSize, csvFilename);
 
   function exportCsv() {
     const exportCols = columns.filter((c) => c.exportable !== false);

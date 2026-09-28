@@ -713,3 +713,113 @@ Each is written the way the explainer writes built features, so it can be promot
 5. C7 sessions history and ISE Actions page.
 6. C1 remediation (highest risk, build last, with the guard first).
 7. C5 Endpoint 360.
+
+# VE Compliance Engine: Explainer Addendum
+Continues `VE_Backend_Complete_Explainer.md` (Parts 0 to 14). Same format: what it is, why it exists, how it works, what it does.
+
+---
+
+# PART 15: Feature Inventory (what the repo does today)
+
+| Area | Feature | Where |
+|---|---|---|
+| Auth | JWT login, BCrypt passwords, seeded admin | `security/` |
+| Auth | Agent API key, scoped to the two ingestion routes | `PostureApiKeyFilter` |
+| Discovery | ISE MNT ActiveList polling every 15s | `session/` |
+| Discovery | Connect/disconnect state and event log | `EndpointService`, `endpoint_session_log` |
+| Queue | Postgres job queue, SKIP LOCKED claim, retry with backoff | `job/` |
+| Posture | Firewall, open ports, installed apps checks | `posture_agent.ps1`, `posture/` |
+| Posture | Append-only assessment history with per-check JSONB | `Assessment`, `CheckResult` |
+| Hardware | CPU, memory, storage, battery scoring, bands, recommendations | `hardware/` |
+| Hardware | Failed runs recorded as evidence (`succeeded=false`) | `HardwareHealthService.recordFailure` |
+| ISE actions | Share posture, restrict, clear, each audited | `ise/`, `audit/` |
+| Inventory | Latest installed apps and listening ports per endpoint | `inventory/` (new) |
+| Resilience | ISE outage detection, frozen session state, UI banner | `IseLinkHealth` (new) |
+| Frontend | Command Center, Endpoints Directory, Endpoint 360 detail, Compliance Matrix, Hardware, Installed Software, Ports, Assessment Queue, ISE Audit | `frontend/app/(dashboard)/` |
+| Frontend | Pagination + CSV export via shared `DataTable`, live polling, light/dark theme | `components/ui/` |
+
+---
+
+# PART 16: Features Added Recently (explained)
+
+## 16.1 `inventory/`: fleet-wide apps and ports
+**Why:** the agent already collected installed apps and listening ports, but `PostureReportRequest.InventoryDto` was accepted and discarded. The Applications and Ports pages therefore returned 404 and the frontend invented fallback rows.
+**How:**
+- `V12__create_endpoint_inventory.sql` adds `endpoint_inventory`: one append-only row per posture run, with JSONB columns for ports, apps, processes and resource usage.
+- `EndpointInventory` is the entity. `@JdbcTypeCode(SqlTypes.JSON)` maps `List<Map<String,Object>>` straight to `jsonb`.
+- `EndpointInventoryRepository.findLatestPerEndpoint()` uses Postgres `SELECT DISTINCT ON (endpoint_id) ... ORDER BY endpoint_id, collected_at DESC`, which returns the newest row per device in one query.
+- `PostureIngestService` saves the inventory in the same transaction as the assessment, so both exist or neither does.
+- `InventoryController` serves `GET /api/v1/applications` and `GET /api/v1/ports`, flattened to the row shapes the frontend expects. It flags required and blocked apps by case-insensitive substring, mirroring the agent's defaults.
+**Effect:** the two pages show real data with pagination and CSV. Nothing here calls ISE.
+
+## 16.2 `IseLinkHealth`: "ISE is down" is not "no sessions"
+**Why:** `fetchActiveSessions()` returned an empty list for both failure and "nobody connected". The watcher did `if (active.isEmpty()) return;`, so after a network loss every device stayed `connected=true` forever, and the last device to leave could never be marked disconnected.
+**How:**
+- `IseSessionClient` now returns `SessionPoll(ok, sessions, error)`. Failure and empty success are different values.
+- `IseSessionWatcher.tick()` on failure records the outage and returns without touching endpoint state, because we don't know who is connected. On success, an empty list now means everyone disconnected.
+- `IseLinkHealth` counts consecutive failures. Two in a row means unreachable, so one blip doesn't flap the UI.
+- `IseStatusController` exposes `GET /api/v1/ise/status`.
+**Why not mass-mark devices disconnected during an outage:** it would write false `DISCONNECTED` rows and trigger a posture job for every device on recovery.
+**Frontend:** `IseStatusContext` polls the status every 10s. `IseBanner` explains the outage. `ConnectionDot` shows "Last known" instead of "ISE Active", and `useIsLive()` keeps stale devices out of the Live endpoints table and the scan button.
+
+## 16.3 No jobs for devices with no target
+`IseSessionWatcher` now skips enqueueing when an endpoint has neither IP nor hostname. `JobWorker.targetFor` used to throw for these, producing retry noise and `FAILED` jobs.
+
+## 16.4 Hardware: last good result stays visible
+**Why:** a failed hardware check writes a row with null scores, so `/latest` returned it and the UI showed a blank device.
+**How:** `HardwareHealthService` prefers the newest successful run for both `/latest` reads. If a newer run failed, the response carries `lastAttemptFailedAt` and `lastAttemptError`. A device that never succeeded still returns its failed row. History is unchanged.
+**Effect:** old good scores stay visible with an amber "latest check failed" notice, and the fleet average still counts them.
+
+## 16.5 Paginated tables
+Applications and Ports use the shared `DataTable`: page size selector, first/prev/next/last, and CSV export of every filtered row. The CSV layer neutralizes cells beginning with `= + - @`, which matters because app names come from remote machines.
+
+---
+
+# PART 17: Proposed Features (in the spirit of the Python repo)
+
+Ordered by value. Each keeps the rule **observation never triggers enforcement**.
+
+### 17.1 Session history API and timeline (small)
+`endpoint_session_log` is written but never exposed. Add `GET /api/v1/endpoints/{id}/sessions` (repository method `findByEndpointIdOrderByEventAtDesc` already exists) and a Sessions tab on the endpoint page. Answers "when was this device offline".
+
+### 17.2 Disconnect grace period (small)
+The Python plan (Section 15, Q8) asked for two missed polls before marking disconnected. Track a `missedPolls` counter per MAC in the watcher and mark disconnected only at 2. Stops roaming flaps.
+
+### 17.3 Scheduled hardware recheck with persistent backoff (medium)
+Python had a 24h hardware sweep with a failure backoff. Add an `@Scheduled` task that calls `enqueueIfDue(id, HARDWARE_CHECK)` for endpoints whose newest hardware row is older than `app.jobs.hardware-recheck-hours`. Backoff uses `next_attempt_at`, so it survives restarts.
+
+### 17.4 Stale RUNNING job recovery (medium)
+If the backend dies mid-job, the job stays `RUNNING` forever (documented gap). Add a sweep: `RUNNING` and `started_at` older than `process-timeout + margin` returns to `QUEUED` and the attempt counts.
+
+### 17.5 Configurable application policy (medium)
+Required and blocked apps are hardcoded in three places (agent parameters, `InventoryController`, the frontend banner). Add a `app_policy` table, `GET/PUT /api/v1/policy/apps`, and pass the lists to the agent as parameters from `JobWorker`. One source of truth.
+
+### 17.6 Processes and resource usage page (small)
+Already collected and stored in `endpoint_inventory.top_processes` and `resource_usage`. Add `GET /api/v1/processes` and a page, same pattern as Ports.
+
+### 17.7 Compliance trend charts (small)
+`TrendChart.tsx` exists but is unused. Add `GET /api/v1/dashboard/trend?days=7` (share of COMPLIANT assessments per day, from `assessment`) and render it on the Command Center.
+
+### 17.8 Dashboard summary endpoint plus Redis cache (medium)
+The Command Center makes one request per endpoint. Fill the empty `EndpointSummaryResponse` and add one server-side summary query. Later, cache it in Redis (Roadmap Phase 4).
+
+### 17.9 Endpoint 360 (large, deferred in the roadmap)
+Experience score (Wi-Fi, gateway ping, DNS, TCP 443, traceroute) and security indicators (lateral movement, beaconing) from the Python collectors. Schema was reserved in the HLD.
+
+### 17.10 Application remediation (large, deferred)
+Classification plus remote uninstall over PowerShell Remoting. **Must** carry over the `PROTECTED_KEYWORDS` safety list and write a `remediation_audit` row for every attempt, success or failure.
+
+### 17.11 Roles and hardening (medium)
+Add a second role (read-only Viewer) enforced with `@PreAuthorize` on the ISE action controller. Add login rate limiting, move secrets to environment variables, and set `verify-tls: true` where ISE has a trusted certificate.
+
+### 17.12 Warranty data (medium)
+Warranty is always `UNKNOWN`. Add a CSV upload endpoint that fills `warranty_status` and `warranty_days_remaining`, as in the Python plan (Section 15, Q10).
+
+---
+
+# PART 18: Suggested Build Order
+
+1. 17.1 sessions, 17.6 processes, 17.7 trends: small, reuse existing data.
+2. 17.2 grace period and 17.4 stale-job recovery: reliability.
+3. 17.5 policy table, 17.3 scheduled hardware recheck.
+4. 17.11 roles, then 17.9 and 17.10 once the base is stable.

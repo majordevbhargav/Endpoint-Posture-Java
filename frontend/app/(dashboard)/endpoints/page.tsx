@@ -348,7 +348,7 @@ export default function EndpointsPage() {
   }, [endpoints, connFilter, statusFilter, search]);
 
   // Pagination slices the filtered list; the accordion below renders only the current page.
-  const pager = usePagination(filtered, 25);
+  const pager = usePagination(filtered, 25, "endpoints");
   const { resetPage } = pager;
 
   // A new search/filter should start from page 1.

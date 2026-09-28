@@ -12,9 +12,87 @@ import {
   XCircle,
 } from "lucide-react";
 import { PortRow, listPorts } from "@/lib/inventory";
+import { Column, DataTable } from "@/components/ui/DataTable";
+
+// The API rows have no unique id, so one is added on load (DataTable needs a stable row key).
+type KeyedPort = PortRow & { rowId: string };
+
+const columns: Column<KeyedPort>[] = [
+  {
+    key: "port",
+    header: "Port Number",
+    render: (r) => (
+      <span className="rounded border border-border bg-base px-2 py-1 font-mono text-xs font-bold text-ink">
+        TCP/{r.port}
+      </span>
+    ),
+    csv: (r) => r.port,
+  },
+  {
+    key: "process",
+    header: "Service / Process",
+    className: "font-medium text-ink",
+    render: (r) => r.process || "Active Listener",
+    csv: (r) => r.process,
+  },
+  {
+    key: "pid",
+    header: "PID",
+    className: "font-mono text-muted",
+    render: (r) => (r.pid != null ? String(r.pid) : "—"),
+    csv: (r) => r.pid,
+  },
+  {
+    key: "reachable",
+    header: "Reachability Verdict",
+    render: (r) =>
+      r.reachable == null ? (
+        <span className="text-[11px] text-muted">Untested</span>
+      ) : r.reachable ? (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-good/25 bg-good/10 px-2.5 py-0.5 text-xs font-medium text-good">
+          <span className="h-1.5 w-1.5 rounded-full bg-good" />
+          Reachable (Probe Connected)
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-bad/25 bg-bad/10 px-2.5 py-0.5 text-xs font-medium text-bad">
+          <span className="h-1.5 w-1.5 rounded-full bg-bad" />
+          Blocked / Filtered
+        </span>
+      ),
+    csv: (r) => (r.reachable == null ? "UNTESTED" : r.reachable ? "REACHABLE" : "BLOCKED"),
+  },
+  {
+    key: "hostname",
+    header: "Device Hostname",
+    className: "text-ink",
+    render: (r) => r.hostname || "Windows Host",
+    csv: (r) => r.hostname,
+  },
+  {
+    key: "macAddress",
+    header: "MAC Address",
+    className: "font-mono text-muted",
+  },
+  {
+    key: "view",
+    header: "Endpoint",
+    headerClassName: "text-right",
+    className: "text-right",
+    exportable: false,
+    render: () => (
+      <Link
+        href="/endpoints"
+        className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+      >
+        <span>Device</span>
+        <ExternalLink size={10} />
+      </Link>
+    ),
+  },
+];
 
 export default function PortsPage() {
-  const [rows, setRows] = useState<PortRow[] | null>(null);
+  const [rows, setRows] = useState<KeyedPort[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -25,7 +103,7 @@ export default function PortsPage() {
     setError(null);
     try {
       const data = await listPorts();
-      setRows(data);
+      setRows(data.map((r, i) => ({ ...r, rowId: `${r.macAddress}-${r.port}-${i}` })));
     } catch {
       setRows([]);
       setError("Could not load inventory from the backend.");
@@ -48,18 +126,19 @@ export default function PortsPage() {
   }, [rows]);
 
   const shown = useMemo(() => {
-    if (!rows) return [];
+    if (!rows) return null;
     return rows.filter((r) => {
       if (reachFilter === "REACHABLE" && r.reachable !== true) return false;
       if (reachFilter === "BLOCKED" && r.reachable !== false) return false;
 
       if (q.trim()) {
         const query = q.toLowerCase();
-        const matchesPort = String(r.port).includes(query);
-        const matchesProc = r.process?.toLowerCase().includes(query);
-        const matchesHost = r.hostname?.toLowerCase().includes(query);
-        const matchesMac = r.macAddress.toLowerCase().includes(query);
-        if (!matchesPort && !matchesProc && !matchesHost && !matchesMac) return false;
+        const matches =
+          String(r.port).includes(query) ||
+          r.process?.toLowerCase().includes(query) ||
+          r.hostname?.toLowerCase().includes(query) ||
+          r.macAddress.toLowerCase().includes(query);
+        if (!matches) return false;
       }
       return true;
     });
@@ -80,7 +159,7 @@ export default function PortsPage() {
           <button
             onClick={loadData}
             disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink hover:border-accent/40 disabled:opacity-50 transition"
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent/40 disabled:opacity-50"
           >
             <RefreshCw size={13} className={loading ? "animate-spin text-accent" : "text-muted"} />
             <span>Refresh</span>
@@ -133,14 +212,14 @@ export default function PortsPage() {
 
       {/* Filter and Search Bar */}
       <div className="panel flex flex-col justify-between gap-3 p-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative max-w-md flex-1">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="text"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Filter by port number, service, or device…"
-            className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink placeholder:text-muted outline-none focus:border-accent"
+            className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink outline-none placeholder:text-muted focus:border-accent"
           />
         </div>
 
@@ -157,86 +236,17 @@ export default function PortsPage() {
         </div>
       </div>
 
-      {/* Ports Table */}
-      <div className="panel overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px] border-collapse text-left text-xs">
-            <thead>
-              <tr className="border-b border-border bg-panel2/40 text-[11px] font-semibold text-muted">
-                <th className="py-3 px-4">Port Number</th>
-                <th className="py-3 px-4">Service / Process</th>
-                <th className="py-3 px-4">Reachability Verdict</th>
-                <th className="py-3 px-4">Device Hostname</th>
-                <th className="py-3 px-4">MAC Address</th>
-                <th className="py-3 px-4 text-right">Endpoint</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {rows === null && (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-muted">
-                    Loading port inventory…
-                  </td>
-                </tr>
-              )}
-              {rows !== null && shown.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-muted">
-                    No matching listening ports recorded yet. Ports are populated during posture agent runs.
-                  </td>
-                </tr>
-              )}
-              {shown.map((r, i) => (
-                <tr key={i} className="transition hover:bg-ink/[0.02]">
-                  <td className="py-3 px-4 font-mono font-bold text-ink">
-                    <span className="rounded bg-base px-2 py-1 text-xs border border-border">
-                      TCP/{r.port}
-                    </span>
-                  </td>
-
-                  <td className="py-3 px-4 text-ink font-medium">
-                    {r.process || "Active Listener"}
-                  </td>
-
-                  <td className="py-3 px-4">
-                    {r.reachable == null ? (
-                      <span className="text-muted text-[11px]">Untested</span>
-                    ) : r.reachable ? (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-good/25 bg-good/10 px-2.5 py-0.5 text-xs font-medium text-good">
-                        <span className="h-1.5 w-1.5 rounded-full bg-good" />
-                        Reachable (Probe Connected)
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-bad/25 bg-bad/10 px-2.5 py-0.5 text-xs font-medium text-bad">
-                        <span className="h-1.5 w-1.5 rounded-full bg-bad" />
-                        Blocked / Filtered
-                      </span>
-                    )}
-                  </td>
-
-                  <td className="py-3 px-4 text-ink">
-                    {r.hostname || "Windows Host"}
-                  </td>
-
-                  <td className="py-3 px-4 font-mono text-muted">
-                    {r.macAddress}
-                  </td>
-
-                  <td className="py-3 px-4 text-right">
-                    <Link
-                      href="/endpoints"
-                      className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
-                    >
-                      <span>Device</span>
-                      <ExternalLink size={10} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Ports table (paginated + CSV) */}
+      <DataTable<KeyedPort>
+        rows={shown}
+        columns={columns}
+        rowKey={(r) => r.rowId}
+        csvFilename="listening-ports"
+        loadingMessage="Loading port inventory…"
+        emptyMessage="No matching listening ports recorded yet. Ports are populated during posture agent runs."
+        minWidth={760}
+        toolbarLeft={shown ? `${shown.length} matching port${shown.length === 1 ? "" : "s"}` : undefined}
+      />
     </div>
   );
 }

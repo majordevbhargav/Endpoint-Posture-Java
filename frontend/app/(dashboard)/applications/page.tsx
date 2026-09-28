@@ -15,9 +15,82 @@ import {
 } from "lucide-react";
 import { AppRow, listApplications } from "@/lib/inventory";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Column, DataTable } from "@/components/ui/DataTable";
+
+// The API rows have no unique id, so one is added on load (DataTable needs a stable row key).
+type KeyedApp = AppRow & { rowId: string };
+
+const columns: Column<KeyedApp>[] = [
+  {
+    key: "name",
+    header: "Application",
+    className: "font-semibold text-ink",
+    csv: (r) => r.name,
+  },
+  {
+    key: "version",
+    header: "Version",
+    className: "font-mono text-muted",
+    render: (r) => r.version || "—",
+    csv: (r) => r.version,
+  },
+  {
+    key: "status",
+    header: "Status",
+    render: (r) =>
+      r.status ? (
+        <StatusBadge value={r.status} />
+      ) : (
+        <span className="text-[11px] text-muted">Installed</span>
+      ),
+    csv: (r) => r.status ?? "INSTALLED",
+  },
+  {
+    key: "publisher",
+    header: "Publisher / Source",
+    className: "text-muted",
+    render: (r) => r.publisher || "Windows Registry",
+    csv: (r) => r.publisher,
+  },
+  {
+    key: "hostname",
+    header: "Device Hostname",
+    className: "text-ink",
+    render: (r) => r.hostname || "Windows Host",
+    csv: (r) => r.hostname,
+  },
+  {
+    key: "macAddress",
+    header: "MAC Address",
+    className: "font-mono text-muted",
+  },
+  {
+    key: "summary",
+    header: "Evaluation Details",
+    className: "max-w-xs truncate text-muted",
+    render: (r) => r.summary || "—",
+    csv: (r) => r.summary,
+  },
+  {
+    key: "view",
+    header: "View",
+    headerClassName: "text-right",
+    className: "text-right",
+    exportable: false,
+    render: () => (
+      <Link
+        href="/endpoints"
+        className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+      >
+        <span>Device</span>
+        <ExternalLink size={10} />
+      </Link>
+    ),
+  },
+];
 
 export default function ApplicationsPage() {
-  const [rows, setRows] = useState<AppRow[] | null>(null);
+  const [rows, setRows] = useState<KeyedApp[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -28,7 +101,7 @@ export default function ApplicationsPage() {
     setError(null);
     try {
       const data = await listApplications();
-      setRows(data);
+      setRows(data.map((r, i) => ({ ...r, rowId: `${r.macAddress}-${i}` })));
     } catch {
       setRows([]);
       setError("Could not load inventory from the backend.");
@@ -51,18 +124,19 @@ export default function ApplicationsPage() {
   }, [rows]);
 
   const shown = useMemo(() => {
-    if (!rows) return [];
+    if (!rows) return null;
     return rows.filter((r) => {
       if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
 
       if (q.trim()) {
         const query = q.toLowerCase();
-        const matchesName = r.name?.toLowerCase().includes(query);
-        const matchesPub = r.publisher?.toLowerCase().includes(query);
-        const matchesHost = r.hostname?.toLowerCase().includes(query);
-        const matchesMac = r.macAddress?.toLowerCase().includes(query);
-        const matchesSum = r.summary?.toLowerCase().includes(query);
-        if (!matchesName && !matchesPub && !matchesHost && !matchesMac && !matchesSum) return false;
+        const matches =
+          r.name?.toLowerCase().includes(query) ||
+          r.publisher?.toLowerCase().includes(query) ||
+          r.hostname?.toLowerCase().includes(query) ||
+          r.macAddress?.toLowerCase().includes(query) ||
+          r.summary?.toLowerCase().includes(query);
+        if (!matches) return false;
       }
       return true;
     });
@@ -83,7 +157,7 @@ export default function ApplicationsPage() {
           <button
             onClick={loadData}
             disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink hover:border-accent/40 disabled:opacity-50 transition"
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent/40 disabled:opacity-50"
           >
             <RefreshCw size={13} className={loading ? "animate-spin text-accent" : "text-muted"} />
             <span>Refresh</span>
@@ -95,7 +169,7 @@ export default function ApplicationsPage() {
         <div className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-xs text-bad">{error}</div>
       )}
 
-      {/* Enterprise Policy Baseline Rules Banner */}
+      {/* Policy banner */}
       <div className="panel grid grid-cols-1 gap-4 bg-panel2/50 p-4 md:grid-cols-2">
         <div className="flex items-start gap-3">
           <div className="rounded-lg bg-good/15 p-2 text-good">
@@ -104,7 +178,8 @@ export default function ApplicationsPage() {
           <div>
             <div className="text-xs font-bold text-ink">Mandatory Required Applications</div>
             <div className="mt-0.5 text-xs text-muted">
-              Must be installed on all Windows endpoints: <span className="font-mono font-semibold text-good">Cisco Secure Client</span>
+              Must be installed on all Windows endpoints:{" "}
+              <span className="font-mono font-semibold text-good">Cisco Secure Client</span>
             </div>
           </div>
         </div>
@@ -116,7 +191,8 @@ export default function ApplicationsPage() {
           <div>
             <div className="text-xs font-bold text-ink">Prohibited / Blocked Applications</div>
             <div className="mt-0.5 text-xs text-muted">
-              Forbidden on enterprise endpoints: <span className="font-mono font-semibold text-bad">uTorrent, TeamViewer</span>
+              Forbidden on enterprise endpoints:{" "}
+              <span className="font-mono font-semibold text-bad">uTorrent, TeamViewer</span>
             </div>
           </div>
         </div>
@@ -163,14 +239,14 @@ export default function ApplicationsPage() {
 
       {/* Filter and Search Bar */}
       <div className="panel flex flex-col justify-between gap-3 p-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative max-w-md flex-1">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="text"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Filter by application name, publisher, device, or MAC…"
-            className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink placeholder:text-muted outline-none focus:border-accent"
+            className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink outline-none placeholder:text-muted focus:border-accent"
           />
         </div>
 
@@ -187,82 +263,17 @@ export default function ApplicationsPage() {
         </div>
       </div>
 
-      {/* Applications Table */}
-      <div className="panel overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-            <thead>
-              <tr className="border-b border-border bg-panel2/40 text-[11px] font-semibold text-muted">
-                <th className="py-3 px-4">Application</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Publisher / Source</th>
-                <th className="py-3 px-4">Device Hostname</th>
-                <th className="py-3 px-4">MAC Address</th>
-                <th className="py-3 px-4">Evaluation Details</th>
-                <th className="py-3 px-4 text-right">View</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {rows === null && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-muted">
-                    Loading application inventory…
-                  </td>
-                </tr>
-              )}
-              {rows !== null && shown.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-muted">
-                    No matching software records found. Inventory appears once posture checks run.
-                  </td>
-                </tr>
-              )}
-              {shown.map((r, i) => (
-                <tr key={i} className="transition hover:bg-ink/[0.02]">
-                  <td className="py-3 px-4 font-semibold text-ink">
-                    {r.name}
-                    {r.version && <span className="ml-2 font-mono text-[10px] font-normal text-muted">{r.version}</span>}
-                  </td>
-
-                  <td className="py-3 px-4">
-                    {r.status ? (
-                      <StatusBadge value={r.status} />
-                    ) : (
-                      <span className="text-muted text-[11px]">Installed</span>
-                    )}
-                  </td>
-
-                  <td className="py-3 px-4 text-muted">
-                    {r.publisher || "Windows Registry"}
-                  </td>
-
-                  <td className="py-3 px-4 text-ink">
-                    {r.hostname || "Windows Host"}
-                  </td>
-
-                  <td className="py-3 px-4 font-mono text-muted">
-                    {r.macAddress}
-                  </td>
-
-                  <td className="py-3 px-4 max-w-xs truncate text-muted">
-                    {r.summary || "—"}
-                  </td>
-
-                  <td className="py-3 px-4 text-right">
-                    <Link
-                      href="/endpoints"
-                      className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
-                    >
-                      <span>Device</span>
-                      <ExternalLink size={10} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Applications table (paginated + CSV) */}
+      <DataTable<KeyedApp>
+        rows={shown}
+        columns={columns}
+        rowKey={(r) => r.rowId}
+        csvFilename="installed-software"
+        loadingMessage="Loading application inventory…"
+        emptyMessage="No matching software records found. Inventory appears once posture checks run."
+        minWidth={860}
+        toolbarLeft={shown ? `${shown.length} matching application${shown.length === 1 ? "" : "s"}` : undefined}
+      />
     </div>
   );
 }
