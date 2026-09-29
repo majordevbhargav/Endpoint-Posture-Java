@@ -14,6 +14,7 @@ import {
   Network,
   Radio,
   Server,
+  SlidersHorizontal,
 } from "lucide-react";
 import { getToken } from "@/lib/api";
 
@@ -38,6 +39,7 @@ const NAV_SECTIONS = [
     title: "OPERATIONS",
     items: [
       { href: "/jobs", label: "Assessment Queue", icon: ListChecks },
+      { href: "/policies", label: "Application Policy", icon: SlidersHorizontal },
       { href: "/audit", label: "ISE Action Audit", icon: History },
     ],
   },

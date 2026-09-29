@@ -45,7 +45,8 @@ public class SecurityConfig {
      *
      * <p>Public: login, health, Swagger UI. Posture and hardware-health
      * ingestion ({@code POST /api/v1/posture}, {@code POST /api/v1/hardware-health})
-     * accept an admin JWT or the agent key. Everything else requires an
+     * accept an admin JWT or the agent key. Changing the application policy
+     * ({@code PUT /api/v1/policy/**}) is ADMIN only. Everything else requires an
      * authenticated user.</p>
      */
     @Bean
@@ -71,6 +72,10 @@ public class SecurityConfig {
                         // anything else.
                         .requestMatchers(HttpMethod.POST, "/api/v1/posture", "/api/v1/hardware-health")
                         .hasAnyRole("AGENT", "ADMIN")
+                        // Changing what counts as compliant is an admin decision.
+                        // Enforced here on the server; hiding the UI is convenience only.
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/policy/**")
+                        .hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(postureApiKeyFilter, UsernamePasswordAuthenticationFilter.class);

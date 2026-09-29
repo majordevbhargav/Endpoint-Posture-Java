@@ -16,11 +16,12 @@
 
     Invocation model: JobWorker (Spring Boot) launches this script once
     per posture_job via ProcessBuilder, passing -ComputerName, -JobId,
-    -PostureServer, and the CIM/HTTP timeouts explicitly - all sourced
-    from application.yml, never hardcoded on the Java side. With no
-    arguments at all it runs against the local machine and posts to
-    localhost:8090, so the whole collect -> evaluate -> submit pipeline
-    can be validated by hand before JobWorker ever dispatches a real job.
+    -PostureServer, the CIM/HTTP timeouts and the active application
+    policy explicitly - all sourced from application.yml and the policy
+    tables, never hardcoded on the Java side. With no arguments at all it
+    runs against the local machine and posts to localhost:8090, so the
+    whole collect -> evaluate -> submit pipeline can be validated by hand
+    before JobWorker ever dispatches a real job.
 
     Results are POSTed to POST /api/v1/posture (PostureIngestController)
     and a RESULT_JSON line is always emitted on stdout so JobWorker can
@@ -80,13 +81,27 @@
     milliseconds. One probe runs per listening port, one after another.
 
 .PARAMETER RequiredApps
-    Applications that must be installed. A missing one makes the
-    APPLICATIONS check NON_COMPLIANT. Matched as a substring of the
-    installed program's display name.
+    Manual-run default only. Applications that must be installed. Ignored
+    when -PolicyVersion is given (the policy lists below win).
 
 .PARAMETER BlockedApps
-    Applications that must NOT be installed. A present one makes the
-    APPLICATIONS check NON_COMPLIANT. Matched the same way.
+    Manual-run default only. Applications that must NOT be installed.
+    Ignored when -PolicyVersion is given.
+
+.PARAMETER PolicyVersion
+    P1: version number of the active application policy, passed by
+    JobWorker. When present, the lists below are authoritative (an omitted
+    list means EMPTY, not "use the defaults"), and the version is stored in
+    the APPLICATIONS check details so the verdict stays explainable after
+    the policy changes.
+
+.PARAMETER RequiredAppsList
+    P1: required application patterns as ONE string delimited by '|'.
+    (With `powershell -File`, comma-separated values arrive as a single
+    string, not an array, so a delimited string is passed and split here.)
+
+.PARAMETER BlockedAppsList
+    P1: blocked application patterns as ONE string delimited by '|'.
 
 .OUTPUTS
     Human-readable progress on the console, plus one machine-readable line
@@ -119,7 +134,7 @@
     .\posture_agent.ps1 -ComputerName 10.66.1.12 -JobId 3f9e...c2a1 -PostureServer http://localhost:8090/api/v1/posture
 
 .EXAMPLE
-    .\posture_agent.ps1 -ComputerName 10.66.1.12 -AllowedPorts 80,443,3389 -BlockedApps "uTorrent","TeamViewer"
+    .\posture_agent.ps1 -ComputerName 10.66.1.12 -PolicyVersion 2 -RequiredAppsList "Cisco Secure Client" -BlockedAppsList "uTorrent|TeamViewer|Steam"
 #>
 
 param(
@@ -174,11 +189,39 @@ param(
     # small - it runs once per listening port, sequentially, inside the
     # overall check.
     [int]$PortProbeTimeoutMs = 400,
+
+    # Manual-run defaults. When JobWorker passes -PolicyVersion these are
+    # replaced by the policy lists just below the param block.
     [string[]]$RequiredApps = @("Cisco Secure Client"),
-    [string[]]$BlockedApps  = @("uTorrent", "TeamViewer")
+    [string[]]$BlockedApps  = @("uTorrent", "TeamViewer"),
+
+    # P1: application policy handed over by JobWorker (see .PARAMETER above).
+    [string]$PolicyVersion,
+    [string]$RequiredAppsList,
+    [string]$BlockedAppsList
 )
 
 $ErrorActionPreference = "Stop"
+
+# ---------------------------------------------------------------------------
+# P1: apply the policy handed over by JobWorker.
+#
+# When -PolicyVersion is present the policy is authoritative: a missing list
+# means "no such rules", NOT "fall back to the manual-run defaults" (an empty
+# list is deliberately not passed on the command line at all).
+# ---------------------------------------------------------------------------
+$PolicyVersionNumber = $null
+if ($PolicyVersion) {
+    $PolicyVersionNumber = [int]$PolicyVersion
+
+    $RequiredApps = if ($RequiredAppsList) {
+        @($RequiredAppsList -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    } else { @() }
+
+    $BlockedApps = if ($BlockedAppsList) {
+        @($BlockedAppsList -split '\|' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    } else { @() }
+}
 
 # ---------------------------------------------------------------------------
 # Connection setup
@@ -1207,6 +1250,11 @@ $AllChecks = @(
             summary          = $AppControlDetail
             collectionMethod = $AppCollectionMethod
             collectionError  = $AppCollectionError
+            # P1: which policy produced this verdict. policyVersion is $null
+            # for a manual run that used the built-in defaults.
+            policyVersion    = $PolicyVersionNumber
+            requiredApps     = @($RequiredApps)
+            blockedApps      = @($BlockedApps)
         }
     }
 )
@@ -1316,6 +1364,7 @@ $FinalResult = [ordered]@{
     appsCount           = $InstalledApps.Count
     appCollectionMethod = $AppCollectionMethod
     appCollectionError  = $AppCollectionError
+    policyVersion       = $PolicyVersionNumber
     listening_ports     = @($Ports)
     installed_apps      = @($InstalledApps)
     hardware            = $HardwareInfo

@@ -141,6 +141,17 @@ export interface PortRow {
   macAddress: string;
 }
 
+/** One version of the application policy (required / blocked apps). */
+export interface AppPolicy {
+  id: string;
+  name: string;
+  version: number;
+  requiredApps: string[];
+  blockedApps: string[];
+  createdBy: string | null;
+  createdAt: string;
+}
+
 const TOKEN_KEY = "vece_token";
 
 export function getToken(): string | null {
@@ -239,4 +250,12 @@ export const api = {
 
   listApplications: () => request<AppRow[]>("/api/v1/applications"),
   listPorts: () => request<PortRow[]>("/api/v1/ports"),
+
+  policy: () => request<AppPolicy>("/api/v1/policy/apps"),
+  policyHistory: () => request<AppPolicy[]>("/api/v1/policy/apps/history"),
+  updatePolicy: (requiredApps: string[], blockedApps: string[]) =>
+    request<AppPolicy>("/api/v1/policy/apps", {
+      method: "PUT",
+      body: JSON.stringify({ requiredApps, blockedApps }),
+    }),
 };

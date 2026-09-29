@@ -2,6 +2,7 @@ package com.endpointposture.inventory;
 
 import com.endpointposture.endpoint.Endpoint;
 import com.endpointposture.endpoint.EndpointRepository;
+import com.endpointposture.policy.PolicyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,22 +19,25 @@ import java.util.UUID;
 /**
  * Fleet-wide inventory read API used by the Installed Software and
  * Listening Ports pages. Read-only; never calls ISE.
+ *
+ * <p>Required and blocked application patterns come from the active
+ * {@link PolicyService} policy, the same one handed to the posture agent,
+ * so this page and the agent's verdict cannot drift apart.</p>
  */
 @RestController
 @RequestMapping("/api/v1")
 @Tag(name = "Inventory", description = "Latest installed applications and listening ports per endpoint. Requires a bearer token.")
 public class InventoryController {
 
-    // Mirrors the defaults in posture_agent.ps1 (-RequiredApps / -BlockedApps).
-    private static final List<String> REQUIRED_APPS = List.of("Cisco Secure Client");
-    private static final List<String> BLOCKED_APPS = List.of("uTorrent", "TeamViewer");
-
     private final EndpointInventoryRepository inventory;
     private final EndpointRepository endpoints;
+    private final PolicyService policyService;
 
-    public InventoryController(EndpointInventoryRepository inventory, EndpointRepository endpoints) {
+    public InventoryController(EndpointInventoryRepository inventory, EndpointRepository endpoints,
+                               PolicyService policyService) {
         this.inventory = inventory;
         this.endpoints = endpoints;
+        this.policyService = policyService;
     }
 
     /** Shape matches frontend/lib/inventory.ts AppRow. */
@@ -47,6 +51,7 @@ public class InventoryController {
     @Operation(summary = "Installed applications from each endpoint's latest posture run")
     @GetMapping("/applications")
     public List<AppRow> applications() {
+        PolicyService.PolicySnapshot policy = policyService.getActive();
         Map<UUID, Endpoint> byId = endpointsById();
         List<AppRow> rows = new ArrayList<>();
 
@@ -60,12 +65,12 @@ public class InventoryController {
 
                 String status = null;
                 String summary = null;
-                if (matchesAny(name, BLOCKED_APPS)) {
+                if (matchesAny(name, policy.blockedApps())) {
                     status = "NON_COMPLIANT";
-                    summary = "Blocked application installed";
-                } else if (matchesAny(name, REQUIRED_APPS)) {
+                    summary = "Blocked application installed (policy v" + policy.version() + ")";
+                } else if (matchesAny(name, policy.requiredApps())) {
                     status = "COMPLIANT";
-                    summary = "Required application present";
+                    summary = "Required application present (policy v" + policy.version() + ")";
                 }
 
                 rows.add(new AppRow(name, str(app.get("version")), str(app.get("publisher")),

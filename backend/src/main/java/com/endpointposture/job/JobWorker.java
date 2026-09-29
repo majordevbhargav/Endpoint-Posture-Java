@@ -3,6 +3,7 @@ package com.endpointposture.job;
 import com.endpointposture.endpoint.Endpoint;
 import com.endpointposture.hardware.HardwareHealthService;
 import com.endpointposture.hardware.config.HardwareAgentProperties;
+import com.endpointposture.policy.PolicyService;
 import com.endpointposture.posture.AssessmentService;
 import com.endpointposture.posture.config.PostureAgentProperties;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -16,6 +17,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -27,7 +29,8 @@ import java.util.concurrent.TimeUnit;
  * <h2>How one job flows</h2>
  * <ol>
  *   <li>Claim the next eligible job ({@code RUNNING}).</li>
- *   <li>Start the matching PowerShell agent with an outer timeout, capture output.</li>
+ *   <li>Start the matching PowerShell agent with an outer timeout, capture output.
+ *       Posture jobs are handed the active application policy.</li>
  *   <li>The agent POSTs its own report and prints one {@code RESULT_JSON:} line.</li>
  *   <li>{@code submitted: true} means COMPLETE.</li>
  *   <li>Anything else writes a failure evidence row (ERROR assessment or
@@ -44,11 +47,15 @@ public class JobWorker {
     private static final String RESULT_PREFIX = "RESULT_JSON:";
     private static final String API_KEY_ENV_VAR = "POSTURE_API_KEY";
 
+    /** Delimiter for the policy lists; PolicyService rejects patterns containing it. */
+    private static final String POLICY_LIST_DELIMITER = "|";
+
     private final JobService jobService;
     private final AssessmentService assessmentService;
     private final HardwareHealthService hardwareHealthService;
     private final PostureAgentProperties postureProps;
     private final HardwareAgentProperties hardwareProps;
+    private final PolicyService policyService;
     private final ObjectMapper objectMapper;
 
     public JobWorker(JobService jobService,
@@ -56,12 +63,14 @@ public class JobWorker {
                      HardwareHealthService hardwareHealthService,
                      PostureAgentProperties postureProps,
                      HardwareAgentProperties hardwareProps,
+                     PolicyService policyService,
                      ObjectMapper objectMapper) {
         this.jobService = jobService;
         this.assessmentService = assessmentService;
         this.hardwareHealthService = hardwareHealthService;
         this.postureProps = postureProps;
         this.hardwareProps = hardwareProps;
+        this.policyService = policyService;
         this.objectMapper = objectMapper;
     }
 
@@ -125,15 +134,34 @@ public class JobWorker {
     }
 
     private RunResult runPostureAgent(PostureJob job, Endpoint endpoint) throws IOException, InterruptedException {
-        List<String> command = List.of(
+        // Read the policy first: if there is none, the job fails clearly instead of
+        // running the agent against stale defaults.
+        PolicyService.PolicySnapshot policy = policyService.getActive();
+
+        List<String> command = new ArrayList<>(List.of(
                 "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                 "-File", resolveScript(postureProps.getScriptPath()),
                 "-ComputerName", targetFor(endpoint),
                 "-JobId", job.getId().toString(),
                 "-PostureServer", postureProps.getServerUrl(),
                 "-CimOperationTimeoutSec", String.valueOf(postureProps.getCimTimeoutSeconds()),
-                "-PostureServerTimeoutSec", String.valueOf(postureProps.getServerTimeoutSeconds())
-        );
+                "-PostureServerTimeoutSec", String.valueOf(postureProps.getServerTimeoutSeconds()),
+                "-PolicyVersion", String.valueOf(policy.version())
+        ));
+
+        // With `powershell -File`, comma-separated values arrive as ONE string, not an
+        // array, so the lists are sent as a single delimited string and split inside
+        // the script. An empty list is omitted (an empty argument can be dropped on
+        // Windows); -PolicyVersion tells the agent the lists are authoritative.
+        if (!policy.requiredApps().isEmpty()) {
+            command.add("-RequiredAppsList");
+            command.add(String.join(POLICY_LIST_DELIMITER, policy.requiredApps()));
+        }
+        if (!policy.blockedApps().isEmpty()) {
+            command.add("-BlockedAppsList");
+            command.add(String.join(POLICY_LIST_DELIMITER, policy.blockedApps()));
+        }
+
         Map<String, String> env = isBlank(postureProps.getApiKey())
                 ? Map.of()
                 : Map.of(API_KEY_ENV_VAR, postureProps.getApiKey());

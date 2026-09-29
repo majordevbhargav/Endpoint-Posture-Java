@@ -14,6 +14,7 @@ import {
   Lock,
 } from "lucide-react";
 import { AppRow, listApplications } from "@/lib/inventory";
+import { api, AppPolicy } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Column, DataTable } from "@/components/ui/DataTable";
 
@@ -91,6 +92,7 @@ const columns: Column<KeyedApp>[] = [
 
 export default function ApplicationsPage() {
   const [rows, setRows] = useState<KeyedApp[] | null>(null);
+  const [policy, setPolicy] = useState<AppPolicy | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -100,8 +102,12 @@ export default function ApplicationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listApplications();
+      const [data, activePolicy] = await Promise.all([
+        listApplications(),
+        api.policy().catch(() => null), // the banner is optional; the table is not
+      ]);
       setRows(data.map((r, i) => ({ ...r, rowId: `${r.macAddress}-${i}` })));
+      setPolicy(activePolicy);
     } catch {
       setRows([]);
       setError("Could not load inventory from the backend.");
@@ -169,7 +175,7 @@ export default function ApplicationsPage() {
         <div className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-xs text-bad">{error}</div>
       )}
 
-      {/* Policy banner */}
+      {/* Policy banner (live from the active policy) */}
       <div className="panel grid grid-cols-1 gap-4 bg-panel2/50 p-4 md:grid-cols-2">
         <div className="flex items-start gap-3">
           <div className="rounded-lg bg-good/15 p-2 text-good">
@@ -179,7 +185,9 @@ export default function ApplicationsPage() {
             <div className="text-xs font-bold text-ink">Mandatory Required Applications</div>
             <div className="mt-0.5 text-xs text-muted">
               Must be installed on all Windows endpoints:{" "}
-              <span className="font-mono font-semibold text-good">Cisco Secure Client</span>
+              <span className="font-mono font-semibold text-good">
+                {policy ? policy.requiredApps.join(", ") || "None" : "…"}
+              </span>
             </div>
           </div>
         </div>
@@ -192,10 +200,23 @@ export default function ApplicationsPage() {
             <div className="text-xs font-bold text-ink">Prohibited / Blocked Applications</div>
             <div className="mt-0.5 text-xs text-muted">
               Forbidden on enterprise endpoints:{" "}
-              <span className="font-mono font-semibold text-bad">uTorrent, TeamViewer</span>
+              <span className="font-mono font-semibold text-bad">
+                {policy ? policy.blockedApps.join(", ") || "None" : "…"}
+              </span>
             </div>
           </div>
         </div>
+
+        {policy && (
+          <div className="text-[11px] text-muted md:col-span-2">
+            Policy version <span className="font-mono font-semibold text-ink">v{policy.version}</span>
+            {policy.createdBy ? ` · set by ${policy.createdBy}` : ""}
+            {" · "}
+            <Link href="/policies" className="text-accent hover:underline">
+              Manage policy
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* KPI Cards */}
