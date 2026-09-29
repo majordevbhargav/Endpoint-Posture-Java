@@ -35,7 +35,27 @@
         <!-- Explicit main class - avoids Maven's auto-detection failing
              when target/ has stale artifacts or multiple candidate classes -->
         <start-class>com.endpointposture.EndpointPostureApplication</start-class>
+        <!-- Pin explicitly rather than relying on whatever the Spring Boot
+             parent BOM manages - Testcontainers ships its own release
+             cadence, independent of Spring Boot's. Check
+             central.sonatype.com for anything newer before bumping. -->
+        <testcontainers.version>1.20.4</testcontainers.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Testcontainers' own BOM - keeps every testcontainers-*
+                 artifact below on one consistent, tested-together version
+                 without repeating the version on each dependency. -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- Web -->
@@ -124,11 +144,29 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Testcontainers: spins up a real, disposable Postgres 16
+             container for PostureJobRepositoryConcurrencyTest, which
+             exercises the Postgres-specific FOR UPDATE SKIP LOCKED claim
+             query - something an in-memory/H2 database can't validate,
+             since that clause has no H2 equivalent. Requires Docker
+             running locally or in CI. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- actuator -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+
     </dependencies>
 
     <build>
@@ -184,6 +222,13 @@
                 <configuration>
                     <doclint>none</doclint>
                     <show>protected</show>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Duser.timezone=UTC</argLine>
                 </configuration>
             </plugin>
         </plugins>
