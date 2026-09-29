@@ -44,6 +44,10 @@ public class JobWorkerPool {
         this.threads = Math.max(1, threads);
         this.idleSleepMs = idleSleepMs;
     }
+    /** @return the configured number of worker threads */
+    public int getThreads() {
+        return threads;
+    }
 
     @PostConstruct
     public void start() {

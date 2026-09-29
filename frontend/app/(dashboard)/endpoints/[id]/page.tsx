@@ -16,6 +16,8 @@ import {
   Battery,
   Server,
   AlertTriangle,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import {
   api,
@@ -24,6 +26,7 @@ import {
   HardwareHealthResponse,
   JobResponse,
   IseActionAudit,
+  SessionEvent,
 } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
@@ -37,6 +40,17 @@ interface ConfirmState {
   danger: boolean;
   action: () => Promise<ActionResult>;
 }
+/** "3d 4h", "2h 15m", "45s" - rough human duration between two ISO timestamps. */
+function formatDuration(fromIso: string, toIso: string): string {
+  const secs = Math.max(0, Math.floor((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 1000));
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${secs}s`;
+}
 
 export default function EndpointDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -48,11 +62,12 @@ export default function EndpointDetailPage() {
   const [jobs, setJobs] = useState<JobResponse[]>([]);
   const [audits, setAudits] = useState<IseActionAudit[]>([]);
 
-  const [activeTab, setActiveTab] = useState<"posture" | "hardware" | "jobs" | "audit">("posture");
+  const [activeTab, setActiveTab] = useState<"posture" | "hardware" | "jobs" | "audit" | "sessions">("posture");
   const [actionMsg, setActionMsg] = useState<{ text: string; success: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+  const [sessions, setSessions] = useState<SessionEvent[]>([]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -60,12 +75,13 @@ export default function EndpointDetailPage() {
       const ep = await api.getEndpoint(id);
       setEndpoint(ep);
 
-      const [postureRes, histRes, hwRes, jobsRes, auditRes] = await Promise.allSettled([
+      const [postureRes, histRes, hwRes, jobsRes, auditRes, sessionsRes] = await Promise.allSettled([
         api.latestPostureOrNull(id),
         api.postureHistory(id),
         api.latestHardware(id),
         api.listJobsForEndpoint(id),
         api.auditActions(id),
+        api.sessionHistory(id),
       ]);
 
       if (postureRes.status === "fulfilled") setPosture(postureRes.value);
@@ -73,6 +89,7 @@ export default function EndpointDetailPage() {
       if (hwRes.status === "fulfilled") setHardware(hwRes.value);
       if (jobsRes.status === "fulfilled") setJobs(jobsRes.value);
       if (auditRes.status === "fulfilled") setAudits(auditRes.value);
+      if (sessionsRes.status === "fulfilled") setSessions(sessionsRes.value);
     } catch {
       // Endpoint might not exist
     } finally {
@@ -315,6 +332,7 @@ export default function EndpointDetailPage() {
           [
             ["posture", "Security Posture"],
             ["hardware", "Hardware Health"],
+            ["sessions", `Sessions (${sessions.length})`],
             ["jobs", `Job Queue (${jobs.length})`],
             ["audit", `ISE Audit Log (${audits.length})`],
           ] as const
@@ -571,6 +589,64 @@ export default function EndpointDetailPage() {
               )}
             </>
           )}
+        </div>
+      )}
+      {/* Tab: Session history (connect / disconnect events from ISE) */}
+      {activeTab === "sessions" && (
+        <div className="panel overflow-hidden">
+          <div className="border-b border-border/60 px-4 py-2.5 text-[11px] text-muted">
+            Connection history is tracked independently of posture. Events are newest first.
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead>
+                <tr className="border-b border-border bg-panel2/40 text-[11px] font-semibold text-muted">
+                  <th className="px-4 py-2.5">Event</th>
+                  <th className="px-4 py-2.5">IP Address</th>
+                  <th className="px-4 py-2.5">Timestamp</th>
+                  <th className="px-4 py-2.5">Duration</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {sessions.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-muted">
+                      No connect or disconnect events recorded for this device yet.
+                    </td>
+                  </tr>
+                )}
+                {sessions.map((s, i) => {
+                  const connected = s.eventType === "CONNECTED";
+                  // Newest first, so the next (newer) event is at i - 1. It ends this period.
+                  const next = i > 0 ? sessions[i - 1] : null;
+                  const duration = next
+                    ? formatDuration(s.eventAt, next.eventAt)
+                    : connected
+                      ? "ongoing"
+                      : "still offline";
+                  return (
+                    <tr key={s.id} className="transition hover:bg-ink/[0.02]">
+                      <td className="px-4 py-2.5">
+                        <span
+                          className={`inline-flex items-center gap-1.5 font-semibold ${connected ? "text-good" : "text-muted"
+                            }`}
+                        >
+                          {connected ? <Wifi size={12} /> : <WifiOff size={12} />}
+                          {connected ? "Connected" : "Disconnected"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-muted">{s.ipAddress || "—"}</td>
+                      <td className="px-4 py-2.5 text-muted">{new Date(s.eventAt).toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-muted">
+                        {connected ? "Session lasted " : "Offline for "}
+                        <span className="font-mono text-ink">{duration}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

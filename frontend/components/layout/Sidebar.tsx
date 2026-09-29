@@ -15,8 +15,10 @@ import {
   Radio,
   Server,
   SlidersHorizontal,
+  Activity,
 } from "lucide-react";
-import { getToken } from "@/lib/api";
+import { api, SystemHealth } from "@/lib/api";
+import { usePolling } from "@/lib/usePolling";
 
 const NAV_SECTIONS = [
   {
@@ -41,34 +43,37 @@ const NAV_SECTIONS = [
       { href: "/jobs", label: "Assessment Queue", icon: ListChecks },
       { href: "/policies", label: "Application Policy", icon: SlidersHorizontal },
       { href: "/audit", label: "ISE Action Audit", icon: History },
+      { href: "/system", label: "System Health", icon: Activity },
     ],
   },
 ];
 
 function SystemStatus() {
-  const [online, setOnline] = useState<boolean | null>(null);
+  const [health, setHealth] = useState<SystemHealth | null>(null);
+  const [apiUp, setApiUp] = useState<boolean | null>(null);
+
+  const load = async () => {
+    try {
+      setHealth(await api.systemHealth());
+      setApiUp(true);
+    } catch {
+      setApiUp(false); // keep the last snapshot; the API itself did not answer
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const token = getToken();
-        const res = await fetch("/api/v1/endpoints", {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          cache: "no-store",
-        });
-        if (!cancelled) setOnline(res.ok);
-      } catch {
-        if (!cancelled) setOnline(false);
-      }
-    };
-    check();
-    const t = setInterval(check, 15000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
+    load();
   }, []);
+
+  usePolling(load, 15000);
+
+  const dbDown = health?.database.reachable === false;
+  const backendLabel = apiUp === null ? "Checking" : !apiUp ? "Disconnected" : dbDown ? "DB down" : "Online";
+  const backendDot = apiUp === null ? "bg-muted" : apiUp && !dbDown ? "bg-good" : "bg-bad";
+  const backendText = apiUp && !dbDown ? "text-good" : "text-muted";
+
+  const iseKnown = health !== null;
+  const iseUp = health?.ise.reachable === true;
 
   return (
     <div className="space-y-2 p-4">
@@ -78,28 +83,28 @@ function SystemStatus() {
           Backend API
         </span>
         <span className="flex items-center gap-1.5 font-medium">
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              online === null ? "bg-muted" : online ? "bg-good" : "bg-bad"
-            }`}
-          />
-          <span className={online ? "text-good" : "text-muted"}>
-            {online === null ? "Checking" : online ? "Online" : "Disconnected"}
-          </span>
+          <span className={`h-1.5 w-1.5 rounded-full ${backendDot}`} />
+          <span className={backendText}>{backendLabel}</span>
         </span>
       </div>
 
       <div className="flex items-center justify-between text-[11px] text-muted">
         <span className="flex items-center gap-1.5">
-          <Radio size={12} className="text-accent" />
+          <Radio size={12} className={iseUp ? "text-accent" : "text-muted"} />
           ISE Session Watcher
         </span>
-        <span className="flex items-center gap-1.5 font-medium text-accent">
+        <span className={`flex items-center gap-1.5 font-medium ${iseUp ? "text-accent" : iseKnown ? "text-warn" : "text-muted"}`}>
           <span className="relative flex h-1.5 w-1.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+            {iseUp && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
+            )}
+            <span
+              className={`relative inline-flex h-1.5 w-1.5 rounded-full ${
+                iseUp ? "bg-accent" : iseKnown ? "bg-warn" : "bg-muted"
+              }`}
+            />
           </span>
-          Polling
+          {!iseKnown ? "Checking" : iseUp ? "Polling" : "Unreachable"}
         </span>
       </div>
     </div>
@@ -146,11 +151,10 @@ export function Sidebar() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition ${
-                      active
+                    className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition ${active
                         ? "bg-accent/15 text-accent shadow-xs"
                         : "text-muted hover:bg-ink/[0.04] hover:text-ink"
-                    }`}
+                      }`}
                   >
                     {active && (
                       <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-accent" />

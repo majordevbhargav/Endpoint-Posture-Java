@@ -151,6 +151,22 @@ export interface AppPolicy {
   createdBy: string | null;
   createdAt: string;
 }
+export interface SystemHealth {
+  status: "UP" | "DEGRADED" | "DOWN";
+  checkedAt: string;
+  database: { reachable: boolean; error: string | null };
+  ise: { reachable: boolean; lastSuccessAt: string | null; lastError: string | null };
+  queue: {
+    queued: number;
+    running: number;
+    complete: number;
+    failed: number;
+    oldestQueuedAgeSeconds: number | null;
+    failedLast24h: number;
+  };
+  workers: { enabled: boolean; threads: number };
+  warnings: string[];
+}
 
 const TOKEN_KEY = "vece_token";
 
@@ -247,6 +263,7 @@ export const api = {
     request<IseActionAudit[]>(`/api/v1/audit/ise-actions${endpointId ? `?endpointId=${endpointId}` : ""}`),
 
   iseStatus: () => request<IseStatus>("/api/v1/ise/status"),
+  systemHealth: () => request<SystemHealth>("/api/v1/system/health"),
 
   listApplications: () => request<AppRow[]>("/api/v1/applications"),
   listPorts: () => request<PortRow[]>("/api/v1/ports"),

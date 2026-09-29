@@ -51,4 +51,13 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
 
     /** @return the most recently created job of this type for this endpoint, any status */
     Optional<PostureJob> findFirstByEndpoint_IdAndJobTypeOrderByCreatedAtDesc(UUID endpointId, JobType jobType);
+
+    /** @return how many jobs are in this status */
+    long countByStatus(JobStatus status);
+
+    /** @return the oldest job in this status, by creation time */
+    Optional<PostureJob> findFirstByStatusOrderByCreatedAtAsc(JobStatus status);
+
+    /** @return how many jobs in this status completed after the given instant */
+    long countByStatusAndCompletedAtAfter(JobStatus status, Instant after);
 }
