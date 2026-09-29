@@ -85,3 +85,5 @@ Thumbs.db
 # Encrypted agent credential, wherever it lands (root or scripts/)
 posture_common_cred.xml
 scripts/posture_common_cred.xml
+#application-dev.yml
+application-dev.yml
