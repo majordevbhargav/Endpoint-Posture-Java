@@ -27,7 +27,7 @@ import {
 } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { useCachedFetch } from "@/lib/useCachedFetch";
-import { useIsLive } from "@/lib/IseStatusContext";
+import { useIseStatus } from "@/lib/IseStatusContext";
 import { datedFilename, downloadCsv } from "@/lib/csv";
 import { RingGauge } from "@/components/dashboard/RingGauge";
 import { StatusDonut } from "@/components/dashboard/StatusDonut";
@@ -98,7 +98,9 @@ async function fetchOverview(): Promise<OverviewData> {
 }
 
 export default function OverviewPage() {
-  const isLive = useIsLive();
+  const ise = useIseStatus();
+  const iseDown = ise?.reachable === false;
+
   const { data, refreshing, error, reload } = useCachedFetch("overview", fetchOverview, {
     ttlMs: 15000,
     pollMs: 20000,
@@ -106,10 +108,7 @@ export default function OverviewPage() {
   const rows = data?.rows ?? null;
   const audit = data?.audit ?? [];
   const summary = data?.summary ?? null;
-  const trendPoints = useMemo(
-    () => (data?.trend ?? []).map((t) => t.compliantPercent).filter((v): v is number => v != null),
-    [data?.trend]
-  );
+
   const [searchFilter, setSearchFilter] = useState("");
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
@@ -119,14 +118,13 @@ export default function OverviewPage() {
     const atRisk = summary ? summary.nonCompliant : list.filter((r) => bandFor(r.status) === "atRisk").length;
     const critical = summary ? summary.error : list.filter((r) => bandFor(r.status) === "critical").length;
     const assessed = healthy + atRisk + critical;
-    // "Connected" stays ISE-aware: while ISE is down nothing counts as live.
-    const connected = list.filter((r) => isLive(r.connected)).length;
+    // Stored flag: while ISE is down this is the last known state (ConnectionDot labels it).
+    const connected = list.filter((r) => r.connected).length;
     const total = summary ? summary.total : list.length;
-    const score = assessed === 0 ? 0 : Math.round((healthy / assessed) * 100);
+    const score = assessed === 0 ? null : Math.round((healthy / assessed) * 100);
     const stale = summary ? summary.stale : 0;
     return { healthy, atRisk, critical, assessed, connected, total, score, stale };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, summary, isLive]);
+  }, [rows, summary]);
 
   const risks: RiskItem[] = useMemo(
     () =>
@@ -145,9 +143,8 @@ export default function OverviewPage() {
     [rows]
   );
 
-  // Live sessions only. Offline devices (and, while ISE is down, every device) live in the Endpoints Directory.
   const liveRows = useMemo(() => {
-    const live = (rows ?? []).filter((r) => isLive(r.connected));
+    const live = (rows ?? []).filter((r) => r.connected);
     const q = searchFilter.trim().toLowerCase();
     if (!q) return live;
     return live.filter(
@@ -156,28 +153,26 @@ export default function OverviewPage() {
         r.hostname?.toLowerCase().includes(q) ||
         r.ipAddress?.toLowerCase().includes(q)
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, searchFilter, isLive]);
+  }, [rows, searchFilter]);
+
+  const nameById = useMemo(
+    () => new Map((rows ?? []).map((r) => [r.id, r.hostname ?? r.macAddress])),
+    [rows]
+  );
 
   const offlineCount = stats.total - stats.connected;
 
   async function triggerScanAll() {
-    const targets = (rows ?? []).filter((r) => isLive(r.connected));
+    // Agents talk to endpoints directly, so scanning works even while the ISE poll is down.
+    const targets = (rows ?? []).filter((r) => r.connected);
     if (targets.length === 0) {
-      setActionNotice("No live sessions to scan right now.");
+      setActionNotice("No connected devices to scan right now.");
       setTimeout(() => setActionNotice(null), 4000);
       return;
     }
-    setActionNotice("Queuing posture checks for live endpoints…");
-    let queued = 0;
-    for (const r of targets) {
-      try {
-        await api.enqueueJob(r.id, "POSTURE_CHECK");
-        queued++;
-      } catch {
-        // keep going
-      }
-    }
+    setActionNotice("Queuing posture checks for connected endpoints…");
+    const results = await Promise.allSettled(targets.map((r) => api.enqueueJob(r.id, "POSTURE_CHECK")));
+    const queued = results.filter((x) => x.status === "fulfilled").length;
     setActionNotice(`Queued ${queued} posture checks. Follow progress in Assessment Queue.`);
     reload();
     setTimeout(() => setActionNotice(null), 5000);
@@ -243,7 +238,7 @@ export default function OverviewPage() {
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-base transition hover:bg-accent/90"
           >
             <Play size={13} />
-            <span>Scan live endpoints</span>
+            <span>Scan connected endpoints</span>
           </button>
         </div>
       </div>
@@ -254,19 +249,41 @@ export default function OverviewPage() {
         </div>
       )}
 
-      {/* ISE status banner */}
-      <div className="panel flex flex-col justify-between gap-4 bg-panel2/60 p-5 sm:flex-row sm:items-center">
+      {/* ISE status card */}
+      <div
+        className={`panel flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center ${
+          iseDown ? "border-warn/40 bg-warn/5" : "bg-panel2/60"
+        }`}
+      >
         <div className="flex items-center gap-4">
-          <div className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-good/15 text-good">
+          <div
+            className={`relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${
+              iseDown ? "bg-warn/15 text-warn" : "bg-good/15 text-good"
+            }`}
+          >
             <Radio size={18} />
-            <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-good" />
+            <span
+              className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ${iseDown ? "bg-warn" : "bg-good"}`}
+            />
           </div>
           <div>
-            <div className="text-sm font-semibold text-ink">Cisco ISE integration active</div>
-            <div className="text-xs text-muted">
-              {stats.connected} of {stats.total} devices have a live session. Sessions refresh every 15 seconds.
-              {stats.stale > 0 && <> {stats.stale} result{stats.stale > 1 ? "s are" : " is"} stale.</>}
+            <div className="text-sm font-semibold text-ink">
+              {iseDown ? "Cisco ISE integration unreachable" : "Cisco ISE integration active"}
             </div>
+            <div className="text-xs text-muted">
+              {stats.connected} of {stats.total} devices{" "}
+              {iseDown ? "were connected at the last successful poll" : "have a live session"}.
+              {!iseDown && " Sessions refresh every 15 seconds."}
+              {stats.stale > 0 && (
+                <>
+                  {" "}
+                  {stats.stale} result{stats.stale > 1 ? "s are" : " is"} stale.
+                </>
+              )}
+            </div>
+            {iseDown && ise?.lastError && (
+              <div className="mt-1 font-mono text-[11px] text-warn">{ise.lastError}</div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-5 text-xs text-muted">
@@ -285,9 +302,15 @@ export default function OverviewPage() {
         <StatCard
           icon={Monitor}
           label="Compliance index"
-          value={`${stats.score}%`}
-          tone={stats.score >= 80 ? "good" : stats.score >= 60 ? "warn" : "bad"}
-          caption={stats.score >= 80 ? "Fleet is in good shape" : "Action required"}
+          value={stats.score === null ? "—" : `${stats.score}%`}
+          tone={stats.score === null ? "accent" : stats.score >= 80 ? "good" : stats.score >= 60 ? "warn" : "bad"}
+          caption={
+            stats.score === null
+              ? "No assessments yet"
+              : stats.score >= 80
+              ? "Fleet is in good shape"
+              : "Action required"
+          }
         />
         <StatCard
           icon={ShieldCheck}
@@ -305,7 +328,11 @@ export default function OverviewPage() {
         <section className="panel p-6">
           <SectionHeader title="Fleet posture index" hint="Share of assessed devices that pass every check." />
           <div className="flex justify-center py-4">
-            <RingGauge value={stats.score} />
+            {stats.score === null ? (
+              <div className="py-10 text-xs text-muted">No assessed devices yet.</div>
+            ) : (
+              <RingGauge value={stats.score} />
+            )}
           </div>
         </section>
 
@@ -323,14 +350,18 @@ export default function OverviewPage() {
           title="Compliance trend (7 days)"
           hint="Daily share of assessed devices whose latest result was compliant."
         />
-        <TrendChart points={trendPoints} />
+        <TrendChart data={data?.trend ?? []} />
       </section>
 
       {/* 3. Live endpoints */}
       <section className="panel p-6">
         <SectionHeader
-          title={`Live endpoints (${stats.connected})`}
-          hint="Devices with an active ISE session right now."
+          title={`${iseDown ? "Last known connected endpoints" : "Live endpoints"} (${stats.connected})`}
+          hint={
+            iseDown
+              ? "ISE is unreachable, so this is the state from the last successful poll."
+              : "Devices with an active ISE session right now."
+          }
           action={
             <div className="flex items-center gap-4">
               <input
@@ -377,7 +408,9 @@ export default function OverviewPage() {
               {rows !== null && liveRows.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-10 text-center text-muted">
-                    No live sessions match. Devices appear here as soon as ISE reports an active session.
+                    {iseDown
+                      ? "No devices were connected at the last successful ISE poll."
+                      : "No live sessions match. Devices appear here as soon as ISE reports an active session."}
                   </td>
                 </tr>
               )}
@@ -423,8 +456,8 @@ export default function OverviewPage() {
         {offlineCount > 0 && (
           <div className="mt-5 flex items-center justify-between rounded-lg bg-base/60 px-4 py-3 text-xs text-muted">
             <span>
-              {offlineCount} offline device{offlineCount > 1 ? "s are" : " is"} hidden here. Their last known
-              results are kept.
+              {offlineCount} device{offlineCount > 1 ? "s are" : " is"} not connected and hidden here. Their last
+              known results are kept.
             </span>
             <Link href="/endpoints" className="font-semibold text-accent hover:underline">
               View offline devices
@@ -497,9 +530,9 @@ export default function OverviewPage() {
                       <span>{a.operator || "System"}</span>
                     </span>
                   </td>
-                  <td className="px-4 py-3.5 font-mono">
+                  <td className="px-4 py-3.5">
                     <Link href={`/endpoints/${a.endpointId}`} className="text-accent hover:underline" title={a.endpointId}>
-                      {a.endpointId.substring(0, 8)}…
+                      {nameById.get(a.endpointId) ?? `${a.endpointId.substring(0, 8)}…`}
                     </Link>
                   </td>
                   <td className="max-w-sm truncate px-4 py-3.5 text-muted" title={a.detail ?? ""}>

@@ -9,6 +9,7 @@ import { IseStatusProvider } from "@/lib/IseStatusContext";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { IseBanner } from "@/components/ui/IseBanner";
+import { TabStatus } from "@/components/layout/TabStatus";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -32,10 +33,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       });
   }, [router]);
 
-  if (!ready) return null;
+  if (!ready) {
+    return (
+      <div className="flex h-screen items-center justify-center text-xs text-muted">
+        Connecting to backend…
+      </div>
+    );
+  }
 
   return (
     <IseStatusProvider>
+      <TabStatus />
       <div className="flex h-screen overflow-hidden">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">

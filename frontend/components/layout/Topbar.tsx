@@ -65,7 +65,7 @@ export function Topbar() {
   const displayRole = user?.role ?? "Operator";
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-base/80 px-6 backdrop-blur">
+    <header className="relative z-40 flex h-14 items-center justify-between border-b border-border bg-base/80 px-6 backdrop-blur">
       {/* Search Input with Live Dropdown */}
       <div className="relative w-80 sm:w-96" ref={searchRef}>
         <Search
