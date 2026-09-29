@@ -58,6 +58,7 @@ class PostureJobRepositoryConcurrencyTest {
         registry.add("app.jwt.secret", () -> "testcontainers-only-secret-at-least-256-bits-long-value");
         registry.add("app.seed-admin.password", () -> "test-admin-password");
         registry.add("app.posture.api-key", () -> "test-agent-key");
+        registry.add("app.jobs.workers.enabled", () -> "false");
     }
 
     @Autowired
