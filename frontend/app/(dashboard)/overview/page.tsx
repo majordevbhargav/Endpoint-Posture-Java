@@ -114,22 +114,34 @@ export default function OverviewPage() {
 
   const stats = useMemo(() => {
     const list = rows ?? [];
-    const healthy = summary ? summary.compliant : list.filter((r) => bandFor(r.status) === "healthy").length;
-    const atRisk = summary ? summary.nonCompliant : list.filter((r) => bandFor(r.status) === "atRisk").length;
-    const critical = summary ? summary.error : list.filter((r) => bandFor(r.status) === "critical").length;
+    // Posture numbers cover CONNECTED devices only. The backend summary already
+    // does this; the fallback below mirrors it if the summary call failed.
+    const connectedList = list.filter((r) => r.connected);
+    const healthy = summary
+      ? summary.compliant
+      : connectedList.filter((r) => bandFor(r.status) === "healthy").length;
+    const atRisk = summary
+      ? summary.nonCompliant
+      : connectedList.filter((r) => bandFor(r.status) === "atRisk").length;
+    const critical = summary
+      ? summary.error
+      : connectedList.filter((r) => bandFor(r.status) === "critical").length;
     const assessed = healthy + atRisk + critical;
     // Stored flag: while ISE is down this is the last known state (ConnectionDot labels it).
-    const connected = list.filter((r) => r.connected).length;
+    const connected = connectedList.length;
     const total = summary ? summary.total : list.length;
     const score = assessed === 0 ? null : Math.round((healthy / assessed) * 100);
     const stale = summary ? summary.stale : 0;
-    return { healthy, atRisk, critical, assessed, connected, total, score, stale };
+    const unassessed = summary
+      ? summary.unassessed
+      : connectedList.filter((r) => bandFor(r.status) === "unassessed").length;
+    return { healthy, atRisk, critical, assessed, connected, total, score, stale, unassessed };
   }, [rows, summary]);
 
   const risks: RiskItem[] = useMemo(
     () =>
       (rows ?? [])
-        .filter((r) => ["atRisk", "critical"].includes(bandFor(r.status)))
+        .filter((r) => r.connected && ["atRisk", "critical"].includes(bandFor(r.status)))
         .slice(0, 5)
         .map((r) => ({
           id: r.id,
@@ -212,7 +224,7 @@ export default function OverviewPage() {
             </span>
           </div>
           <p className="mt-1.5 text-sm text-muted">
-            Continuous posture assessment and Cisco ISE session monitoring across your fleet.
+            Continuous posture assessment and Cisco ISE session monitoring across your connected fleet.
           </p>
         </div>
 
@@ -306,9 +318,9 @@ export default function OverviewPage() {
           tone={stats.score === null ? "accent" : stats.score >= 80 ? "good" : stats.score >= 60 ? "warn" : "bad"}
           caption={
             stats.score === null
-              ? "No assessments yet"
+              ? "No connected device assessed yet"
               : stats.score >= 80
-              ? "Fleet is in good shape"
+              ? "Connected fleet is in good shape"
               : "Action required"
           }
         />
@@ -317,7 +329,9 @@ export default function OverviewPage() {
           label="Compliant"
           value={stats.healthy}
           tone="good"
-          caption={`of ${stats.assessed} assessed`}
+          caption={`of ${stats.assessed} connected assessed${
+            stats.unassessed > 0 ? ` · ${stats.unassessed} not yet assessed` : ""
+          }`}
         />
         <StatCard icon={AlertTriangle} label="At risk" value={stats.atRisk} tone="warn" caption="Policy not met" />
         <StatCard icon={Flame} label="Critical" value={stats.critical} tone="bad" caption="Check failed to run" />
@@ -326,10 +340,13 @@ export default function OverviewPage() {
       {/* 2. Visualisations, side by side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <section className="panel p-6">
-          <SectionHeader title="Fleet posture index" hint="Share of assessed devices that pass every check." />
+          <SectionHeader
+            title="Fleet posture index"
+            hint="Share of connected, assessed devices that pass every check."
+          />
           <div className="flex justify-center py-4">
             {stats.score === null ? (
-              <div className="py-10 text-xs text-muted">No assessed devices yet.</div>
+              <div className="py-10 text-xs text-muted">No assessed connected devices yet.</div>
             ) : (
               <RingGauge value={stats.score} />
             )}
@@ -337,7 +354,7 @@ export default function OverviewPage() {
         </section>
 
         <section className="panel p-6">
-          <SectionHeader title="Posture distribution" hint="Latest result for each assessed device." />
+          <SectionHeader title="Posture distribution" hint="Latest result for each connected device." />
           <div className="flex justify-center py-4">
             <StatusDonut healthy={stats.healthy} atRisk={stats.atRisk} critical={stats.critical} size={160} />
           </div>
@@ -456,8 +473,9 @@ export default function OverviewPage() {
         {offlineCount > 0 && (
           <div className="mt-5 flex items-center justify-between rounded-lg bg-base/60 px-4 py-3 text-xs text-muted">
             <span>
-              {offlineCount} device{offlineCount > 1 ? "s are" : " is"} not connected and hidden here. Their last
-              known results are kept.
+              {offlineCount} device{offlineCount > 1 ? "s are" : " is"} not connected, so{" "}
+              {offlineCount > 1 ? "they are" : "it is"} left out of the posture numbers above. Last known results
+              are kept in the directory.
             </span>
             <Link href="/endpoints" className="font-semibold text-accent hover:underline">
               View offline devices
@@ -470,6 +488,7 @@ export default function OverviewPage() {
       <section className="panel p-6">
         <SectionHeader
           title="Needs immediate attention"
+          hint="Connected devices that are non-compliant or failed to check."
           action={
             <Link href="/compliance" className="text-xs font-semibold text-accent hover:underline">
               View all

@@ -8,13 +8,14 @@ package com.endpointposture.job;
  * the column itself is just TEXT.
  */
 public enum JobType {
-    /** Run the posture agent (firewall, ports, applications) against an endpoint. */
+    /**
+     * Run the posture agent (firewall, ports, applications) against an endpoint.
+     */
     POSTURE_CHECK,
 
     /**
-     * Run the hardware-health agent against an endpoint. The worker can
-     * dispatch it, but the backend endpoint that receives hardware results
-     * is not built yet, so these jobs will fail until it is.
+     * /** Run the hardware-health agent; results arrive at POST
+     * /api/v1/hardware-health.
      */
     HARDWARE_CHECK
 }

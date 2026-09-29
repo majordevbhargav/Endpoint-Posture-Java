@@ -9,6 +9,10 @@ import com.endpointposture.posture.AssessmentRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.endpointposture.endpoint.Endpoint;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -40,28 +44,31 @@ public class DashboardService {
         this.postureHours = postureHours;
     }
 
-    @Transactional(readOnly = true)
-    public Summary summary() {
-        long total = endpoints.count();
-        long connected = endpoints.findAllByConnectedTrue().size();
-        List<Assessment> latest = assessments.findLatestPerEndpoint();
+@Transactional(readOnly = true)
+public Summary summary() {
+    long total = endpoints.count();
+    Set<UUID> connectedIds = endpoints.findAllByConnectedTrue().stream()
+            .map(Endpoint::getId).collect(Collectors.toSet());
+    long connected = connectedIds.size();
 
-        Instant staleBefore = Instant.now().minus(Duration.ofHours(2 * postureHours));
-        long compliant = 0, nonCompliant = 0, error = 0, stale = 0;
+    Instant staleBefore = Instant.now().minus(Duration.ofHours(2 * postureHours));
+    long compliant = 0, nonCompliant = 0, error = 0, stale = 0, assessedConnected = 0;
 
-        for (Assessment a : latest) {
-            switch (a.getStatus()) {
-                case COMPLIANT -> compliant++;
-                case NON_COMPLIANT -> nonCompliant++;
-                case ERROR -> error++;
-            }
-            if (a.getCreatedAt() != null && a.getCreatedAt().isBefore(staleBefore)) stale++;
+    for (Assessment a : assessments.findLatestPerEndpoint()) {
+        if (!connectedIds.contains(a.getEndpointId())) continue; // live counts: connected devices only
+        assessedConnected++;
+        switch (a.getStatus()) {
+            case COMPLIANT -> compliant++;
+            case NON_COMPLIANT -> nonCompliant++;
+            case ERROR -> error++;
         }
-
-        long unassessed = Math.max(0, total - latest.size());
-        return new Summary(total, connected, Math.max(0, total - connected),
-                compliant, nonCompliant, error, unassessed, stale);
+        if (a.getCreatedAt() != null && a.getCreatedAt().isBefore(staleBefore)) stale++;
     }
+
+    long unassessed = Math.max(0, connected - assessedConnected);
+    return new Summary(total, connected, Math.max(0, total - connected),
+            compliant, nonCompliant, error, unassessed, stale);
+}
 
     @Transactional(readOnly = true)
     public List<TrendPoint> trend(int days) {

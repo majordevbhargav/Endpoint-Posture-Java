@@ -78,4 +78,8 @@ app:
     submit-timeout-seconds: 20
     process-timeout-seconds: 70
   workers:
-  enabled: true
+   enabled: true
+  retention:
+    enabled: true
+    inventory-keep-runs: 10       # full payloads kept per endpoint; older rows keep only their timestamp
+    inventory-cron: "0 30 3 * * *"

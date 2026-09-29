@@ -241,7 +241,7 @@ public class JobWorker {
         return new RunResult(finished ? process.exitValue() : -1, !finished, text, extractResultJson(text));
     }
 
-    private JsonNode extractResultJson(String output) {
+    JsonNode extractResultJson(String output) {
         JsonNode found = null;
         for (String line : output.split("\n")) {
             String trimmed = line.strip();

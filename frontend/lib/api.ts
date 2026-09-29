@@ -124,21 +124,26 @@ export interface CategoryRate {
   passPercent: number;
 }
 
+/** Matches InventoryController.AppRow. */
 export interface AppRow {
   name: string;
-  version?: string;
-  publisher?: string;
-  hostname?: string;
+  version?: string | null;
+  publisher?: string | null;
+  hostname?: string | null;
   macAddress: string;
+  status?: string | null;
+  summary?: string | null;
 }
 
+/** Matches InventoryController.PortRow. */
 export interface PortRow {
   port: number;
-  process?: string;
-  pid?: number;
+  process?: string | null;
+  pid?: number | null;
   reachable?: boolean | null;
-  hostname?: string;
+  hostname?: string | null;
   macAddress: string;
+  status?: string | null;
 }
 
 /** One version of the application policy (required / blocked apps). */
@@ -151,6 +156,7 @@ export interface AppPolicy {
   createdBy: string | null;
   createdAt: string;
 }
+
 export interface SystemHealth {
   status: "UP" | "DEGRADED" | "DOWN";
   checkedAt: string;
