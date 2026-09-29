@@ -26,7 +26,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Polls ISE's MNT ActiveList API for currently-active sessions.
