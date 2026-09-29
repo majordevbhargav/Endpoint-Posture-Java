@@ -77,3 +77,5 @@ app:
     cim-timeout-seconds: 30
     submit-timeout-seconds: 20
     process-timeout-seconds: 70
+  workers:
+  enabled: true
