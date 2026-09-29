@@ -42,7 +42,7 @@ These come from reading the current source, not from the older design documents.
 | F6 | `endpoint_inventory` stores the full app list and top processes on every posture run, forever. | `PostureIngestService`, V12 | Fastest-growing table once rechecks are automatic. |
 | F7 | Dev secrets are defaulted in `application.yml` (JWT secret, seed admin password, agent API key, ISE credentials) and appear in `run.ps1`. | `application.yml`, `run.ps1` | Fine on a laptop, unsafe if the app is ever started elsewhere without overrides. |
 | F8 | The backend depends on `powershell.exe` with CIM/DCOM and DPAPI credentials. | `JobWorker`, agents | The backend cannot simply be put in a Linux container. See C3. |
-| F9 | `EndpointSummaryResponse.java` is an empty placeholder (two copies). The overview page builds its numbers in the browser from two fleet calls. | backend, `overview/page.tsx` | Works now, will not scale, and blocks trend and category views. |
+| F9 | ~~Resolved~~ — `DashboardService`/`DashboardController` now provide `/api/v1/dashboard/summary`, `/trend`, `/categories`; the empty `EndpointSummaryResponse.java` placeholder has been deleted. | backend | Overview and compliance pages should be pointed at these instead of the browser-side fleet-call computation, if they aren't already. |
 | F10 | Session log rows are written, and `findByEndpointIdOrderByEventAtDesc` exists, but no controller exposes it. | `EndpointSessionLogRepository` | Near-free feature. |
 | F11 | Disconnect is declared after a single missed poll. | `IseSessionWatcher` | Roaming or a brief ISE blip flaps state and triggers extra rechecks. |
 | F12 | Documentation drift: `PROJECT_COMPLETE_GUIDE.md` says Next 14 and Spring Boot 3.5.6; the repo has Next 16 and 3.5.16. Root `README.md` still lists plain HTML/Chart.js as the frontend. Empty legacy files remain. | docs, repo root | Confuses new readers. |
@@ -130,7 +130,7 @@ Each wave is independently shippable. Do not start the next wave until the previ
 
 - **H1 Fail fast on default secrets.** Move the current defaults into an `application-dev.yml` profile. In the default profile, `app.jwt.secret`, `app.seed-admin.password` and `app.posture.api-key` have no default, so startup fails loudly if unset. Also remove real-looking credentials from `run.ps1` and read them from environment variables.
 - **H2 Stale job recovery.** A `@Scheduled` sweep (every minute) finds jobs in `RUNNING` where `started_at` is older than `process-timeout-seconds` plus a margin, and calls `markFailed` with a "recovered after stall" reason. Also run once at startup. Since `markFailed` already handles retry and backoff, this is about 30 lines. Write the same failure evidence row `JobWorker.fail()` writes so the trail stays complete.
-- **H4 Cleanup.** Delete the two empty `EndpointSummaryResponse.java` copies (or implement them in V2), delete `pending_devices.txt`, `seen_macs.txt` and `ip_mac_map.txt` from the repo, and fix the version and stack statements in `README.md` and `PROJECT_COMPLETE_GUIDE.md`. The migration numbering gap (V4 then V8) is harmless to Flyway; note it in the guide so nobody hunts for V5 to V7.
+- **H4 Cleanup — done.** The empty `EndpointSummaryResponse.java` placeholder is deleted (V2 below already superseded it); `pending_devices.txt`, `seen_macs.txt`, `ip_mac_map.txt` were never actually tracked in this repo. Remaining: fix the version/stack statements in `README.md` and `PROJECT_COMPLETE_GUIDE.md`, and note the harmless V4→V8 migration numbering gap there.
 - **V1 Session history.** Add `GET /api/v1/endpoints/{id}/sessions` returning the existing repository query, and a "Sessions" tab on the endpoint detail page.
 - **H3 (start).** Unit tests for the four scorers, `HardwareHealthService.bandFor`, `PostureIngestService.overallStatus` (including the ordinal-order rule), and `EndpointService.normalizeMac`. These need no database.
 
@@ -149,7 +149,7 @@ Each wave is independently shippable. Do not start the next wave until the previ
   - Fix `enqueueIfDue` to take the interval and check the last `COMPLETE` job of that type. Backoff for hardware is derived from the last `FAILED` job's `completed_at`, not from in-memory state, so it survives restarts (an improvement over the Python dict).
   - Disconnected endpoints are never auto-queued; they keep their last known data.
 - **A3 Grace period.** Track consecutive missed polls per MAC (in-memory map is enough at this stage) and mark disconnected only after 2 (`app.ise.disconnect-grace-polls`). Resolves open question 8 in the project plan.
-- **V2 Dashboard APIs.** Implement `EndpointSummaryResponse` properly:
+- **V2 Dashboard APIs — done.** `DashboardService`/`DashboardController` already implement:
   - `GET /api/v1/dashboard/summary`: counts of connected, not connected, compliant, non-compliant, error, unassessed, and a **stale** count (last assessment older than 2x the recheck interval).
   - `GET /api/v1/dashboard/trend?days=7`: daily compliant percentage from `assessment`.
   - `GET /api/v1/dashboard/categories`: pass rate per `check_type` from `check_result`.

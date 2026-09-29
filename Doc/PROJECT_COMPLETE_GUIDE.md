@@ -162,7 +162,6 @@ Files that exist in the project workspace but are not part of the running applic
 | File | What it is |
 |---|---|
 | `pending_devices.txt` | Empty. Leftover from the Python prototype's flat-file queue. Replaced by the `posture_job` table. |
-| `EndpointSummaryResponse.java` (twice) | Empty files (one at repo root, one under `endpoint/dto/`). Placeholder for a dashboard summary DTO that was never written. |
 | `conversations_` | Exported chat history used as project context. |
 | `posture_common_cred.xml` | Created at runtime by `Save-PostureCredential.ps1`. Deliberately git-ignored. |
 
