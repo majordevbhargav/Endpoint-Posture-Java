@@ -44,6 +44,14 @@ public class User {
     @Builder.Default
     @Column(nullable = false)
     private boolean enabled = true;
+        /** Consecutive wrong passwords since the last success or lock. */
+    @Builder.Default
+    @Column(name = "failed_attempts", nullable = false)
+    private int failedAttempts = 0;
+
+    /** While in the future, logins for this user are refused. {@code null} = not locked. */
+    @Column(name = "locked_until")
+    private Instant lockedUntil;
 
     /** When the account was created (UTC). Set automatically on first save. */
     @Column(name = "created_at", nullable = false, updatable = false)

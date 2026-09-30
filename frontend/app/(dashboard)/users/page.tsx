@@ -127,7 +127,9 @@ export default function UsersPage() {
                       {ROLES.map((r) => <option key={r}>{r}</option>)}
                     </select>
                   </td>
-                  <td className={`px-4 py-3 font-medium ${u.enabled ? "text-good" : "text-muted"}`}>{u.enabled ? "Enabled" : "Disabled"}</td>
+                  <td className={`px-4 py-3 font-medium ${u.locked ? "text-warn" : u.enabled ? "text-good" : "text-muted"}`}>
+                    {u.locked ? "Locked" : u.enabled ? "Enabled" : "Disabled"}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <button disabled={self} title={self ? SELF_HINT : undefined}
                       onClick={() => run(() => api.updateUser(u.id, { enabled: !u.enabled }), u.enabled ? "User disabled." : "User enabled.")}
@@ -135,9 +137,9 @@ export default function UsersPage() {
                       {u.enabled ? "Disable" : "Enable"}
                     </button>
                     <button onClick={() => {
-                        const p = window.prompt(`New password for ${u.username} (12+ characters)`);
-                        if (p) run(() => api.resetPassword(u.id, p), "Password reset.");
-                      }}
+                      const p = window.prompt(`New password for ${u.username} (12+ characters)`);
+                      if (p) run(() => api.resetPassword(u.id, p), "Password reset.");
+                    }}
                       className="mr-2 rounded border border-border bg-panel px-2 py-1 text-[11px] text-muted hover:text-ink">
                       Reset password
                     </button>

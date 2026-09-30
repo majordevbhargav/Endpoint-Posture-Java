@@ -26,9 +26,10 @@ import java.util.UUID;
 @Tag(name = "Users", description = "Create users, change roles, disable, reset passwords. ADMIN only.")
 public class UserController {
 
-    public record UserView(UUID id, String username, Role role, boolean enabled, Instant createdAt) {
+    public record UserView(UUID id, String username, Role role, boolean enabled, boolean locked, Instant createdAt) {
         static UserView of(User u) {
-            return new UserView(u.getId(), u.getUsername(), u.getRole(), u.isEnabled(), u.getCreatedAt());
+            boolean locked = u.getLockedUntil() != null && u.getLockedUntil().isAfter(Instant.now());
+            return new UserView(u.getId(), u.getUsername(), u.getRole(), u.isEnabled(), locked, u.getCreatedAt());
         }
     }
 

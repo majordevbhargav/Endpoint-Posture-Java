@@ -88,6 +88,7 @@ Verified against real infrastructure (a Windows laptop as target, a real lab ISE
 - Worker pool, automatic rechecks, stale-job recovery, application policy versions, system health, inventory retention
 
 Covered by automated tests (`mvn test`): scorers, status ordering, MAC normalization, JWT and both security filters, watcher grace logic, `enqueueIfDue`, recheck scheduler, stale recovery, policy service, user service rules, system health rules, dashboard summary, ISE audit rule, `RESULT_JSON` parsing, and Testcontainers tests for concurrent job claiming, inventory retention and role-based access. Several need Docker running.
+-V14, LoginAttemptService
 
 **Not verified by me at handoff time:** the latest edits (role-gated bulk buttons, `/ise/status` extra fields, theme cookie, `204` handling in `api.ts`, `UserServiceTest`). After pulling them, run `mvn test` and `npx tsc --noEmit` and click through the dashboard once.
 
@@ -134,8 +135,7 @@ If you see a `415`, a `PKIX` error, or ISE calls doing nothing, check `applicati
 ---
 
 ## 8. What to do next, in order
-
-1. **C2 login lockout and rate limiting.** The biggest remaining security gap. Add `failed_attempts` and `locked_until` to `app_user` (new migration V14), lock for a few minutes after 5 failures, keep the identical `401` body, log lockouts.
+1. C2 Locked Completd.
 2. **Docs and CI:** extend `ci.yml` with `next build` (C4).
 3. **V5 ISE Actions page** (fleet-wide restriction state derived from the audit trail; show "clear requested", not "unrestricted", in `ATTRIBUTE` mode) and **V4 hardware trend charts.**
 4. **C5 metrics**, then **C3 Stage A** (frontend image), then **V6 warranty CSV.**

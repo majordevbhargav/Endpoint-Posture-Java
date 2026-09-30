@@ -13,7 +13,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate   # Flyway owns the schema, Hibernate must never auto-generate it
+      ddl-auto: validate # Flyway owns the schema, Hibernate must never auto-generate it
     open-in-view: false
     properties:
       hibernate:
@@ -34,41 +34,46 @@ logging:
 
 app:
   jwt:
-    secret: ${JWT_SECRET}                    # no default: startup fails if unset (dev profile supplies one)
+    secret: ${JWT_SECRET} # no default: startup fails if unset (dev profile supplies one)
     expiration-minutes: 480
 
   seed-admin:
     username: ${SEED_ADMIN_USER:admin}
-    password: ${SEED_ADMIN_PASSWORD}         # no default
+    password: ${SEED_ADMIN_PASSWORD} # no default
 
   jobs:
-    poll-interval-ms: 3000          # idle sleep when the queue is empty
-    worker-threads: 4               # each running job starts a powershell.exe: size to the host
+    poll-interval-ms: 3000 # idle sleep when the queue is empty
+    worker-threads: 4 # each running job starts a powershell.exe: size to the host
     workers:
-      enabled: true                 # app.jobs.workers.enabled: false disables the worker pool
-    stale-sweep-interval-ms: 60000  # how often stuck RUNNING jobs are looked for
-    stale-margin-seconds: 60        # added on top of the largest agent process timeout
+      enabled: true # app.jobs.workers.enabled: false disables the worker pool
+    stale-sweep-interval-ms: 60000 # how often stuck RUNNING jobs are looked for
+    stale-margin-seconds: 60 # added on top of the largest agent process timeout
     recheck:
       enabled: true
-      posture-hours: 4              # re-run posture for connected endpoints older than this
-      hardware-hours: 24            # re-run hardware health for connected endpoints older than this
-      failure-backoff-hours: 6      # after a FAILED job, wait this long before auto-retrying
-      sweep-interval-ms: 300000     # how often the recheck sweep runs (5 min)
+      posture-hours: 4 # re-run posture for connected endpoints older than this
+      hardware-hours: 24 # re-run hardware health for connected endpoints older than this
+      failure-backoff-hours: 6 # after a FAILED job, wait this long before auto-retrying
+      sweep-interval-ms: 300000
+
+    security:
+      login:
+        max-attempts: 5 # consecutive wrong passwords before an account is locked
+        lock-minutes: 5 # how long the lock lasts     # how often the recheck sweep runs (5 min)
 
   ise:
-    base-url: ${ISE_BASE_URL:}               # blank = ISE features safely disabled
+    base-url: ${ISE_BASE_URL:} # blank = ISE features safely disabled
     username: ${ISE_USERNAME:}
     password: ${ISE_PASSWORD:}
     verify-tls: false
     session-poll-interval-ms: 15000
-    disconnect-grace-polls: 2                # missed polls in a row before marking disconnected
+    disconnect-grace-polls: 2 # missed polls in a row before marking disconnected
     enforcement-mode: ATTRIBUTE
     anc-policy-name: Quarantine
 
   posture:
     script-path: ../scripts/posture_agent.ps1
     server-url: http://localhost:8090/api/v1/posture
-    api-key: ${POSTURE_API_KEY}              # no default
+    api-key: ${POSTURE_API_KEY} # no default
     cim-timeout-seconds: 30
     server-timeout-seconds: 15
     process-timeout-seconds: 60
@@ -82,5 +87,5 @@ app:
 
   retention:
     enabled: true
-    inventory-keep-runs: 10       # full payloads kept per endpoint; older rows keep only their timestamp
+    inventory-keep-runs: 10 # full payloads kept per endpoint; older rows keep only their timestamp
     inventory-cron: "0 30 3 * * *"

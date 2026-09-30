@@ -187,6 +187,7 @@ export interface UserView {
   role: UserRole;
   enabled: boolean;
   createdAt: string;
+  locked: boolean;
 }
 
 const TOKEN_KEY = "vece_token";
@@ -216,6 +217,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401) {
+    // A wrong password on the login form is not an expired session: do not
+    // clear the token or reload the page (a reload closes the dev HMR socket
+    // and wipes the error message).
+    if (path === "/api/v1/auth/login") {
+      throw new Error(
+        "Invalid username or password. Accounts are locked for a few minutes after repeated failed attempts."
+      );
+    }
     clearToken();
     if (typeof window !== "undefined") window.location.href = "/login";
     throw new Error("Unauthorized");

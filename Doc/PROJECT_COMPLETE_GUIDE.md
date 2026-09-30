@@ -197,6 +197,7 @@ Schema is owned by Flyway (`backend/src/main/resources/db/migration`). Version n
 | V11 | `ise_action_audit` | one row per Share/Restrict/Clear attempt |
 | V12 | `endpoint_inventory` | per-run raw ports, apps, processes, resource usage (JSONB) |
 | V13 | `app_policy`, `app_policy_rule` | versioned required/blocked apps; a partial unique index allows only one active policy; version 1 is seeded |
+| V14 | (alters `app_user`) | adds `failed_attempts` and `locked_until` for brute-force protection |
 
 **Foreign-key rules.** `ON DELETE CASCADE` where a child is meaningless without its parent (`check_result`, `posture_job`, session log, audit). `ON DELETE SET NULL` for `job_id` on `assessment`/`hardware_health` and `assessment_id` on `endpoint_inventory`, so evidence outlives a purged job.
 
@@ -214,7 +215,7 @@ Schema is owned by Flyway (`backend/src/main/resources/db/migration`). Version n
 - `SecurityConfig`: stateless filter chain with `@EnableMethodSecurity`. Public: `/api/v1/auth/**`, `/actuator/health`, `/error`, Swagger. `POST /api/v1/posture` and `/hardware-health` need `AGENT` or `ADMIN`. `PUT /api/v1/policy/**` and `/api/v1/users/**` need `ADMIN`. Everything else needs a valid token; finer rules use `@PreAuthorize` on controllers. Also seeds one admin when `app_user` is empty.
 - `JwtService`, `JwtAuthFilter`: issue and verify tokens. The filter never rejects; it looks the user up in the database on every request, so **the role and `enabled` flag come from the database, not the token**. A demotion or disable takes effect on the next request.
 - `PostureApiKeyFilter`: shared-secret auth for the two ingestion routes only, constant-time comparison, fails closed if no key is configured, grants only `ROLE_AGENT`.
-- `AuthController`: login; unknown user, disabled user and wrong password return the same `401`. No lockout yet.
+- `AuthController`: login; unknown user, disabled user and wrong password return the same `401`.  lockout .
 - `UserController` / `UserService`: list, create, change role or enabled (`PATCH`), reset password, delete. Rules: passwords 12+ characters; you cannot demote, disable or delete yourself; at least one enabled `ADMIN` must always remain. Errors return `{message}` JSON.
 - `User`, `UserRepository`, `Role` (`ADMIN`, `OPERATOR`, `ANALYST`, `VIEWER`).
 
@@ -454,7 +455,7 @@ The agent key (`ROLE_AGENT`) can only submit reports to the two ingestion routes
 | Item | Detail |
 |---|---|
 | Lab secrets in files | `application-dev.yml` holds lab ISE credentials and is git-ignored; confirm it is not tracked. If legacy Python files (`posture_app.py`, `ise_session_watcher.py`, `posture_ui.py`) exist at the repo root, they contain lab credentials; delete them and rotate the credentials if the repo was ever shared. |
-| No login lockout | `AuthController` has no failed-attempt counting or rate limiting (roadmap C2). |
+|login lockout | `AuthController` has  failed-attempt counting or rate limiting (roadmap C2). |
 | Attribute-mode Clear | It is informational; no UI should imply the device is "unrestricted". |
 | Battery score empty | `BatteryStaticData` returns "Generic failure" on the test laptop (WMI/OEM limit, not a code bug). |
 | Warranty | Always `UNKNOWN` until a data source exists (roadmap V6). |
