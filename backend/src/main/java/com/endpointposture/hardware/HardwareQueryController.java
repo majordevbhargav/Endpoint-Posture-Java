@@ -3,6 +3,8 @@ package com.endpointposture.hardware;
 import com.endpointposture.hardware.dto.HardwareHealthResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,7 +33,11 @@ public class HardwareQueryController {
 
     @Operation(summary = "Latest hardware health report for an endpoint")
     @GetMapping("/latest")
-    public HardwareHealthResponse latest(@PathVariable UUID id) {
-        return service.getLatestForEndpoint(id);
+    public ResponseEntity<HardwareHealthResponse> latest(@PathVariable UUID id) {
+     try {
+        return ResponseEntity.ok(service.getLatestForEndpoint(id));
+        } catch (HardwareHealthNotFoundException e) {
+        return ResponseEntity.noContent().build();
     }
+}
 }

@@ -11,6 +11,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import java.util.stream.Collectors;
 
 import java.time.Instant;
 import java.util.List;
@@ -29,19 +31,29 @@ public class UserController {
             return new UserView(u.getId(), u.getUsername(), u.getRole(), u.isEnabled(), u.getCreatedAt());
         }
     }
+
     public record CreateUserRequest(@NotBlank @Size(min = 3, max = 64) String username,
-                                    @NotBlank @Size(min = 12, max = 128) String password,
-                                    @NotNull Role role) {}
-    public record UpdateUserRequest(Role role, Boolean enabled) {}
-    public record ResetPasswordRequest(@NotBlank @Size(min = 12, max = 128) String password) {}
+            @NotBlank @Size(min = 12, max = 128) String password,
+            @NotNull Role role) {
+    }
+
+    public record UpdateUserRequest(Role role, Boolean enabled) {
+    }
+
+    public record ResetPasswordRequest(@NotBlank @Size(min = 12, max = 128) String password) {
+    }
 
     private final UserService service;
 
-    public UserController(UserService service) { this.service = service; }
+    public UserController(UserService service) {
+        this.service = service;
+    }
 
     @Operation(summary = "List users")
     @GetMapping
-    public List<UserView> list() { return service.list().stream().map(UserView::of).toList(); }
+    public List<UserView> list() {
+        return service.list().stream().map(UserView::of).toList();
+    }
 
     @Operation(summary = "Create a user")
     @PostMapping
@@ -59,8 +71,15 @@ public class UserController {
     @Operation(summary = "Reset a user's password")
     @PostMapping("/{id}/password")
     public ResponseEntity<Void> resetPassword(@PathVariable UUID id,
-                                              @Valid @RequestBody ResetPasswordRequest req, Authentication auth) {
+            @Valid @RequestBody ResetPasswordRequest req, Authentication auth) {
         service.resetPassword(id, req.password(), auth.getName());
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Delete a user")
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable UUID id, Authentication auth) {
+        service.delete(id, auth.getName());
         return ResponseEntity.noContent().build();
     }
 
@@ -72,5 +91,14 @@ public class UserController {
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, String>> conflict(IllegalStateException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", e.getMessage()));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> invalid(MethodArgumentNotValidException e) {
+        String msg = e.getBindingResult().getFieldErrors().stream()
+                .map(f -> f.getField() + ": " + f.getDefaultMessage())
+                .distinct()
+                .collect(Collectors.joining("; "));
+        return ResponseEntity.badRequest().body(Map.of("message", msg));
     }
 }

@@ -223,7 +223,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.error ?? body?.message ?? `Request failed: ${res.status}`);
+    throw new Error(body?.message ?? body?.error ?? `Request failed: ${res.status}`);
   }
   return res.json();
 }
@@ -312,4 +312,12 @@ export const api = {
       if (r.status === 403) throw new Error("Your role does not allow this action");
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message ?? `Request failed: ${r.status}`);
     }),
+    deleteUser: (id: string) =>
+    fetch(`/api/v1/users/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${getToken()}` },
+    }).then(async (r) => {
+      if (r.status === 403) throw new Error("Your role does not allow this action");
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message ?? `Request failed: ${r.status}`);
+    }),  
 };

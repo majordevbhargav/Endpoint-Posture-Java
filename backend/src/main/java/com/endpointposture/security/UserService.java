@@ -68,4 +68,17 @@ public class UserService {
         users.save(u);
         log.info("Password reset for '{}' by {}", u.getUsername(), actor);
     }
+
+    @Transactional
+    public void delete(UUID id, String actor) {
+        User u = users.findById(id).orElseThrow(() -> new IllegalArgumentException("No such user"));
+        if (u.getUsername().equals(actor)) {
+            throw new IllegalArgumentException("You cannot delete your own account");
+        }
+        if (u.isEnabled() && u.getRole() == Role.ADMIN && users.countByRoleAndEnabledTrue(Role.ADMIN) <= 1) {
+            throw new IllegalStateException("At least one enabled ADMIN must remain");
+        }
+        users.delete(u);
+        log.info("User '{}' deleted by {}", u.getUsername(), actor);
+    }
 }
