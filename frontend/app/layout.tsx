@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Script from "next/script";
+
 
 import "./globals.css";
 
@@ -16,9 +16,18 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <Script id="theme-init" strategy="beforeInteractive">
-          {`try{if(localStorage.getItem('theme')==='light'){document.documentElement.classList.add('light')}}catch(e){}`}
-        </Script>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+      try {
+        if (localStorage.getItem('theme') === 'light') {
+          document.documentElement.classList.add('light');
+        }
+      } catch (e) {}
+    `,
+          }}
+        />
+
       </head>
       <body className="min-h-screen antialiased">{children}</body>
     </html>
