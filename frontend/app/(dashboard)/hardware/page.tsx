@@ -17,6 +17,7 @@ import {
 import { api, EndpointResponse, HardwareHealthResponse } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { usePolling } from "@/lib/usePolling";
+import { can, DENIED_HINT } from "@/lib/permissions";
 
 type Row = {
   e: EndpointResponse;
@@ -67,6 +68,9 @@ export default function HardwarePage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
+  // UI convenience only: the backend @PreAuthorize rule is the real control.
+  const mayEnqueue = can("enqueue");
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -89,7 +93,7 @@ export default function HardwarePage() {
 
   const stats = useMemo(() => {
     const list = rows ?? [];
-    // Only rows that carry scores count. The backend now returns the last successful run
+    // Only rows that carry scores count. The backend returns the last successful run
     // when the newest attempt failed, so a flaky device still contributes its last good scores.
     const withReport = list.filter((r) => r.hw?.succeeded);
     const avgScore =
@@ -113,7 +117,7 @@ export default function HardwarePage() {
   }, [rows]);
 
   async function triggerHardwareAll() {
-    if (!rows || rows.length === 0) return;
+    if (!mayEnqueue || !rows || rows.length === 0) return;
     setActionNotice("Enqueuing hardware health checks for all endpoints…");
     let count = 0;
     for (const { e } of rows) {
@@ -179,7 +183,9 @@ export default function HardwarePage() {
 
           <button
             onClick={triggerHardwareAll}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-base transition hover:bg-accent/90"
+            disabled={!mayEnqueue}
+            title={!mayEnqueue ? DENIED_HINT : undefined}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-base transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Play size={13} />
             <span>Check All Hardware</span>

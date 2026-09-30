@@ -16,13 +16,13 @@ Cisco ISE remains the network enforcement authority. The platform does **not** a
 
   * Discover active endpoints through Cisco ISE
   * Track MAC/IP and connection state
-  * Detect endpoint connect/disconnect events
+  * Detect endpoint connect/disconnect events (with a grace period against flapping)
 
 * 🛡️ **Endpoint Posture**
 
   * Windows Firewall status
-  * Listening ports
-  * Installed applications
+  * Listening ports and reachability
+  * Installed applications, judged against a versioned required/blocked policy
   * Processes and resources
   * OS and endpoint information
 
@@ -39,9 +39,10 @@ Cisco ISE remains the network enforcement authority. The platform does **not** a
 
   * Current endpoint state
   * Historical assessments
-  * Application, port and process inventory
+  * Application and port inventory
   * Session history
   * Endpoint hardware history
+  * Automatic rechecks (posture every 4 h, hardware every 24 h)
 
 * 🔐 **Cisco ISE Integration**
 
@@ -51,13 +52,13 @@ Cisco ISE remains the network enforcement authority. The platform does **not** a
   * Controlled restriction and restriction clearing
   * Administrative action auditing
 
-* 🧑‍💻 **Operator Dashboard**
+* 🧑‍💻 **Operator Dashboard and Access Control**
 
-  * Endpoint investigation
-  * Compliance status
-  * Hardware health
-  * Historical information
-  * Remediation controls
+  * Endpoint investigation, compliance matrix, hardware telemetry
+  * Application policy editor with version history
+  * System health page
+  * Roles: `ADMIN`, `OPERATOR`, `ANALYST`, `VIEWER`, enforced on the server
+  * User management (admin only)
 
 ---
 
@@ -128,6 +129,7 @@ The architecture deliberately separates **observation from enforcement**. Endpoi
 | Windows Posture Agent | Collects endpoint security posture                 |
 | Hardware Health Agent | Collects hardware telemetry                        |
 | Backend API           | Receives, validates and processes endpoint data    |
+| Job queue             | PostgreSQL-backed queue with a worker pool         |
 | PostgreSQL            | Persistent source of truth and historical evidence |
 | ISE Transport         | Abstracts Cisco ISE communication                  |
 | Dashboard             | Endpoint investigation and operator control        |
@@ -136,51 +138,53 @@ The architecture deliberately separates **observation from enforcement**. Endpoi
 
 ## Data Model
 
-The platform maintains more than a simple compliant/non-compliant flag.
+These are the tables created by the Flyway migrations `V1` to `V13`.
+Version numbers jump from V4 to V8; the gap is harmless.
 
 ```text
-endpoints
+app_user                          (V1)   login users and roles
+
+endpoint                          (V2)   one row per device, keyed by MAC
     │
-    ├── assessments
-    │      └── check_results
+    ├── posture_job               (V3)   the work queue
     │
-    ├── endpoint_apps
-    ├── endpoint_ports
-    ├── endpoint_processes
+    ├── assessment                (V4)   append-only posture history
+    │      └── check_result      (V4)   one row per check, details as JSONB
     │
-    ├── endpoint_session_log
+    ├── endpoint_inventory        (V12)  per-run apps, ports, processes (JSONB)
     │
-    ├── endpoint_hardware_health
-    ├── endpoint_hardware_recommendations
+    ├── hardware_health           (V8, V9)  per-run scores and raw report
+    │      └── hardware_recommendation (V8)
     │
-    └── ise_action_audit
+    ├── endpoint_session_log      (V10)  connect / disconnect events
+    │
+    └── ise_action_audit          (V11)  every Share / Restrict / Clear attempt
+
+app_policy                        (V13)  versioned application policy
+    └── app_policy_rule           (V13)  required / blocked patterns
 ```
 
-This allows the system to maintain both **current endpoint state and historical evidence**.
+Assessments, check results, hardware reports, inventory, session log and audit rows are append-only. Only `endpoint`, `posture_job`, `app_user` and `app_policy.active` change in place.
 
 ---
 
 ## Posture Checks
 
-Current posture collection includes areas such as:
-
 ```text
 Windows Firewall
-Listening Ports
-Installed Applications
+Listening Ports (with reachability probe)
+Installed Applications (required / blocked policy)
 Processes
 System Resources
 Operating System
 Endpoint Identity
 ```
 
-The Windows agent can perform remote endpoint inspection and submit the resulting JSON report to the backend posture API.
+The Windows agent performs remote inspection and submits a JSON report to the backend posture API. It authenticates with a shared key, which only opens the two ingestion routes.
 
 ---
 
 ## Hardware Health
-
-Hardware telemetry includes:
 
 ```text
 CPU
@@ -193,13 +197,11 @@ Windows Hardware Events
 Recommendations
 ```
 
-Hardware health is treated as a separate subsystem and can be periodically refreshed by the platform.
+A failed collection leaves a permanent `succeeded = false` row. The dashboard keeps showing the last good scores with a warning.
 
 ---
 
 ## Cisco ISE Actions
-
-The platform keeps posture sharing and enforcement as separate operations.
 
 ```text
 Share Posture
@@ -209,7 +211,7 @@ Restrict Endpoint
 Clear Restriction
 ```
 
-Posture information can be published to ISE, while restriction actions can be explicitly requested by an administrator through the supported enforcement mechanisms.
+Each is a separate operator action with its own role requirement and its own audit row, whether it succeeds or fails.
 
 ---
 
@@ -217,15 +219,15 @@ Posture information can be published to ISE, while restriction actions can be ex
 
 **Backend**
 
-* Java
-* Spring Boot
+* Java 21
+* Spring Boot 3.5
 * Maven
 * REST APIs
-* Spring Security / JWT
+* Spring Security / JWT / role-based access
 
 **Database**
 
-* PostgreSQL
+* PostgreSQL 16, Flyway migrations
 
 **Endpoint Collection**
 
@@ -257,8 +259,6 @@ The platform collects and evaluates endpoint evidence. Cisco ISE remains respons
 
 An endpoint's latest posture is separate from its connection state and historical assessments.
 
-For example:
-
 ```text
 Connected + Compliant
 Connected + Non-Compliant
@@ -266,17 +266,9 @@ Disconnected + Previously Compliant
 Disconnected + Previously Non-Compliant
 ```
 
-Connection history is maintained independently.
-
 ### 3. Evidence First
 
-Instead of storing only:
-
-```text
-COMPLIANT
-```
-
-the platform maintains the underlying checks, inventory, assessments and history.
+Instead of storing only `COMPLIANT`, the platform keeps the underlying checks, inventory, assessments and history.
 
 ### 4. Human-Controlled Enforcement
 
@@ -288,48 +280,14 @@ The system does not silently quarantine or restrict an endpoint because a postur
 
 🚧 **Active Development**
 
-The platform is being rebuilt around a cleaner backend architecture and centralized PostgreSQL persistence.
+Built: security and roles, endpoint discovery, job queue with worker pool and automatic rechecks, posture, hardware health, ISE actions and audit, application policy, dashboard APIs, system health, and the Next.js dashboard.
 
-Planned areas include:
-
-* Stronger RBAC
-* Production-scale endpoint processing
-* Expanded endpoint intelligence
-* Hardware health improvements
-* Frontend modernization
-* Production deployment architecture
-
-Some of these areas remain intentionally open design decisions.
+Still planned: login lockout, metrics, containerization, warranty data, Endpoint 360 diagnostics, and application remediation. See `FEATURE_ROADMAP.md` for the ordered list.
 
 ---
 
 ## Project Goal
 
 The long-term goal is to provide a centralized endpoint intelligence and compliance control plane for Cisco ISE-managed enterprise networks.
-
-```text
-Cisco ISE
-   │
-   │ Who is connected?
-   ▼
-Endpoint Intelligence
-   │
-   │ What is happening?
-   ▼
-Posture + Hardware + Evidence
-   │
-   ▼
-PostgreSQL
-   │
-   ▼
-Administrator Review
-   │
-   ├── Share posture
-   ├── Restrict
-   └── Clear restriction
-   │
-   ▼
-Cisco ISE
-```
 
 **The platform provides the visibility and intelligence. Cisco ISE remains the enforcement layer.**

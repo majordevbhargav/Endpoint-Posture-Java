@@ -6,16 +6,22 @@ package com.endpointposture.job;
  * a free-form string, for compile-time safety - adding a new job type
  * later is a one-line addition here, no schema change required since
  * the column itself is just TEXT.
+ *
+ * <p>{@code JobWorker.dispatch} switches over this enum exhaustively, so a
+ * new constant will not compile until it is handled there too.</p>
  */
 public enum JobType {
     /**
-     * Run the posture agent (firewall, ports, applications) against an endpoint.
+     * Run {@code posture_agent.ps1} (firewall, listening ports, applications)
+     * against an endpoint. The agent POSTs its report to
+     * {@code POST /api/v1/posture}.
      */
     POSTURE_CHECK,
 
     /**
-     * /** Run the hardware-health agent; results arrive at POST
-     * /api/v1/hardware-health.
+     * Run {@code hardware_health_agent.ps1} (CPU, memory, storage, battery,
+     * hardware events) against an endpoint. The agent POSTs its report to
+     * {@code POST /api/v1/hardware-health}.
      */
     HARDWARE_CHECK
 }

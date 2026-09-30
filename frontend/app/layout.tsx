@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-
+import { cookies } from "next/headers";
 
 import "./globals.css";
 
@@ -8,27 +8,17 @@ export const metadata: Metadata = {
   description: "Endpoint posture and compliance visibility",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-      try {
-        if (localStorage.getItem('theme') === 'light') {
-          document.documentElement.classList.add('light');
-        }
-      } catch (e) {}
-    `,
-          }}
-        />
+  // The theme lives in a cookie so the server can render the right class
+  // immediately: no inline script, no flash of the wrong theme.
+  const theme = (await cookies()).get("theme")?.value;
 
-      </head>
+  return (
+    <html lang="en" className={theme === "light" ? "light" : undefined} suppressHydrationWarning>
       <body className="min-h-screen antialiased">{children}</body>
     </html>
   );

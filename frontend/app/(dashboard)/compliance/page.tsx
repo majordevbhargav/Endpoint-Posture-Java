@@ -18,6 +18,7 @@ import {
 import { api, EndpointResponse, AssessmentResponse } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
+import { can, DENIED_HINT } from "@/lib/permissions";
 
 type Row = {
   e: EndpointResponse;
@@ -32,6 +33,9 @@ export default function CompliancePage() {
   const [connFilter, setConnFilter] = useState<"ALL" | "CONNECTED" | "DISCONNECTED">("ALL");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  // UI convenience only: the backend @PreAuthorize rule is the real control.
+  const mayEnqueue = can("enqueue");
 
   const loadData = async () => {
     setLoading(true);
@@ -89,6 +93,7 @@ export default function CompliancePage() {
   const basis = (n: number) => `${n} connected device${n === 1 ? "" : "s"} assessed`;
 
   async function triggerScanAll() {
+    if (!mayEnqueue) return;
     const targets = (rows ?? []).filter((r) => r.e.connected);
     if (targets.length === 0) {
       setActionNotice("No connected devices to scan right now.");
@@ -158,7 +163,9 @@ export default function CompliancePage() {
 
           <button
             onClick={triggerScanAll}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-base transition hover:bg-accent/90"
+            disabled={!mayEnqueue}
+            title={!mayEnqueue ? DENIED_HINT : undefined}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-base transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Play size={13} />
             <span>Scan connected endpoints</span>

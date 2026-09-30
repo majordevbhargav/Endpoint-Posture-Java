@@ -84,7 +84,7 @@ export default function EndpointDetailPage() {
       const [postureRes, histRes, hwRes, jobsRes, auditRes, sessionsRes] = await Promise.allSettled([
         api.latestPostureOrNull(id),
         api.postureHistory(id),
-        api.latestHardware(id),
+        api.latestHardwareOrNull(id),
         api.listJobsForEndpoint(id),
         api.auditActions(id),
         api.sessionHistory(id),

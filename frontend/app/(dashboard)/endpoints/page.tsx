@@ -302,7 +302,7 @@ export default function EndpointsPage() {
       setLoadingDetail(ep.id);
       const [postureRes, hwRes] = await Promise.allSettled([
         api.latestPosture(ep.id),
-        api.latestHardware(ep.id),
+        api.latestHardwareOrNull(ep.id),
       ]);
       setEndpoints((prev) =>
         prev ? prev.map((e) =>

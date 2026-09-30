@@ -91,6 +91,10 @@ export interface IseStatus {
   reachable: boolean;
   lastSuccessAt: string | null;
   lastError: string | null;
+  /** Seconds between ISE session polls (app.ise.session-poll-interval-ms). */
+  pollIntervalSeconds?: number;
+  /** "ATTRIBUTE" or "ANC" (app.ise.enforcement-mode). */
+  enforcementMode?: string;
 }
 
 export interface SessionEvent {
@@ -225,6 +229,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => null);
     throw new Error(body?.message ?? body?.error ?? `Request failed: ${res.status}`);
   }
+
+  // 204 No Content (for example "no hardware report yet") has no body to parse.
+  if (res.status === 204) return null as T;
+
   return res.json();
 }
 
@@ -242,7 +250,11 @@ export const api = {
   latestPostureAll: () => request<AssessmentResponse[]>("/api/v1/posture/latest"),
   postureHistory: (id: string) => request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`),
 
-  latestHardware: (id: string) => request<HardwareHealthResponse>(`/api/v1/endpoints/${id}/hardware-health/latest`),
+  /** Resolves to null (HTTP 204) when the endpoint has never had a hardware check. */
+  latestHardwareOrNull: (id: string) =>
+    request<HardwareHealthResponse | null>(`/api/v1/endpoints/${id}/hardware-health/latest`),
+  latestHardware: (id: string) =>
+    request<HardwareHealthResponse | null>(`/api/v1/endpoints/${id}/hardware-health/latest`),
   latestHardwareAll: () => request<HardwareHealthResponse[]>("/api/v1/hardware-health/latest"),
   hardwareHistory: (id: string) => request<HardwareHealthResponse[]>(`/api/v1/endpoints/${id}/hardware-health`),
   latestPostureOrNull: async (id: string): Promise<AssessmentResponse | null> => {
@@ -302,7 +314,7 @@ export const api = {
     request<UserView>("/api/v1/users", { method: "POST", body: JSON.stringify({ username, password, role }) }),
   updateUser: (id: string, patch: { role?: UserRole; enabled?: boolean }) =>
     request<UserView>(`/api/v1/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
-  // Uses fetch directly: the endpoint returns 204 with no body, and request() always parses JSON.
+  // Uses fetch directly: the endpoint returns 204 with no body.
   resetPassword: (id: string, password: string) =>
     fetch(`/api/v1/users/${id}/password`, {
       method: "POST",
@@ -312,12 +324,12 @@ export const api = {
       if (r.status === 403) throw new Error("Your role does not allow this action");
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message ?? `Request failed: ${r.status}`);
     }),
-    deleteUser: (id: string) =>
+  deleteUser: (id: string) =>
     fetch(`/api/v1/users/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${getToken()}` },
     }).then(async (r) => {
       if (r.status === 403) throw new Error("Your role does not allow this action");
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message ?? `Request failed: ${r.status}`);
-    }),  
+    }),
 };

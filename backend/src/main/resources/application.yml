@@ -44,6 +44,8 @@ app:
   jobs:
     poll-interval-ms: 3000          # idle sleep when the queue is empty
     worker-threads: 4               # each running job starts a powershell.exe: size to the host
+    workers:
+      enabled: true                 # app.jobs.workers.enabled: false disables the worker pool
     stale-sweep-interval-ms: 60000  # how often stuck RUNNING jobs are looked for
     stale-margin-seconds: 60        # added on top of the largest agent process timeout
     recheck:
@@ -77,8 +79,7 @@ app:
     cim-timeout-seconds: 30
     submit-timeout-seconds: 20
     process-timeout-seconds: 70
-  workers:
-   enabled: true
+
   retention:
     enabled: true
     inventory-keep-runs: 10       # full payloads kept per endpoint; older rows keep only their timestamp

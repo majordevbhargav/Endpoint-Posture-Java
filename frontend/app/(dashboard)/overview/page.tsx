@@ -26,6 +26,7 @@ import {
   TrendPoint,
 } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
+import { can, DENIED_HINT } from "@/lib/permissions";
 import { useCachedFetch } from "@/lib/useCachedFetch";
 import { useIseStatus } from "@/lib/IseStatusContext";
 import { datedFilename, downloadCsv } from "@/lib/csv";
@@ -48,6 +49,11 @@ function bandFor(status?: AssessmentStatus): Band {
   if (status === "NON_COMPLIANT") return "atRisk";
   if (status === "ERROR") return "critical";
   return "unassessed"; // never checked: not counted as compliant
+}
+
+/** "ATTRIBUTE" -> "Attribute" */
+function titleCase(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
 function SectionHeader({
@@ -100,6 +106,9 @@ async function fetchOverview(): Promise<OverviewData> {
 export default function OverviewPage() {
   const ise = useIseStatus();
   const iseDown = ise?.reachable === false;
+
+  // UI convenience only: the backend @PreAuthorize rule is the real control.
+  const mayEnqueue = can("enqueue");
 
   const { data, refreshing, error, reload } = useCachedFetch("overview", fetchOverview, {
     ttlMs: 15000,
@@ -174,7 +183,12 @@ export default function OverviewPage() {
 
   const offlineCount = stats.total - stats.connected;
 
+  // Read from the backend so these labels can never disagree with application.yml.
+  const pollLabel = ise?.pollIntervalSeconds != null ? `${ise.pollIntervalSeconds}s` : "—";
+  const modeLabel = ise?.enforcementMode ? titleCase(ise.enforcementMode) : "—";
+
   async function triggerScanAll() {
+    if (!mayEnqueue) return;
     // Agents talk to endpoints directly, so scanning works even while the ISE poll is down.
     const targets = (rows ?? []).filter((r) => r.connected);
     if (targets.length === 0) {
@@ -247,7 +261,9 @@ export default function OverviewPage() {
           </button>
           <button
             onClick={triggerScanAll}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-base transition hover:bg-accent/90"
+            disabled={!mayEnqueue}
+            title={!mayEnqueue ? DENIED_HINT : undefined}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-xs font-semibold text-base transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Play size={13} />
             <span>Scan connected endpoints</span>
@@ -285,7 +301,7 @@ export default function OverviewPage() {
             <div className="text-xs text-muted">
               {stats.connected} of {stats.total} devices{" "}
               {iseDown ? "were connected at the last successful poll" : "have a live session"}.
-              {!iseDown && " Sessions refresh every 15 seconds."}
+              {!iseDown && ise?.pollIntervalSeconds != null && ` Sessions refresh every ${ise.pollIntervalSeconds} seconds.`}
               {stats.stale > 0 && (
                 <>
                   {" "}
@@ -300,11 +316,11 @@ export default function OverviewPage() {
         </div>
         <div className="flex items-center gap-5 text-xs text-muted">
           <div>
-            Poll frequency <span className="ml-1 font-mono font-semibold text-ink">15s</span>
+            Poll frequency <span className="ml-1 font-mono font-semibold text-ink">{pollLabel}</span>
           </div>
           <div className="h-4 w-px bg-border" />
           <div>
-            Enforcement mode <span className="ml-1 font-mono font-semibold text-accent">Attribute</span>
+            Enforcement mode <span className="ml-1 font-mono font-semibold text-accent">{modeLabel}</span>
           </div>
         </div>
       </div>

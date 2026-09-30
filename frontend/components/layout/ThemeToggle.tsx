@@ -16,7 +16,8 @@ export function ThemeToggle() {
     const next = !light;
     setLight(next);
     document.documentElement.classList.toggle("light", next);
-    localStorage.setItem("theme", next ? "light" : "dark");
+    // Cookie (not localStorage) so the server layout can render the theme on the next load.
+    document.cookie = `theme=${next ? "light" : "dark"}; path=/; max-age=31536000; SameSite=Lax`;
   }
 
   if (!mounted) {
