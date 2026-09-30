@@ -5,6 +5,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -24,6 +25,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
  */
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity // <-- add (import ...method.configuration.EnableMethodSecurity)
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
@@ -76,6 +78,7 @@ public class SecurityConfig {
                         // Enforced here on the server; hiding the UI is convenience only.
                         .requestMatchers(HttpMethod.PUT, "/api/v1/policy/**")
                         .hasRole("ADMIN")
+                        .requestMatchers("/api/v1/users/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(postureApiKeyFilter, UsernamePasswordAuthenticationFilter.class);

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 /**
  * The only place Cisco ISE enforcement is ever triggered from - three
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/ise")
 @Tag(name = "ISE actions", description = "Explicit share/restrict/clear actions against Cisco ISE. Nothing here happens automatically.")
+
 public class IseActionController {
 
     private final IseActionService service;
@@ -47,6 +49,7 @@ public class IseActionController {
                     + "endpoint attribute. ISE's own Authorization Policy decides what to do with it - "
                     + "this call makes no access decision itself."
     )
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','ANALYST')")
     @PostMapping("/posture/share")
     public ResponseEntity<IseResult> share(@Valid @RequestBody ShareRequest req, Authentication auth) {
         IseResult result = service.sharePosture(req.endpointId(), auth.getName());
@@ -65,6 +68,8 @@ public class IseActionController {
                     + "depending on app.ise.enforcement-mode. This can disrupt the user's network "
                     + "access right away."
     )
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+
     @PostMapping("/enforcement/restrict")
     public ResponseEntity<IseResult> restrict(@Valid @RequestBody EnforcementRequest req, Authentication auth) {
         IseResult result = service.restrict(req.endpointId(), req.policy(), auth.getName());
@@ -78,6 +83,8 @@ public class IseActionController {
      * @param auth the authenticated caller
      */
     @Operation(summary = "Clear a restriction on an endpoint")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR')")
+
     @PostMapping("/enforcement/clear")
     public ResponseEntity<IseResult> clear(@Valid @RequestBody EnforcementRequest req, Authentication auth) {
         IseResult result = service.clearRestriction(req.endpointId(), auth.getName());

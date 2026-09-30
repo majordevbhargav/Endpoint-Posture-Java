@@ -1,18 +1,34 @@
-# Manual smoke test. Set these first:
-#   $env:ADMIN_USER, $env:ADMIN_PASSWORD, $env:TEST_ENDPOINT_MAC
 $base = "http://localhost:8090"
-foreach ($v in "ADMIN_USER", "ADMIN_PASSWORD", "TEST_ENDPOINT_MAC") {
-    if (-not (Get-Item "env:$v" -ErrorAction SilentlyContinue)) { throw "Set `$env:$v before running this script." }
+$env:ADMIN_USER = "admin"                 # your seed admin
+$env:ADMIN_PASSWORD = "<your SEED_ADMIN_PASSWORD>"
+$env:TEST_ENDPOINT_MAC = "<a real MAC from /endpoints>"
+
+function Login($u, $p) {
+    (Invoke-RestMethod "$base/api/v1/auth/login" -Method Post -ContentType application/json `
+        -Body (@{ username = $u; password = $p } | ConvertTo-Json)).token
+}
+function H($t) { @{ Authorization = "Bearer $t" } }
+function Try-Post($t, $path, $body) {
+    try { Invoke-RestMethod "$base$path" -Method Post -Headers (H $t) -ContentType application/json -Body $body | Out-Null; "200 OK" }
+    catch { "$([int]$_.Exception.Response.StatusCode) $($_.Exception.Response.StatusCode)" }
 }
 
-$body  = @{ username = $env:ADMIN_USER; password = $env:ADMIN_PASSWORD } | ConvertTo-Json
-$login = Invoke-RestMethod -Uri "$base/api/v1/auth/login" -Method Post -ContentType application/json -Body $body
-$headers = @{ Authorization = "Bearer $($login.token)" }
+# 1. Admin creates one user per role (passwords need 12+ characters)
+$admin = Login $env:ADMIN_USER $env:ADMIN_PASSWORD
+foreach ($r in "VIEWER","ANALYST","OPERATOR") {
+    Invoke-RestMethod "$base/api/v1/users" -Method Post -Headers (H $admin) -ContentType application/json `
+        -Body (@{ username = "test-$($r.ToLower())"; password = "Test-Password-123!"; role = $r } | ConvertTo-Json) | Out-Null
+}
 
-$endpoints  = Invoke-RestMethod -Uri "$base/api/v1/endpoints" -Headers $headers
-$myEndpoint = $endpoints | Where-Object { $_.macAddress -eq $env:TEST_ENDPOINT_MAC }
-if (-not $myEndpoint) { throw "No endpoint with MAC $($env:TEST_ENDPOINT_MAC)" }
+# 2. Find a real endpoint id
+$ep = (Invoke-RestMethod "$base/api/v1/endpoints" -Headers (H $admin)) | Where-Object { $_.macAddress -eq $env:TEST_ENDPOINT_MAC }
+$body = @{ endpointId = $ep.id } | ConvertTo-Json
 
-$job = Invoke-RestMethod -Uri "$base/api/v1/jobs" -Method Post -Headers $headers -ContentType application/json `
-    -Body (@{ endpointId = $myEndpoint.id; jobType = "POSTURE_CHECK" } | ConvertTo-Json)
-Write-Host "Enqueued job $($job.id) for $($myEndpoint.macAddress)"
+# 3. Try the same actions as each role
+foreach ($r in "viewer","analyst","operator") {
+    $t = Login "test-$r" "Test-Password-123!"
+    "--- $r ---"
+    "enqueue job : " + (Try-Post $t "/api/v1/jobs" (@{ endpointId = $ep.id; jobType = "POSTURE_CHECK" } | ConvertTo-Json))
+    "share       : " + (Try-Post $t "/api/v1/ise/posture/share" $body)
+    "restrict    : (skipped on purpose, it really quarantines the device)"
+}

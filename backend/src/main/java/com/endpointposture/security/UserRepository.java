@@ -16,5 +16,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      * @param username the login name (exact match)
      * @return the user, or empty if no such login exists
      */
+    long countByRoleAndEnabledTrue(Role role);
     Optional<User> findByUsername(String username);
 }

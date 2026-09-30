@@ -16,11 +16,16 @@ import {
   Server,
   SlidersHorizontal,
   Activity,
+  Users,
+  LucideIcon,
 } from "lucide-react";
 import { api, SystemHealth } from "@/lib/api";
 import { usePolling } from "@/lib/usePolling";
+import { can, Action } from "@/lib/permissions";
 
-const NAV_SECTIONS = [
+type NavItem = { href: string; label: string; icon: LucideIcon; requires?: Action };
+
+const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: "MONITORING",
     items: [
@@ -44,6 +49,7 @@ const NAV_SECTIONS = [
       { href: "/policies", label: "Application Policy", icon: SlidersHorizontal },
       { href: "/audit", label: "ISE Action Audit", icon: History },
       { href: "/system", label: "System Health", icon: Activity },
+      { href: "/users", label: "Users & Roles", icon: Users, requires: "manageUsers" },
     ],
   },
 ];
@@ -144,29 +150,33 @@ export function Sidebar() {
               {sec.title}
             </div>
             <div className="space-y-1">
-              {sec.items.map((item) => {
-                const active = pathname === item.href || (item.href !== "/overview" && pathname?.startsWith(item.href));
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition ${active
-                        ? "bg-accent/15 text-accent shadow-xs"
-                        : "text-muted hover:bg-ink/[0.04] hover:text-ink"
+              {sec.items
+                .filter((item) => !item.requires || can(item.requires))
+                .map((item) => {
+                  const active =
+                    pathname === item.href || (item.href !== "/overview" && pathname?.startsWith(item.href));
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition ${
+                        active
+                          ? "bg-accent/15 text-accent shadow-xs"
+                          : "text-muted hover:bg-ink/[0.04] hover:text-ink"
                       }`}
-                  >
-                    {active && (
-                      <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-accent" />
-                    )}
-                    <Icon
-                      size={16}
-                      className={active ? "text-accent" : "text-muted group-hover:text-ink"}
-                    />
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                );
-              })}
+                    >
+                      {active && (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-accent" />
+                      )}
+                      <Icon
+                        size={16}
+                        className={active ? "text-accent" : "text-muted group-hover:text-ink"}
+                      />
+                      <span className="truncate">{item.label}</span>
+                    </Link>
+                  );
+                })}
             </div>
           </div>
         ))}

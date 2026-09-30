@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Lock, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import { api, AppPolicy } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { can, DENIED_HINT } from "@/lib/permissions";
 
 const toLines = (text: string): string[] =>
   text
@@ -23,6 +24,8 @@ export default function PoliciesPage() {
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const canEdit = can("editPolicy");
 
   const load = async () => {
     setLoading(true);
@@ -89,6 +92,12 @@ export default function PoliciesPage() {
         </button>
       </div>
 
+      {!canEdit && (
+        <div className="rounded-lg border border-border bg-panel2/60 px-4 py-2.5 text-xs text-muted">
+          You have read-only access to this page. Only administrators can change the policy.
+        </div>
+      )}
+
       {msg && (
         <div
           className={`rounded-lg border px-4 py-2.5 text-xs font-medium ${
@@ -120,9 +129,10 @@ export default function PoliciesPage() {
               <textarea
                 value={requiredText}
                 onChange={(e) => setRequiredText(e.target.value)}
+                readOnly={!canEdit}
                 rows={8}
                 placeholder="One application per line"
-                className="w-full rounded-lg border border-border bg-base p-3 font-mono text-xs text-ink outline-none placeholder:text-muted focus:border-accent"
+                className="w-full rounded-lg border border-border bg-base p-3 font-mono text-xs text-ink outline-none placeholder:text-muted focus:border-accent read-only:opacity-70"
               />
               <p className="mt-1 text-[11px] text-muted">
                 A device missing any of these is NON_COMPLIANT.
@@ -137,9 +147,10 @@ export default function PoliciesPage() {
               <textarea
                 value={blockedText}
                 onChange={(e) => setBlockedText(e.target.value)}
+                readOnly={!canEdit}
                 rows={8}
                 placeholder="One application per line"
-                className="w-full rounded-lg border border-border bg-base p-3 font-mono text-xs text-ink outline-none placeholder:text-muted focus:border-accent"
+                className="w-full rounded-lg border border-border bg-base p-3 font-mono text-xs text-ink outline-none placeholder:text-muted focus:border-accent read-only:opacity-70"
               />
               <p className="mt-1 text-[11px] text-muted">
                 A device with any of these installed is NON_COMPLIANT.
@@ -155,7 +166,8 @@ export default function PoliciesPage() {
           <div className="mt-4 flex justify-end">
             <button
               onClick={() => setConfirmOpen(true)}
-              disabled={!dirty || saving}
+              disabled={!dirty || saving || !canEdit}
+              title={!canEdit ? DENIED_HINT : undefined}
               className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-base transition hover:bg-accent/90 disabled:opacity-50"
             >
               <Save size={13} />

@@ -31,6 +31,7 @@ import {
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { can, DENIED_HINT } from "@/lib/permissions";
 
 type ActionResult = { success: boolean; detail: string };
 
@@ -68,6 +69,11 @@ export default function EndpointDetailPage() {
   const [loading, setLoading] = useState(true);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [sessions, setSessions] = useState<SessionEvent[]>([]);
+
+  // Role gates. UI convenience only: the backend @PreAuthorize rules are the real control.
+  const mayEnqueue = can("enqueue");
+  const mayShare = can("sharePosture");
+  const mayRestrict = can("restrict");
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -224,7 +230,8 @@ export default function EndpointDetailPage() {
           {/* Quick Enqueue */}
           <div className="flex flex-wrap items-center gap-2">
             <button
-              disabled={busy}
+              disabled={busy || !mayEnqueue}
+              title={!mayEnqueue ? DENIED_HINT : undefined}
               onClick={() => enqueueCheck("POSTURE_CHECK")}
               className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/20 disabled:opacity-50"
             >
@@ -233,7 +240,8 @@ export default function EndpointDetailPage() {
             </button>
 
             <button
-              disabled={busy}
+              disabled={busy || !mayEnqueue}
+              title={!mayEnqueue ? DENIED_HINT : undefined}
               onClick={() => enqueueCheck("HARDWARE_CHECK")}
               className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-accent/40 hover:text-accent disabled:opacity-50"
             >
@@ -266,7 +274,8 @@ export default function EndpointDetailPage() {
 
             <div className="flex flex-wrap items-center gap-2">
               <button
-                disabled={busy}
+                disabled={busy || !mayShare}
+                title={!mayShare ? DENIED_HINT : undefined}
                 onClick={() =>
                   runAction(
                     () => api.sharePosture(id),
@@ -281,7 +290,8 @@ export default function EndpointDetailPage() {
               </button>
 
               <button
-                disabled={busy}
+                disabled={busy || !mayRestrict}
+                title={!mayRestrict ? DENIED_HINT : undefined}
                 onClick={() =>
                   runAction(
                     () => api.restrict(id),
@@ -297,7 +307,8 @@ export default function EndpointDetailPage() {
               </button>
 
               <button
-                disabled={busy}
+                disabled={busy || !mayRestrict}
+                title={!mayRestrict ? DENIED_HINT : undefined}
                 onClick={() =>
                   runAction(
                     () => api.clearRestriction(id),
@@ -312,6 +323,14 @@ export default function EndpointDetailPage() {
               </button>
             </div>
           </div>
+
+          {!mayRestrict && (
+            <div className="mt-3 text-[11px] text-muted">
+              {mayShare
+                ? "Your role can share posture but cannot restrict or clear an endpoint."
+                : "Your role has read-only access. Sharing, restricting and clearing are disabled."}
+            </div>
+          )}
 
           {actionMsg && (
             <div

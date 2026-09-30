@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -45,6 +46,7 @@ public class PolicyController {
     @Operation(summary = "Replace the active policy with a new version",
             description = "Creates version N+1 with these lists and deactivates the current one. "
                     + "The next posture checks use it; nothing is redeployed.")
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping
     public PolicySnapshot replace(@Valid @RequestBody UpdateRequest req, Authentication auth) {
         return service.replaceActive(req.requiredApps(), req.blockedApps(), auth.getName());

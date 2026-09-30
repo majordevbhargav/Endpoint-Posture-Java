@@ -174,6 +174,17 @@ export interface SystemHealth {
   warnings: string[];
 }
 
+export type UserRole = "ADMIN" | "OPERATOR" | "ANALYST" | "VIEWER";
+
+/** Matches UserController.UserView. */
+export interface UserView {
+  id: string;
+  username: string;
+  role: UserRole;
+  enabled: boolean;
+  createdAt: string;
+}
+
 const TOKEN_KEY = "vece_token";
 
 export function getToken(): string | null {
@@ -204,6 +215,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     clearToken();
     if (typeof window !== "undefined") window.location.href = "/login";
     throw new Error("Unauthorized");
+  }
+
+  if (res.status === 403) {
+    throw new Error("Your role does not allow this action");
   }
 
   if (!res.ok) {
@@ -280,5 +295,21 @@ export const api = {
     request<AppPolicy>("/api/v1/policy/apps", {
       method: "PUT",
       body: JSON.stringify({ requiredApps, blockedApps }),
+    }),
+
+  users: () => request<UserView[]>("/api/v1/users"),
+  createUser: (username: string, password: string, role: UserRole) =>
+    request<UserView>("/api/v1/users", { method: "POST", body: JSON.stringify({ username, password, role }) }),
+  updateUser: (id: string, patch: { role?: UserRole; enabled?: boolean }) =>
+    request<UserView>(`/api/v1/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  // Uses fetch directly: the endpoint returns 204 with no body, and request() always parses JSON.
+  resetPassword: (id: string, password: string) =>
+    fetch(`/api/v1/users/${id}/password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+      body: JSON.stringify({ password }),
+    }).then(async (r) => {
+      if (r.status === 403) throw new Error("Your role does not allow this action");
+      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message ?? `Request failed: ${r.status}`);
     }),
 };

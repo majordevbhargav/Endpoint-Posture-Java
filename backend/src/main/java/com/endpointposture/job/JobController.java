@@ -5,6 +5,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -40,6 +42,7 @@ public class JobController {
     public record EnqueueRequest(@NotNull UUID endpointId, JobType jobType, Integer priority) {}
 
     @Operation(summary = "Manually enqueue a job for an endpoint")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','ANALYST')")
     @PostMapping
     public JobResponse enqueue(@Valid @RequestBody EnqueueRequest request) {
         PostureJob job = jobService.enqueue(
