@@ -37,7 +37,12 @@ const columns: Column<JobResponse>[] = [
     key: "jobType",
     header: "Job Type",
     className: "font-semibold text-ink",
-    render: (j) => (j.jobType === "POSTURE_CHECK" ? "Posture Check" : "Hardware Health"),
+    render: (j) =>
+      j.jobType === "POSTURE_CHECK"
+        ? "Posture Check"
+        : j.jobType === "HARDWARE_CHECK"
+          ? "Hardware Health"
+          : "Diagnostics",
     csv: (j) => j.jobType,
   },
   {
@@ -125,7 +130,7 @@ export default function JobsPage() {
 
   useEffect(() => {
     loadJobs();
-    api.listEndpoints().then(setEndpoints).catch(() => {});
+    api.listEndpoints().then(setEndpoints).catch(() => { });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -196,11 +201,10 @@ export default function JobsPage() {
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-              autoRefresh
-                ? "border-accent/30 bg-accent/10 text-accent"
-                : "border-border bg-panel text-muted hover:text-ink"
-            }`}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${autoRefresh
+              ? "border-accent/30 bg-accent/10 text-accent"
+              : "border-border bg-panel text-muted hover:text-ink"
+              }`}
           >
             <span className={`h-2 w-2 rounded-full ${autoRefresh ? "animate-pulse bg-accent" : "bg-muted"}`} />
             <span>{autoRefresh ? "Live 4s Sync" : "Sync Paused"}</span>
@@ -298,6 +302,7 @@ export default function JobsPage() {
             <option value="ALL">All Job Types</option>
             <option value="POSTURE_CHECK">Posture Checks</option>
             <option value="HARDWARE_CHECK">Hardware Checks</option>
+            <option value="DIAGNOSTIC_CHECK">Diagnostics</option>
           </select>
         </div>
       </div>
@@ -351,15 +356,14 @@ export default function JobsPage() {
 
               <div>
                 <label className="mb-1 block text-xs font-semibold text-ink">Job Type</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setSelectedJobType("POSTURE_CHECK")}
-                    className={`rounded-lg border p-3 text-left text-xs transition ${
-                      selectedJobType === "POSTURE_CHECK"
-                        ? "border-accent bg-accent/10 font-semibold text-accent"
-                        : "border-border bg-base text-muted hover:text-ink"
-                    }`}
+                    className={`rounded-lg border p-3 text-left text-xs transition ${selectedJobType === "POSTURE_CHECK"
+                      ? "border-accent bg-accent/10 font-semibold text-accent"
+                      : "border-border bg-base text-muted hover:text-ink"
+                      }`}
                   >
                     <div className="font-bold">Posture Check</div>
                     <div className="text-[10px] text-muted">Firewall, Ports, Apps</div>
@@ -368,14 +372,24 @@ export default function JobsPage() {
                   <button
                     type="button"
                     onClick={() => setSelectedJobType("HARDWARE_CHECK")}
-                    className={`rounded-lg border p-3 text-left text-xs transition ${
-                      selectedJobType === "HARDWARE_CHECK"
-                        ? "border-accent bg-accent/10 font-semibold text-accent"
-                        : "border-border bg-base text-muted hover:text-ink"
-                    }`}
+                    className={`rounded-lg border p-3 text-left text-xs transition ${selectedJobType === "HARDWARE_CHECK"
+                      ? "border-accent bg-accent/10 font-semibold text-accent"
+                      : "border-border bg-base text-muted hover:text-ink"
+                      }`}
                   >
                     <div className="font-bold">Hardware Check</div>
                     <div className="text-[10px] text-muted">CPU, Disk, Battery</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedJobType("DIAGNOSTIC_CHECK")}
+                    className={`rounded-lg border p-3 text-left text-xs transition ${selectedJobType === "DIAGNOSTIC_CHECK"
+                        ? "border-accent bg-accent/10 font-semibold text-accent"
+                        : "border-border bg-base text-muted hover:text-ink"
+                      }`}
+                  >
+                    <div className="font-bold">Diagnostics</div>
+                    <div className="text-[10px] text-muted">Gateway, DNS, 443</div>
                   </button>
                 </div>
               </div>

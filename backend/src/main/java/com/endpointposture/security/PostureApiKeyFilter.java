@@ -18,17 +18,17 @@ import java.security.MessageDigest;
 import java.util.List;
 
 /**
- * Lets the PowerShell posture and hardware-health agents submit results
- * without a user login.
+ * Lets the PowerShell posture, hardware-health and diagnostic agents submit
+ * results without a user login.
  *
- * <p>Both agents run as child processes of the backend and cannot easily
+ * <p>The agents run as child processes of the backend and cannot easily
  * hold a JWT, so they authenticate with a shared secret sent in the
  * {@value #HEADER_NAME} header. The secret is configured as
  * {@code app.posture.api-key} (override with the {@code POSTURE_API_KEY}
  * environment variable) and is handed to each agent through its process
  * environment, not its command line.</p>
  *
- * <p>Scope is deliberately narrow: this filter only looks at the two
+ * <p>Scope is deliberately narrow: this filter only looks at the three
  * ingestion routes below, and a valid key grants only the
  * {@code ROLE_AGENT} authority — enough to submit a report, nothing
  * else. Behaviour by case:</p>
@@ -40,8 +40,8 @@ import java.util.List;
  * </ul>
  *
  * <p>Originally scoped to posture ingestion only; extended to also cover
- * hardware-health ingestion once that module was built, rather than
- * duplicating this filter for a second route with identical logic.</p>
+ * hardware-health and diagnostic ingestion rather than duplicating this
+ * filter for each route with identical logic.</p>
  */
 @Component
 public class PostureApiKeyFilter extends OncePerRequestFilter {
@@ -51,6 +51,7 @@ public class PostureApiKeyFilter extends OncePerRequestFilter {
 
     private static final String POSTURE_INGEST_PATH = "/api/v1/posture";
     private static final String HARDWARE_INGEST_PATH = "/api/v1/hardware-health";
+    private static final String DIAGNOSTIC_INGEST_PATH = "/api/v1/diagnostics";
 
     private final byte[] expectedKey;
 
@@ -64,8 +65,10 @@ public class PostureApiKeyFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
-        boolean isIngestRoute = POSTURE_INGEST_PATH.equals(request.getRequestURI())
-                || HARDWARE_INGEST_PATH.equals(request.getRequestURI());
+        String uri = request.getRequestURI();
+        boolean isIngestRoute = POSTURE_INGEST_PATH.equals(uri)
+                || HARDWARE_INGEST_PATH.equals(uri)
+                || DIAGNOSTIC_INGEST_PATH.equals(uri);
         return !("POST".equalsIgnoreCase(request.getMethod()) && isIngestRoute);
     }
 

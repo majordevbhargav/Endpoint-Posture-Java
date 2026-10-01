@@ -27,6 +27,8 @@ const TONE_MAP: Record<string, { bg: string; text: string; dot: string; border: 
   "Clear failed": BAD,
   QUEUED: { bg: "bg-muted/10", text: "text-muted", dot: "bg-muted", border: "border-muted/25" },
   RUNNING: { bg: "bg-accent/15", text: "text-accent", dot: "bg-accent", border: "border-accent/30" },
+  WINRM_UNAVAILABLE: WARN,
+  OK: GOOD,
 };
 
 const LABEL_MAP: Record<string, string> = {
@@ -48,6 +50,8 @@ const LABEL_MAP: Record<string, string> = {
   COVERED: "Covered",
   EXPIRING_SOON: "Expiring soon",
   EXPIRED: "Expired",
+  WINRM_UNAVAILABLE: "WinRM unavailable",
+  OK: "OK",
 };
 
 export function StatusBadge({

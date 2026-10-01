@@ -1,5 +1,7 @@
 package com.endpointposture.job;
 
+import com.endpointposture.diagnostic.DiagnosticService;
+import com.endpointposture.diagnostic.config.DiagnosticAgentProperties;
 import com.endpointposture.hardware.HardwareHealthService;
 import com.endpointposture.hardware.config.HardwareAgentProperties;
 import com.endpointposture.policy.PolicyService;
@@ -21,8 +23,9 @@ class JobWorkerResultJsonTest {
     @BeforeEach
     void setUp() {
         worker = new JobWorker(mock(JobService.class), mock(AssessmentService.class),
-                mock(HardwareHealthService.class), new PostureAgentProperties(),
-                new HardwareAgentProperties(), mock(PolicyService.class), new ObjectMapper());
+                mock(HardwareHealthService.class), mock(DiagnosticService.class),
+                new PostureAgentProperties(), new HardwareAgentProperties(),
+                new DiagnosticAgentProperties(), mock(PolicyService.class), new ObjectMapper());
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.endpointposture.job;
 
+import com.endpointposture.diagnostic.DiagnosticService;
+import com.endpointposture.diagnostic.config.DiagnosticAgentProperties;
 import com.endpointposture.endpoint.Endpoint;
 import com.endpointposture.hardware.HardwareHealthService;
 import com.endpointposture.hardware.config.HardwareAgentProperties;
@@ -33,8 +35,8 @@ import java.util.concurrent.TimeUnit;
  *       Posture jobs are handed the active application policy.</li>
  *   <li>The agent POSTs its own report and prints one {@code RESULT_JSON:} line.</li>
  *   <li>{@code submitted: true} means COMPLETE.</li>
- *   <li>Anything else writes a failure evidence row (ERROR assessment or
- *       succeeded=false hardware row) and fails the job (retry with backoff).</li>
+ *   <li>Anything else writes a failure evidence row (ERROR assessment, or a
+ *       failed hardware / diagnostic row) and fails the job (retry with backoff).</li>
  * </ol>
  *
  * <p>Nothing here calls Cisco ISE; dispatch is observation only.</p>
@@ -53,23 +55,29 @@ public class JobWorker {
     private final JobService jobService;
     private final AssessmentService assessmentService;
     private final HardwareHealthService hardwareHealthService;
+    private final DiagnosticService diagnosticService;
     private final PostureAgentProperties postureProps;
     private final HardwareAgentProperties hardwareProps;
+    private final DiagnosticAgentProperties diagnosticProps;
     private final PolicyService policyService;
     private final ObjectMapper objectMapper;
 
     public JobWorker(JobService jobService,
                      AssessmentService assessmentService,
                      HardwareHealthService hardwareHealthService,
+                     DiagnosticService diagnosticService,
                      PostureAgentProperties postureProps,
                      HardwareAgentProperties hardwareProps,
+                     DiagnosticAgentProperties diagnosticProps,
                      PolicyService policyService,
                      ObjectMapper objectMapper) {
         this.jobService = jobService;
         this.assessmentService = assessmentService;
         this.hardwareHealthService = hardwareHealthService;
+        this.diagnosticService = diagnosticService;
         this.postureProps = postureProps;
         this.hardwareProps = hardwareProps;
+        this.diagnosticProps = diagnosticProps;
         this.policyService = policyService;
         this.objectMapper = objectMapper;
     }
@@ -93,6 +101,7 @@ public class JobWorker {
             RunResult result = switch (job.getJobType()) {
                 case POSTURE_CHECK -> runPostureAgent(job, endpoint);
                 case HARDWARE_CHECK -> runHardwareAgent(job, endpoint);
+                case DIAGNOSTIC_CHECK -> runDiagnosticAgent(job, endpoint);
             };
             handleResult(job, endpoint, result);
         } catch (InterruptedException e) {
@@ -129,6 +138,7 @@ public class JobWorker {
         switch (job.getJobType()) {
             case POSTURE_CHECK -> assessmentService.recordFailure(endpoint.getId(), job.getId(), reason);
             case HARDWARE_CHECK -> hardwareHealthService.recordFailure(endpoint.getId(), job.getId(), reason);
+            case DIAGNOSTIC_CHECK -> diagnosticService.recordFailure(endpoint.getId(), job.getId(), reason);
         }
         jobService.markFailed(job.getId(), reason);
     }
@@ -162,10 +172,7 @@ public class JobWorker {
             command.add(String.join(POLICY_LIST_DELIMITER, policy.blockedApps()));
         }
 
-        Map<String, String> env = isBlank(postureProps.getApiKey())
-                ? Map.of()
-                : Map.of(API_KEY_ENV_VAR, postureProps.getApiKey());
-        return runProcess(command, postureProps.getProcessTimeoutSeconds(), env);
+        return runProcess(command, postureProps.getProcessTimeoutSeconds(), agentEnv());
     }
 
     private RunResult runHardwareAgent(PostureJob job, Endpoint endpoint) throws IOException, InterruptedException {
@@ -178,15 +185,39 @@ public class JobWorker {
                 "-CimOperationTimeoutSec", String.valueOf(hardwareProps.getCimTimeoutSeconds()),
                 "-SubmitTimeoutSec", String.valueOf(hardwareProps.getSubmitTimeoutSeconds())
         );
-        Map<String, String> env = isBlank(postureProps.getApiKey())
+        return runProcess(command, hardwareProps.getProcessTimeoutSeconds(), agentEnv());
+    }
+
+    private RunResult runDiagnosticAgent(PostureJob job, Endpoint endpoint) throws IOException, InterruptedException {
+        // -Mac is always passed so the agent can attach a "WinRM unavailable" report
+        // to the right device even when it never manages to connect to it.
+        List<String> command = List.of(
+                "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", resolveScript(diagnosticProps.getScriptPath()),
+                "-ComputerName", targetFor(endpoint),
+                "-Mac", endpoint.getMacAddress(),
+                "-JobId", job.getId().toString(),
+                "-PostureAppBase", diagnosticProps.getServerBaseUrl(),
+                "-WinRmOpenTimeoutSec", String.valueOf(diagnosticProps.getWinrmOpenTimeoutSeconds()),
+                "-WinRmOperationTimeoutSec", String.valueOf(diagnosticProps.getWinrmOperationTimeoutSeconds()),
+                "-SubmitTimeoutSec", String.valueOf(diagnosticProps.getSubmitTimeoutSeconds()),
+                "-DnsTestName", diagnosticProps.getDnsTestName(),
+                "-InternetTarget", diagnosticProps.getInternetTarget()
+        );
+        return runProcess(command, diagnosticProps.getProcessTimeoutSeconds(), agentEnv());
+    }
+
+    /** The shared agent key goes in the process environment, never on the command line. */
+    private Map<String, String> agentEnv() {
+        return isBlank(postureProps.getApiKey())
                 ? Map.of()
                 : Map.of(API_KEY_ENV_VAR, postureProps.getApiKey());
-        return runProcess(command, hardwareProps.getProcessTimeoutSeconds(), env);
     }
 
     private String resolveScript(String configured) throws IOException {
         if (isBlank(configured)) {
-            throw new IOException("Agent script path is not configured (app.posture.script-path / app.hardware.script-path)");
+            throw new IOException("Agent script path is not configured "
+                    + "(app.posture.script-path / app.hardware.script-path / app.diagnostics.script-path)");
         }
         Path path = Path.of(configured).toAbsolutePath().normalize();
         if (!Files.isRegularFile(path)) {

@@ -87,6 +87,18 @@ app:
     submit-timeout-seconds: 20
     process-timeout-seconds: 70
 
+  # Endpoint 360 diagnostics (on-demand). WinRM open 20 + operation 70 + submit 20
+  # = 110 s, kept below the 130 s outer process timeout.
+  diagnostics:
+    script-path: ../scripts/diagnostic_agent.ps1
+    server-base-url: http://localhost:8090
+    winrm-open-timeout-seconds: 20
+    winrm-operation-timeout-seconds: 70
+    submit-timeout-seconds: 20
+    process-timeout-seconds: 130
+    dns-test-name: www.microsoft.com
+    internet-target: 8.8.8.8
+
   retention:
     enabled: true
     inventory-keep-runs: 10

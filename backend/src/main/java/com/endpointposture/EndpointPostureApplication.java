@@ -1,5 +1,6 @@
 package com.endpointposture;
 
+import com.endpointposture.diagnostic.config.DiagnosticAgentProperties;
 import com.endpointposture.hardware.config.HardwareAgentProperties;
 import com.endpointposture.ise.config.IseProperties;
 import com.endpointposture.posture.config.PostureAgentProperties;
@@ -22,7 +23,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 @EnableScheduling
-@EnableConfigurationProperties({PostureAgentProperties.class, HardwareAgentProperties.class, IseProperties.class})
+@EnableConfigurationProperties({PostureAgentProperties.class, HardwareAgentProperties.class,
+        DiagnosticAgentProperties.class, IseProperties.class})
 public class EndpointPostureApplication {
 
     public static void main(String[] args) {

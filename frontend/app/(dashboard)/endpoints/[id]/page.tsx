@@ -18,6 +18,7 @@ import {
   AlertTriangle,
   Wifi,
   WifiOff,
+  Activity,
 } from "lucide-react";
 import {
   api,
@@ -27,12 +28,14 @@ import {
   JobResponse,
   IseActionAudit,
   SessionEvent,
+  DiagnosticResponse,
 } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TrendChart, ChartSeries } from "@/components/dashboard/TrendChart";
 import { can, DENIED_HINT } from "@/lib/permissions";
+
 
 type ActionResult = { success: boolean; detail: string };
 
@@ -65,12 +68,17 @@ export default function EndpointDetailPage() {
   const [jobs, setJobs] = useState<JobResponse[]>([]);
   const [audits, setAudits] = useState<IseActionAudit[]>([]);
 
-  const [activeTab, setActiveTab] = useState<"posture" | "hardware" | "jobs" | "audit" | "sessions">("posture");
   const [actionMsg, setActionMsg] = useState<{ text: string; success: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [sessions, setSessions] = useState<SessionEvent[]>([]);
+  const [diagnostic, setDiagnostic] = useState<DiagnosticResponse | null>(null);
+  const [diagnosticHistory, setDiagnosticHistory] = useState<DiagnosticResponse[]>([]);
+
+  const [activeTab, setActiveTab] = useState<
+    "posture" | "hardware" | "diagnostics" | "jobs" | "audit" | "sessions"
+  >("posture");
 
   // Role gates. UI convenience only: the backend @PreAuthorize rules are the real control.
   const mayEnqueue = can("enqueue");
@@ -83,15 +91,18 @@ export default function EndpointDetailPage() {
       const ep = await api.getEndpoint(id);
       setEndpoint(ep);
 
-      const [postureRes, histRes, hwRes, hwHistRes, jobsRes, auditRes, sessionsRes] = await Promise.allSettled([
-        api.latestPostureOrNull(id),
-        api.postureHistory(id),
-        api.latestHardwareOrNull(id),
-        api.hardwareHistory(id),
-        api.listJobsForEndpoint(id),
-        api.auditActions(id),
-        api.sessionHistory(id),
-      ]);
+      const [postureRes, histRes, hwRes, hwHistRes, jobsRes, auditRes, sessionsRes, diagRes, diagHistRes] =
+        await Promise.allSettled([
+          api.latestPostureOrNull(id),
+          api.postureHistory(id),
+          api.latestHardwareOrNull(id),
+          api.hardwareHistory(id),
+          api.listJobsForEndpoint(id),
+          api.auditActions(id),
+          api.sessionHistory(id),
+          api.latestDiagnosticOrNull(id),
+          api.diagnosticHistory(id),
+        ]);
 
       if (postureRes.status === "fulfilled") setPosture(postureRes.value);
       if (histRes.status === "fulfilled") setPostureHistory(histRes.value);
@@ -100,6 +111,8 @@ export default function EndpointDetailPage() {
       if (jobsRes.status === "fulfilled") setJobs(jobsRes.value);
       if (auditRes.status === "fulfilled") setAudits(auditRes.value);
       if (sessionsRes.status === "fulfilled") setSessions(sessionsRes.value);
+      if (diagRes.status === "fulfilled") setDiagnostic(diagRes.value);
+      if (diagHistRes.status === "fulfilled") setDiagnosticHistory(diagHistRes.value);
     } catch {
       // Endpoint might not exist
     } finally {
@@ -142,12 +155,14 @@ export default function EndpointDetailPage() {
     }
   }
 
-  async function enqueueCheck(type: "POSTURE_CHECK" | "HARDWARE_CHECK") {
+  async function enqueueCheck(type: "POSTURE_CHECK" | "HARDWARE_CHECK" | "DIAGNOSTIC_CHECK") {
     setBusy(true);
     try {
       await api.enqueueJob(id, type);
+      const label =
+        type === "POSTURE_CHECK" ? "Posture Check" : type === "HARDWARE_CHECK" ? "Hardware Check" : "Diagnostics";
       setActionMsg({
-        text: `${type === "POSTURE_CHECK" ? "Posture Check" : "Hardware Check"} job enqueued. JobWorker will dispatch momentarily.`,
+        text: `${label} job enqueued. It usually finishes in 10 to 30 seconds. Refresh to see it.`,
         success: true,
       });
       api.listJobsForEndpoint(id).then(setJobs).catch(() => { });
@@ -254,6 +269,16 @@ export default function EndpointDetailPage() {
             </button>
 
             <button
+              disabled={busy || !mayEnqueue}
+              title={!mayEnqueue ? DENIED_HINT : undefined}
+              onClick={() => enqueueCheck("DIAGNOSTIC_CHECK")}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-accent/40 hover:text-accent disabled:opacity-50"
+            >
+              <Activity size={12} />
+              <span>Run Diagnostics</span>
+            </button>
+
+            <button
               disabled={busy}
               onClick={loadAll}
               className="rounded-lg border border-border bg-panel p-2 text-muted transition hover:text-ink disabled:opacity-50"
@@ -355,6 +380,7 @@ export default function EndpointDetailPage() {
           [
             ["posture", "Security Posture"],
             ["hardware", "Hardware Health"],
+            ["diagnostics", "Diagnostics"],
             ["sessions", `Sessions (${sessions.length})`],
             ["jobs", `Job Queue (${jobs.length})`],
             ["audit", `ISE Audit Log (${audits.length})`],
@@ -688,6 +714,11 @@ export default function EndpointDetailPage() {
           )}
         </div>
       )}
+      {/* Tab: Endpoint 360 diagnostics */}
+      {activeTab === "diagnostics" && (
+        <DiagnosticsTab latest={diagnostic} history={diagnosticHistory} />
+      )}
+
       {/* Tab: Session history (connect / disconnect events from ISE) */}
       {activeTab === "sessions" && (
         <div className="panel overflow-hidden">
@@ -864,6 +895,208 @@ function ScoreCard({
         {value != null ? value : "—"}
         {value != null && <span className="text-xs text-muted">/100</span>}
       </div>
+    </div>
+  );
+}
+
+type Probe = Record<string, unknown> | null | undefined;
+
+function ProbeCard({ title, ok, lines }: { title: string; ok: boolean | null; lines: string[] }) {
+  const tone = ok === null ? "text-muted" : ok ? "text-good" : "text-bad";
+  return (
+    <div className="rounded-xl border border-border/80 bg-base/50 p-3.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-bold text-ink">{title}</span>
+        <span className={`font-semibold ${tone}`}>{ok === null ? "Not measured" : ok ? "Pass" : "Fail"}</span>
+      </div>
+      <div className="mt-2 space-y-0.5 font-mono text-[11px] text-muted">
+        {lines.map((l) => (
+          <div key={l}>{l}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DiagnosticsTab({
+  latest,
+  history,
+}: {
+  latest: DiagnosticResponse | null;
+  history: DiagnosticResponse[];
+}) {
+  if (!latest) {
+    return (
+      <div className="panel p-8 text-center text-xs text-muted">
+        No diagnostics have run for this device yet. Click &ldquo;Run Diagnostics&rdquo; above. The probes run on the
+        endpoint over WinRM, so they show what the user&apos;s machine sees.
+      </div>
+    );
+  }
+
+  if (latest.status === "WINRM_UNAVAILABLE" || latest.status === "FAILED") {
+    return (
+      <div className="panel p-5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-ink">
+            {latest.status === "FAILED" ? "Diagnostics failed" : "Could not probe from the endpoint"}
+          </span>
+          <StatusBadge value={latest.status} />
+        </div>
+        <div className="mt-1 text-xs text-muted">Attempted: {new Date(latest.collectedAt).toLocaleString()}</div>
+        <div className="mt-3 break-words rounded-lg bg-base px-3 py-2 font-mono text-xs text-warn">
+          {latest.errorMessage ?? "No detail recorded"}
+        </div>
+        {latest.status === "WINRM_UNAVAILABLE" && (
+          <p className="mt-3 text-xs text-muted">
+            This is not a failed check, just no measurement. Make sure WinRM is enabled on the device, and for a
+            workgroup machine reached by IP, add it to this host&apos;s WinRM TrustedHosts.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  const r = latest.results as Record<string, Probe>;
+  const gw = r.gateway, dns = r.dns, net = r.internet, tcp = r.tcp443;
+  const trace = r.traceroute as {
+    target?: string;
+    completed?: boolean;
+    hops?: { hop: number; address: string | null; ms: string | null }[];
+  } | null | undefined;
+  const num = (v: unknown) => (typeof v === "number" ? v : v == null ? null : Number(v));
+  const bool = (p: Probe, k: string) => (p && typeof p[k] === "boolean" ? (p[k] as boolean) : null);
+  const ms = (v: unknown) => (num(v) == null ? "—" : `${Math.round(num(v) as number)} ms`);
+
+  const trend = [...history].filter((h) => h.status === "OK" && h.score != null).slice(0, 10).reverse();
+
+  return (
+    <div className="space-y-6">
+      <div className="panel p-5">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-ink">Network Experience</span>
+              {latest.band && <StatusBadge value={latest.band} />}
+            </div>
+            <div className="mt-1 text-xs text-muted">Measured: {new Date(latest.collectedAt).toLocaleString()}</div>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="text-3xl font-extrabold text-ink">{latest.score ?? "—"}</span>
+            <span className="text-sm font-semibold text-muted">/ 100</span>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <ProbeCard
+            title="Gateway ping"
+            ok={bool(gw, "reachable")}
+            lines={[
+              `${(gw?.address as string) ?? "no gateway found"}`,
+              `avg ${ms(gw?.avgMs)}`,
+              `loss ${num(gw?.lossPct) ?? "—"}%`,
+            ]}
+          />
+          <ProbeCard
+            title="DNS lookup"
+            ok={bool(dns, "resolved")}
+            lines={[
+              `${(dns?.target as string) ?? "—"}`,
+              `took ${ms(dns?.ms)}`,
+              ...(dns?.error ? [String(dns.error)] : []),
+            ]}
+          />
+          <ProbeCard
+            title="Internet ping"
+            ok={bool(net, "reachable")}
+            lines={[
+              `${(net?.address as string) ?? "—"}`,
+              `avg ${ms(net?.avgMs)}`,
+              `loss ${num(net?.lossPct) ?? "—"}%`,
+            ]}
+          />
+          <ProbeCard
+            title="TCP 443"
+            ok={bool(tcp, "connected")}
+            lines={[`${(tcp?.target as string) ?? "—"}:443`, `connect ${ms(tcp?.ms)}`]}
+          />
+        </div>
+      </div>
+
+      <div className="panel p-5">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Why points were lost</div>
+        {!latest.deductions || latest.deductions.length === 0 ? (
+          <div className="text-xs text-good">No deductions. Every measured probe was healthy.</div>
+        ) : (
+          <div className="space-y-2">
+            {latest.deductions.map((d, i) => (
+              <div key={i} className="flex items-start gap-2.5 rounded-lg border border-border/70 bg-base/40 p-3 text-xs">
+                <span className="rounded bg-bad/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-bad">
+                  -{d.points}
+                </span>
+                <div>
+                  <span className="font-semibold text-ink">{d.check}:</span>{" "}
+                  <span className="text-muted">{d.reason}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="panel p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted">
+            Traceroute to {trace?.target ?? "internet"}
+          </div>
+          <span className="text-[11px] text-muted">{trace?.completed ? "Reached target" : "Did not complete"}</span>
+        </div>
+        {!trace?.hops || trace.hops.length === 0 ? (
+          <div className="text-xs text-muted">No hops recorded.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left font-mono text-xs">
+              <thead>
+                <tr className="border-b border-border text-[11px] text-muted">
+                  <th className="py-1.5 pr-4">Hop</th>
+                  <th className="py-1.5 pr-4">Address</th>
+                  <th className="py-1.5">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {trace.hops.map((h) => (
+                  <tr key={h.hop}>
+                    <td className="py-1.5 pr-4 text-muted">{h.hop}</td>
+                    <td className="py-1.5 pr-4 text-ink">{h.address ?? "* (no reply)"}</td>
+                    <td className="py-1.5 text-muted">{h.ms ? `${h.ms} ms` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {history.length > 1 && (
+        <div className="panel p-5">
+          <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
+            Run history ({history.length}){trend.length >= 2 ? "" : ""}
+          </div>
+          <div className="divide-y divide-border/40 text-xs">
+            {history.slice(0, 15).map((h) => (
+              <div key={h.id} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
+                <div className="flex items-center gap-2.5">
+                  <StatusBadge value={h.status === "OK" && h.band ? h.band : h.status} />
+                  <span className="text-muted">{new Date(h.collectedAt).toLocaleString()}</span>
+                </div>
+                <span className="font-mono text-[11px] text-muted">
+                  {h.score != null ? `${h.score}/100` : "no score"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
