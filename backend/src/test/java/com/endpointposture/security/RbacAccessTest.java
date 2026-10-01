@@ -5,9 +5,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -17,21 +19,21 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Calls the real API as each role. Status meaning in these tests:
- * 403 = blocked by RBAC; 404 = RBAC let the call through and the service
- * answered "no such endpoint" (the id below never exists), so nothing is
- * ever sent to ISE.
+ * Calls the real API as each role. 403 = blocked by RBAC; 404 = RBAC let the
+ * call through and the service answered "no such endpoint" (the id never
+ * exists), so nothing is ever sent to ISE.
  */
 @Testcontainers
 @SpringBootTest(classes = EndpointPostureApplication.class)
 @AutoConfigureMockMvc
+@AutoConfigureObservability // enables the Prometheus registry/endpoint under test
 class RbacAccessTest {
 
     @Container
@@ -107,6 +109,37 @@ class RbacAccessTest {
             assertEquals(403, get("/api/v1/users", r), "role " + r);
         }
         assertEquals(200, get("/api/v1/users", "ADMIN"));
+    }
+
+    @Test
+    void warrantyUploadIsAdminOnly() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "w.csv", "text/csv",
+                "serial_number,vendor,expires_on\nSN1,Dell,2030-01-01\n".getBytes(StandardCharsets.UTF_8));
+        for (String r : List.of("VIEWER", "ANALYST", "OPERATOR")) {
+            assertEquals(403, mvc.perform(MockMvcRequestBuilders.multipart("/api/v1/warranty/upload")
+                    .file(file)
+                    .with(SecurityMockMvcRequestPostProcessors.user("u").roles(r)))
+                    .andReturn().getResponse().getStatus(), "role " + r);
+        }
+        assertEquals(200, mvc.perform(MockMvcRequestBuilders.multipart("/api/v1/warranty/upload")
+                .file(file)
+                .with(SecurityMockMvcRequestPostProcessors.user("u").roles("ADMIN")))
+                .andReturn().getResponse().getStatus());
+    }
+
+    @Test
+    void everyRoleCanReadWarranty() throws Exception {
+        for (String r : List.of("VIEWER", "ANALYST", "OPERATOR", "ADMIN")) {
+            assertEquals(200, get("/api/v1/warranty", r), "role " + r);
+        }
+    }
+
+    @Test
+    void prometheusIsAdminOnly() throws Exception {
+        for (String r : List.of("VIEWER", "ANALYST", "OPERATOR")) {
+            assertEquals(403, get("/actuator/prometheus", r), "role " + r);
+        }
+        assertEquals(200, get("/actuator/prometheus", "ADMIN"));
     }
 
     @Test

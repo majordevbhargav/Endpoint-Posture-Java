@@ -22,7 +22,7 @@ interface EnforcementRow {
   hostname: string;
   macAddress: string;
   ipAddress: string | null;
-  state: "Restricted" | "Clear requested" | "Last attempt failed";
+   state: "Restricted" | "Clear requested" | "Last attempt failed" | "Clear failed";
   lastAction: string;
   succeeded: boolean;
   operator: string;
@@ -30,12 +30,12 @@ interface EnforcementRow {
   occurredAt: string;
 }
 
-function deriveState(actionType: string, succeeded: boolean): "Restricted" | "Clear requested" | "Last attempt failed" {
-  if (!succeeded) return "Last attempt failed";
-  if (actionType === "RESTRICT") return "Restricted";
-  if (actionType === "CLEAR_RESTRICTION") return "Clear requested";
-  return "Last attempt failed";
-}
+   function deriveState(actionType: string, succeeded: boolean): EnforcementRow["state"] {
+     if (!succeeded) return actionType === "CLEAR_RESTRICTION" ? "Clear failed" : "Last attempt failed";
+     if (actionType === "RESTRICT") return "Restricted";
+     if (actionType === "CLEAR_RESTRICTION") return "Clear requested";
+     return "Last attempt failed";
+   }
 
 const columns: Column<EnforcementRow>[] = [
   {
@@ -194,14 +194,14 @@ export default function IseActionsPage() {
     );
   }, [rows, search]);
 
-  const counts = useMemo(() => {
+const counts = useMemo(() => {
     let restricted = 0;
     let clearRequested = 0;
     let failed = 0;
     rows.forEach((r) => {
       if (r.state === "Restricted") restricted++;
       else if (r.state === "Clear requested") clearRequested++;
-      else if (r.state === "Last attempt failed") failed++;
+      else if (r.state === "Last attempt failed" || r.state === "Clear failed") failed++;
     });
     return { total: rows.length, restricted, clearRequested, failed };
   }, [rows]);

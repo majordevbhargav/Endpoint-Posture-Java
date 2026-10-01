@@ -9,6 +9,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,7 +19,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** Pins the lockout-prevention rules: self-protection and "at least one enabled ADMIN". */
+/** Pins lockout-prevention rules (self-protection, last admin) and unlock-on-reset/re-enable. */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class UserServiceTest {
@@ -28,9 +29,9 @@ class UserServiceTest {
 
     UserService service;
 
-    User alice;   // enabled ADMIN, the actor in most tests
-    User bob;     // enabled ADMIN
-    User viewer;  // enabled VIEWER
+    User alice;
+    User bob;
+    User viewer;
 
     @BeforeEach
     void setUp() {
@@ -135,6 +136,19 @@ class UserServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.update(missing, Role.VIEWER, null, "alice"));
     }
 
+    @Test
+    void reEnablingADisabledUserClearsItsLock() {
+        viewer.setEnabled(false);
+        viewer.setFailedAttempts(3);
+        viewer.setLockedUntil(Instant.now().plusSeconds(300));
+
+        User result = service.update(viewer.getId(), null, true, "alice");
+
+        assertTrue(result.isEnabled());
+        assertEquals(0, result.getFailedAttempts());
+        assertNull(result.getLockedUntil());
+    }
+
     // --- resetPassword ---
 
     @Test
@@ -142,6 +156,17 @@ class UserServiceTest {
         service.resetPassword(viewer.getId(), "another-long-password", "alice");
         assertEquals("hash:another-long-password", viewer.getPasswordHash());
         verify(users).save(viewer);
+    }
+
+    @Test
+    void resetPasswordUnlocksALockedAccount() {
+        viewer.setFailedAttempts(4);
+        viewer.setLockedUntil(Instant.now().plusSeconds(300));
+
+        service.resetPassword(viewer.getId(), "another-long-password", "alice");
+
+        assertEquals(0, viewer.getFailedAttempts());
+        assertNull(viewer.getLockedUntil());
     }
 
     // --- delete ---

@@ -1,4 +1,4 @@
-﻿export interface EndpointResponse {
+export interface EndpointResponse {
   id: string;
   macAddress: string;
   ipAddress: string | null;

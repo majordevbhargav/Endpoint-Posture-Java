@@ -8,31 +8,20 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * Data access for {@link WarrantyRecord}.
- */
+/** Data access for {@link WarrantyRecord}. */
 public interface WarrantyRecordRepository extends JpaRepository<WarrantyRecord, UUID> {
 
     /**
-     * Returns the most-recently-uploaded warranty row for the given serial number.
-     * Used to derive {@code warrantyStatus} and {@code warrantyDaysRemaining}.
+     * Newest row for a serial. Compares trimmed + uppercased so rows saved
+     * before normalization existed still match. Pass an already-normalized serial.
      */
-    @Query("SELECT w FROM WarrantyRecord w WHERE w.serialNumber = :serial ORDER BY w.uploadedAt DESC LIMIT 1")
+    @Query("SELECT w FROM WarrantyRecord w WHERE UPPER(TRIM(w.serialNumber)) = :serial ORDER BY w.uploadedAt DESC LIMIT 1")
     Optional<WarrantyRecord> findLatestBySerialNumber(@Param("serial") String serial);
 
-    /**
-     * All rows for a serial, newest first — for the admin detail view.
-     */
     List<WarrantyRecord> findBySerialNumberOrderByUploadedAtDesc(String serialNumber);
 
-    /**
-     * All rows, newest first — for the fleet summary page.
-     */
     List<WarrantyRecord> findAllByOrderByUploadedAtDesc();
 
-    /**
-     * Count of distinct serial numbers with at least one warranty record.
-     */
     @Query("SELECT COUNT(DISTINCT w.serialNumber) FROM WarrantyRecord w")
     long countDistinctSerials();
 }

@@ -9,7 +9,12 @@ spring:
     # Port 5434 is the host side of the docker-compose mapping (5434:5432).
     url: jdbc:postgresql://localhost:5434/endpoint_posture
     username: ${DB_USERNAME:ep_app}
-    password: ${DB_PASSWORD:devpassword123}
+    password: ${DB_PASSWORD} # no default: set it in application-dev.yml or the environment
+
+  servlet:
+    multipart:
+      max-file-size: 10MB # warranty CSV exports
+      max-request-size: 10MB
 
   jpa:
     hibernate:
@@ -94,15 +99,13 @@ management:
   endpoints:
     web:
       exposure:
-        # health is already open (permitted in SecurityConfig). prometheus is
-        # restricted: only authenticated ADMIN users may scrape it (see SecurityConfig).
+        # health is open (permitted in SecurityConfig). prometheus is ADMIN only.
         include: health,prometheus
   endpoint:
     health:
       show-details: never # do not leak DB credentials / stack traces in the health body
     prometheus:
-      enabled: true
+      access: unrestricted # replaces the deprecated "enabled: true" in Boot 3.4+
   metrics:
     tags:
-      # Every metric carries an application label so dashboards can filter by service.
       application: ${spring.application.name}

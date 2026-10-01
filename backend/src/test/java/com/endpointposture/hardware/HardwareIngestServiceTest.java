@@ -8,6 +8,7 @@ import com.endpointposture.hardware.scoring.BatteryScorer;
 import com.endpointposture.hardware.scoring.CpuScorer;
 import com.endpointposture.hardware.scoring.MemoryScorer;
 import com.endpointposture.hardware.scoring.StorageScorer;
+import com.endpointposture.warranty.WarrantyService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,13 +29,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** Uses the real scorers; only persistence is mocked. */
+/** Uses the real scorers; only persistence and the warranty lookup are mocked. */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class HardwareIngestServiceTest {
 
     @Mock EndpointService endpointService;
     @Mock HardwareHealthService healthService;
+    @Mock WarrantyService warrantyService;
 
     HardwareIngestService service;
     final AtomicReference<Object[]> captured = new AtomicReference<>();
@@ -42,7 +44,7 @@ class HardwareIngestServiceTest {
     @BeforeEach
     void setUp() {
         service = new HardwareIngestService(endpointService, healthService,
-                new CpuScorer(), new MemoryScorer(), new StorageScorer(), new BatteryScorer());
+                new CpuScorer(), new MemoryScorer(), new StorageScorer(), new BatteryScorer(), warrantyService);
         when(endpointService.upsertByMac(any(), any(), any(), any(), any()))
                 .thenReturn(Endpoint.builder().id(UUID.randomUUID()).macAddress("AA:BB:CC:DD:EE:FF").build());
         when(healthService.recordReport(any(), any(), any(), any(), any(), any(),
@@ -50,7 +52,7 @@ class HardwareIngestServiceTest {
                 .thenAnswer(inv -> { captured.set(inv.getArguments()); return null; });
     }
 
-    // recordReport argument positions: 6 cpu, 7 memory, 8 storage, 9 battery
+    // recordReport argument positions: 6 cpu, 7 memory, 8 storage, 9 battery, 11 warranty status, 12 days
     private int score(int index) { return (Integer) captured.get()[index]; }
 
     private EndpointDto ep(String mac) {
@@ -68,7 +70,6 @@ class HardwareIngestServiceTest {
 
     @Test
     void singleDiskSentAsBareObjectIsHandled() {
-        // PowerShell ConvertTo-Json collapses a one-element array to a bare object.
         Map<String, Object> storage = Map.of("physical_disks", Map.of("HealthStatus", "Healthy"));
         service.ingest(req(ep("AA:BB:CC:DD:EE:FF"), cpuMem(), storage, null));
         assertEquals(100, score(8));
@@ -81,7 +82,7 @@ class HardwareIngestServiceTest {
         Map<String, Object> storage = Map.of("physical_disks",
                 List.of(Map.of("HealthStatus", "Healthy"), Map.of("HealthStatus", "Warning")));
         Map<String, Object> battery = Map.of("battery_static",
-                Map.of("DesignedCapacity", 50000, "FullChargedCapacity", 40000)); // bare object again
+                Map.of("DesignedCapacity", 50000, "FullChargedCapacity", 40000));
         service.ingest(req(ep("AA:BB:CC:DD:EE:FF"), cpuMem(), storage, battery));
         assertEquals(50, score(8));
         assertEquals(80, score(9));
@@ -92,6 +93,23 @@ class HardwareIngestServiceTest {
         Map<String, Object> storage = Map.of("physical_disks", List.of(Map.of("HealthStatus", "Healthy")));
         service.ingest(req(ep("AA:BB:CC:DD:EE:FF"), cpuMem(), storage, Map.of()));
         assertNull(captured.get()[9]);
+    }
+
+    @Test
+    void warrantyFromTheUploadedTableOverridesTheAgentValue() {
+        when(warrantyService.describe("SN1")).thenReturn(new WarrantyService.Info("COVERED", 200));
+        Map<String, Object> storage = Map.of("physical_disks", List.of(Map.of("HealthStatus", "Healthy")));
+        service.ingest(req(ep("AA:BB:CC:DD:EE:FF"), cpuMem(), storage, null));
+        assertEquals("COVERED", captured.get()[11]);
+        assertEquals(200, captured.get()[12]);
+    }
+
+    @Test
+    void noWarrantyRecordLeavesTheAgentValueUntouched() {
+        when(warrantyService.describe(any())).thenReturn(null);
+        Map<String, Object> storage = Map.of("physical_disks", List.of(Map.of("HealthStatus", "Healthy")));
+        service.ingest(req(ep("AA:BB:CC:DD:EE:FF"), cpuMem(), storage, null));
+        assertNull(captured.get()[11]); // request carried no warranty block
     }
 
     @Test

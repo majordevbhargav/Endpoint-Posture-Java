@@ -8,6 +8,7 @@ import com.endpointposture.hardware.scoring.BatteryScorer;
 import com.endpointposture.hardware.scoring.CpuScorer;
 import com.endpointposture.hardware.scoring.MemoryScorer;
 import com.endpointposture.hardware.scoring.StorageScorer;
+import com.endpointposture.warranty.WarrantyService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,19 +27,22 @@ public class HardwareIngestService {
     private final MemoryScorer memoryScorer;
     private final StorageScorer storageScorer;
     private final BatteryScorer batteryScorer;
+    private final WarrantyService warrantyService;
 
     public HardwareIngestService(EndpointService endpointService,
                                   HardwareHealthService healthService,
                                   CpuScorer cpuScorer,
                                   MemoryScorer memoryScorer,
                                   StorageScorer storageScorer,
-                                  BatteryScorer batteryScorer) {
+                                  BatteryScorer batteryScorer,
+                                  WarrantyService warrantyService) {
         this.endpointService = endpointService;
         this.healthService = healthService;
         this.cpuScorer = cpuScorer;
         this.memoryScorer = memoryScorer;
         this.storageScorer = storageScorer;
         this.batteryScorer = batteryScorer;
+        this.warrantyService = warrantyService;
     }
 
     @Transactional
@@ -56,12 +60,8 @@ public class HardwareIngestService {
         Map<String, Object> cpuSection = sub(req.cpuMemory(), "cpu");
         Map<String, Object> memorySection = sub(req.cpuMemory(), "memory");
 
-        // PowerShell's ConvertTo-Json collapses a single-element array into
-        // a bare JSON object instead of a one-item array (a well-known
-        // quirk). A machine with exactly one disk or one battery therefore
-        // sends {..} rather than [{..}], which Jackson deserializes as a
-        // LinkedHashMap, not a List — asListOfMaps() below normalizes
-        // both shapes so this never throws a ClassCastException again.
+        // PowerShell's ConvertTo-Json collapses a single-element array into a
+        // bare object; asListOfMaps() normalizes both shapes.
         List<Map<String, Object>> disks = asListOfMaps(
                 req.storage() == null ? null : req.storage().get("physical_disks"));
         List<Map<String, Object>> batteryStatic = asListOfMaps(
@@ -74,7 +74,7 @@ public class HardwareIngestService {
 
         if (cpuScore == null || memoryScore == null || storageScore == null) {
             throw new IllegalArgumentException(
-                    "Report is missing required CPU, memory, or storage data — cannot score");
+                    "Report is missing required CPU, memory, or storage data - cannot score");
         }
 
         Integer eventCount = req.hardwareEvents() == null
@@ -84,8 +84,13 @@ public class HardwareIngestService {
         Integer warrantyDaysRemaining = req.warranty() == null
                 ? null : asInteger(req.warranty().get("days_remaining"));
 
-        // proactive_recommendations has the exact same single-element quirk
-        // as disks/battery — normalize it the same way.
+        // The uploaded warranty CSV is the real source; the agent only reports UNKNOWN.
+        WarrantyService.Info warranty = warrantyService.describe(req.endpoint().serialNumber());
+        if (warranty != null) {
+            warrantyStatus = warranty.status();
+            warrantyDaysRemaining = warranty.daysRemaining();
+        }
+
         List<Map<String, Object>> recommendationMaps = asListOfMaps(req.proactiveRecommendations());
         List<HardwareHealthService.RecommendationInput> recs = new ArrayList<>();
         for (Map<String, Object> r : recommendationMaps) {
@@ -108,12 +113,6 @@ public class HardwareIngestService {
         );
     }
 
-    /**
-     * Normalizes a value that should be a list of maps but, thanks to
-     * PowerShell's ConvertTo-Json single-element quirk, may have arrived
-     * as a bare map instead. Returns an empty list for null/anything else
-     * unrecognized, never throws.
-     */
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> asListOfMaps(Object v) {
         if (v == null) return List.of();

@@ -89,3 +89,6 @@ scripts/posture_common_cred.xml
 # application-dev.yml in root, backend or any subfolder
 application-dev.yml
 **/application-dev.yml
+#exclude modernize folder
+.github/modernize
+**/modernize

@@ -625,7 +625,7 @@ export default function EndpointDetailPage() {
                 <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">
                   System Specifications
                 </div>
-                <div className="grid grid-cols-2 gap-4 font-mono text-xs sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-4 font-mono text-xs sm:grid-cols-5">
                   <div className="rounded-lg bg-base p-3">
                     <div className="font-sans text-muted">Manufacturer</div>
                     <div className="mt-1 font-semibold text-ink">{hardware.manufacturer || "—"}</div>
@@ -641,6 +641,15 @@ export default function EndpointDetailPage() {
                   <div className="rounded-lg bg-base p-3">
                     <div className="font-sans text-muted">BIOS Version</div>
                     <div className="mt-1 font-semibold text-ink">{hardware.biosVersion || "—"}</div>
+                  </div>
+                  <div className="rounded-lg bg-base p-3">
+                    <div className="font-sans text-muted">Warranty</div>
+                    <div className="mt-1 font-semibold text-ink">
+                      {hardware.warrantyStatus ?? "UNKNOWN"}
+                      {hardware.warrantyDaysRemaining != null && (
+                        <span className="ml-1 font-normal text-muted">({hardware.warrantyDaysRemaining} d)</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
