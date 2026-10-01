@@ -67,6 +67,9 @@ public class SecurityConfig {
                                 "/v3/api-docs/**"
                                 )
                         .permitAll()
+                        // Prometheus scrape endpoint: authenticated ADMIN only.
+                        // The scraper should use a dedicated service-account token.
+                        .requestMatchers("/actuator/prometheus").hasRole("ADMIN")
                         // Both agent ingestion routes are open to the agent key
                         // (ROLE_AGENT) and to admins (handy for testing from
                         // Swagger). The agent role is granted only for these

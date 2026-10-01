@@ -89,3 +89,20 @@ app:
     enabled: true
     inventory-keep-runs: 10 # full payloads kept per endpoint; older rows keep only their timestamp
     inventory-cron: "0 30 3 * * *"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # health is already open (permitted in SecurityConfig). prometheus is
+        # restricted: only authenticated ADMIN users may scrape it (see SecurityConfig).
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never # do not leak DB credentials / stack traces in the health body
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      # Every metric carries an application label so dashboards can filter by service.
+      application: ${spring.application.name}
