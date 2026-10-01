@@ -59,7 +59,7 @@ export interface HardwareHealthResponse {
   recommendations: { priority: string; area: string; action: string }[];
 }
 
-export type JobType = "POSTURE_CHECK" | "HARDWARE_CHECK";
+export type JobType = "POSTURE_CHECK" | "HARDWARE_CHECK" | "DIAGNOSTIC_CHECK";
 export type JobStatus = "QUEUED" | "RUNNING" | "COMPLETE" | "FAILED";
 
 export interface JobResponse {
@@ -214,6 +214,29 @@ export interface WarrantyView {
   uploadedAt: string;
 }
 
+// ── Endpoint 360 diagnostics ──────────────────────────────────────────────────
+export type DiagnosticStatus = "OK" | "WINRM_UNAVAILABLE" | "FAILED";
+
+export interface DiagnosticDeduction {
+  check: string;
+  points: number;
+  reason: string;
+}
+
+export interface DiagnosticResponse {
+  id: string;
+  endpointId: string;
+  jobId: string | null;
+  status: DiagnosticStatus;
+  // Null when nothing was measured (WinRM unavailable or failed). Never zero.
+  score: number | null;
+  band: HardwareBand | null;
+  deductions: DiagnosticDeduction[] | null;
+  results: Record<string, unknown>;
+  errorMessage: string | null;
+  collectedAt: string;
+}
+
 export interface WarrantyUploadResult {
   savedCount: number;
   rowErrors: string[];
@@ -294,6 +317,11 @@ export const api = {
     request<HardwareHealthResponse | null>(`/api/v1/endpoints/${id}/hardware-health/latest`),
   latestHardwareAll: () => request<HardwareHealthResponse[]>("/api/v1/hardware-health/latest"),
   hardwareHistory: (id: string) => request<HardwareHealthResponse[]>(`/api/v1/endpoints/${id}/hardware-health`),
+  /** Resolves to null (HTTP 204) when the endpoint has never been diagnosed. */
+  latestDiagnosticOrNull: (id: string) =>
+    request<DiagnosticResponse | null>(`/api/v1/endpoints/${id}/diagnostics/latest`),
+  diagnosticHistory: (id: string) =>
+    request<DiagnosticResponse[]>(`/api/v1/endpoints/${id}/diagnostics`),
   latestPostureOrNull: async (id: string): Promise<AssessmentResponse | null> => {
     const history = await request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`);
     return history[0] ?? null; // history is newest first; empty list means never assessed

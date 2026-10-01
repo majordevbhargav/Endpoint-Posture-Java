@@ -16,7 +16,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 /**
  * Central Spring Security setup. The API is stateless: every protected request
- * carries a JWT ({@link JwtAuthFilter}) or, for the two agent ingestion routes
+ * carries a JWT ({@link JwtAuthFilter}) or, for the three agent ingestion routes
  * only, the shared agent API key ({@link PostureApiKeyFilter}). Finer rules use
  * {@code @PreAuthorize} on controllers; admin-only routes are also listed here
  * (defence in depth).
@@ -56,8 +56,9 @@ public class SecurityConfig {
                         .permitAll()
                         // Prometheus scrape endpoint: authenticated ADMIN only.
                         .requestMatchers("/actuator/prometheus").hasRole("ADMIN")
-                        // Agent key (ROLE_AGENT) or admin, for these two exact routes only.
-                        .requestMatchers(HttpMethod.POST, "/api/v1/posture", "/api/v1/hardware-health")
+                        // Agent key (ROLE_AGENT) or admin, for these three exact routes only.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/posture", "/api/v1/hardware-health", "/api/v1/diagnostics")
                         .hasAnyRole("AGENT", "ADMIN")
                         // Changing what counts as compliant is an admin decision.
                         .requestMatchers(HttpMethod.PUT, "/api/v1/policy/**").hasRole("ADMIN")

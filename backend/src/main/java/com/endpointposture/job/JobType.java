@@ -23,5 +23,13 @@ public enum JobType {
      * hardware events) against an endpoint. The agent POSTs its report to
      * {@code POST /api/v1/hardware-health}.
      */
-    HARDWARE_CHECK
+    HARDWARE_CHECK,
+
+    /**
+     * Run {@code diagnostic_agent.ps1} (gateway ping, DNS, TCP 443, traceroute)
+     * ON the endpoint over WinRM. The agent POSTs its report to
+     * {@code POST /api/v1/diagnostics}. On-demand only: never queued by the
+     * recheck scheduler.
+     */
+    DIAGNOSTIC_CHECK
 }

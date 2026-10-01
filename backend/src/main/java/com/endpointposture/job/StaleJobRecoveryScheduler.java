@@ -1,5 +1,7 @@
 package com.endpointposture.job;
 
+import com.endpointposture.diagnostic.DiagnosticService;
+import com.endpointposture.diagnostic.config.DiagnosticAgentProperties;
 import com.endpointposture.endpoint.Endpoint;
 import com.endpointposture.hardware.HardwareHealthService;
 import com.endpointposture.hardware.config.HardwareAgentProperties;
@@ -37,7 +39,7 @@ import java.util.List;
  * never given a false failure row. Only once that check confirms the job
  * was genuinely still stuck does this class write the same permanent
  * failure evidence {@link JobWorker#fail} writes (an {@code ERROR}
- * assessment, or a {@code succeeded=false} hardware-health row) - a
+ * assessment, or a failed hardware-health / diagnostic row) - a
  * recovered job is never silently different from any other kind of
  * failure in the evidence trail.</p>
  */
@@ -50,23 +52,29 @@ public class StaleJobRecoveryScheduler {
     private final JobService jobService;
     private final AssessmentService assessmentService;
     private final HardwareHealthService hardwareHealthService;
+    private final DiagnosticService diagnosticService;
     private final PostureAgentProperties postureProps;
     private final HardwareAgentProperties hardwareProps;
+    private final DiagnosticAgentProperties diagnosticProps;
     private final long marginSeconds;
 
     public StaleJobRecoveryScheduler(PostureJobRepository jobRepository,
                                       JobService jobService,
                                       AssessmentService assessmentService,
                                       HardwareHealthService hardwareHealthService,
+                                      DiagnosticService diagnosticService,
                                       PostureAgentProperties postureProps,
                                       HardwareAgentProperties hardwareProps,
+                                      DiagnosticAgentProperties diagnosticProps,
                                       @Value("${app.jobs.stale-margin-seconds:60}") long marginSeconds) {
         this.jobRepository = jobRepository;
         this.jobService = jobService;
         this.assessmentService = assessmentService;
         this.hardwareHealthService = hardwareHealthService;
+        this.diagnosticService = diagnosticService;
         this.postureProps = postureProps;
         this.hardwareProps = hardwareProps;
+        this.diagnosticProps = diagnosticProps;
         this.marginSeconds = marginSeconds;
     }
 
@@ -79,12 +87,12 @@ public class StaleJobRecoveryScheduler {
     @Scheduled(fixedDelayString = "${app.jobs.stale-sweep-interval-ms:60000}")
     public void sweep() {
         try {
-            // Widest possible window at the DB level (the larger of the two
-            // per-type timeouts), so nothing stale is missed by the query;
-            // each candidate is then re-checked against its own job type's
-            // actual, shorter-or-equal timeout before being recovered.
+            // Widest possible window at the DB level (the largest of the per-type
+            // timeouts), so nothing stale is missed by the query; each candidate is
+            // then re-checked against its own job type's actual timeout.
             long widestTimeoutSeconds = Math.max(
-                    postureProps.getProcessTimeoutSeconds(), hardwareProps.getProcessTimeoutSeconds());
+                    Math.max(postureProps.getProcessTimeoutSeconds(), hardwareProps.getProcessTimeoutSeconds()),
+                    diagnosticProps.getProcessTimeoutSeconds());
             Instant widestCutoff = Instant.now().minusSeconds(widestTimeoutSeconds + marginSeconds);
 
             List<PostureJob> candidates = jobRepository.findStaleRunning(widestCutoff);
@@ -104,11 +112,16 @@ public class StaleJobRecoveryScheduler {
         }
     }
 
+    private long timeoutSecondsFor(PostureJob job) {
+        return switch (job.getJobType()) {
+            case POSTURE_CHECK -> postureProps.getProcessTimeoutSeconds();
+            case HARDWARE_CHECK -> hardwareProps.getProcessTimeoutSeconds();
+            case DIAGNOSTIC_CHECK -> diagnosticProps.getProcessTimeoutSeconds();
+        };
+    }
+
     private boolean isActuallyStale(PostureJob job) {
-        long timeoutSeconds = job.getJobType() == JobType.POSTURE_CHECK
-                ? postureProps.getProcessTimeoutSeconds()
-                : hardwareProps.getProcessTimeoutSeconds();
-        Instant cutoff = Instant.now().minusSeconds(timeoutSeconds + marginSeconds);
+        Instant cutoff = Instant.now().minusSeconds(timeoutSecondsFor(job) + marginSeconds);
         return job.getStartedAt() != null && job.getStartedAt().isBefore(cutoff);
     }
 
@@ -129,6 +142,7 @@ public class StaleJobRecoveryScheduler {
         switch (job.getJobType()) {
             case POSTURE_CHECK -> assessmentService.recordFailure(endpoint.getId(), job.getId(), reason);
             case HARDWARE_CHECK -> hardwareHealthService.recordFailure(endpoint.getId(), job.getId(), reason);
+            case DIAGNOSTIC_CHECK -> diagnosticService.recordFailure(endpoint.getId(), job.getId(), reason);
         }
 
         log.info("Recovered stale job {} ({}) for endpoint {}",

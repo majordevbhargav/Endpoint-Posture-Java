@@ -8,6 +8,10 @@ RUN npm ci
 
 COPY . .
 
+# This project has no frontend/public folder. Create an empty one so the
+# runtime stage's COPY below works whether or not a public folder exists.
+RUN mkdir -p public
+
 # Next.js bakes rewrites() into the build, so the backend address is a BUILD
 # argument, not a runtime variable. On Windows Docker Desktop the host is
 # host.docker.internal. Rebuild the image to point it somewhere else:

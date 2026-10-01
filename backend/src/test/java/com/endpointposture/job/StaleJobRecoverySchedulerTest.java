@@ -1,5 +1,7 @@
 package com.endpointposture.job;
 
+import com.endpointposture.diagnostic.DiagnosticService;
+import com.endpointposture.diagnostic.config.DiagnosticAgentProperties;
 import com.endpointposture.endpoint.Endpoint;
 import com.endpointposture.hardware.HardwareHealthService;
 import com.endpointposture.hardware.config.HardwareAgentProperties;
@@ -17,7 +19,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -39,8 +40,10 @@ class StaleJobRecoverySchedulerTest {
     @Mock JobService jobService;
     @Mock AssessmentService assessmentService;
     @Mock HardwareHealthService hardwareHealthService;
+    @Mock DiagnosticService diagnosticService;
     @Mock PostureAgentProperties postureProps;
     @Mock HardwareAgentProperties hardwareProps;
+    @Mock DiagnosticAgentProperties diagnosticProps;
 
     StaleJobRecoveryScheduler scheduler;
 
@@ -51,10 +54,11 @@ class StaleJobRecoverySchedulerTest {
     void setUp() {
         when(postureProps.getProcessTimeoutSeconds()).thenReturn(60);
         when(hardwareProps.getProcessTimeoutSeconds()).thenReturn(70);
+        when(diagnosticProps.getProcessTimeoutSeconds()).thenReturn(130);
 
         scheduler = new StaleJobRecoveryScheduler(
-                jobRepository, jobService, assessmentService, hardwareHealthService,
-                postureProps, hardwareProps, marginSeconds);
+                jobRepository, jobService, assessmentService, hardwareHealthService, diagnosticService,
+                postureProps, hardwareProps, diagnosticProps, marginSeconds);
     }
 
     private PostureJob runningJob(JobType type, Instant startedAt) {
@@ -79,6 +83,7 @@ class StaleJobRecoverySchedulerTest {
         verify(jobService, never()).markFailedIfRunning(any(), anyString());
         verify(assessmentService, never()).recordFailure(any(), any(), anyString());
         verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -92,6 +97,7 @@ class StaleJobRecoverySchedulerTest {
         verify(jobService).markFailedIfRunning(eq(job.getId()), anyString());
         verify(assessmentService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
         verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -105,6 +111,35 @@ class StaleJobRecoverySchedulerTest {
         verify(jobService).markFailedIfRunning(eq(job.getId()), anyString());
         verify(hardwareHealthService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
         verify(assessmentService, never()).recordFailure(any(), any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
+    }
+
+    @Test
+    void staleDiagnosticJob_isRecoveredWithDiagnosticFailureEvidence() {
+        // 300 s is past the diagnostic timeout (130) plus margin (60).
+        PostureJob job = runningJob(JobType.DIAGNOSTIC_CHECK, Instant.now().minusSeconds(300));
+        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobService.markFailedIfRunning(eq(job.getId()), anyString())).thenReturn(true);
+
+        scheduler.sweep();
+
+        verify(jobService).markFailedIfRunning(eq(job.getId()), anyString());
+        verify(diagnosticService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
+        verify(assessmentService, never()).recordFailure(any(), any(), anyString());
+        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
+    }
+
+    @Test
+    void diagnosticJobWithinItsOwnTimeoutIsNotRecovered() {
+        // Past the posture window (60+60) but inside the diagnostic window (130+60),
+        // so it must be left alone even though the query returned it.
+        PostureJob job = runningJob(JobType.DIAGNOSTIC_CHECK, Instant.now().minusSeconds(150));
+        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+
+        scheduler.sweep();
+
+        verify(jobService, never()).markFailedIfRunning(any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -121,16 +156,16 @@ class StaleJobRecoverySchedulerTest {
         verify(jobService).markFailedIfRunning(eq(job.getId()), anyString());
         verify(assessmentService, never()).recordFailure(any(), any(), anyString());
         verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
     void hardwareJobWithinItsOwnTimeoutIsNotRecovered_evenIfReturnedByTheWideQuery() {
-        // Repository query uses the WIDEST cutoff (hardware's 70s), so it may
-        // legitimately return jobs that are within their own timeout - this
-        // proves the per-type re-check (isActuallyStale) filters those out.
-        // startedAt is 65s ago: past nothing at all given hardware's 70s
-        // timeout + 60s margin (cutoff would be ~130s), so this job must NOT
-        // be recovered despite being present in the mocked query result.
+        // Repository query uses the WIDEST cutoff, so it may legitimately return
+        // jobs that are within their own timeout - this proves the per-type
+        // re-check (isActuallyStale) filters those out. startedAt is 65s ago:
+        // hardware's 70s timeout + 60s margin means the cutoff is ~130s, so this
+        // job must NOT be recovered despite being present in the mocked result.
         PostureJob job = runningJob(JobType.HARDWARE_CHECK, Instant.now().minusSeconds(65));
         when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
 
