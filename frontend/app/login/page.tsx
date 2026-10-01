@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ShieldCheck, Lock, User, ArrowRight } from "lucide-react";
 import { api, setToken } from "@/lib/api";
@@ -13,6 +13,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Defer rendering interactive input DOM nodes until client-side hydration completes
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,9 +36,17 @@ export default function LoginPage() {
       router.push("/overview");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("401") || msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("bad credentials")) {
+      if (
+        msg.includes("401") ||
+        msg.toLowerCase().includes("unauthorized") ||
+        msg.toLowerCase().includes("bad credentials")
+      ) {
         setError("Invalid username or password.");
-      } else if (msg.includes("500") || msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("network")) {
+      } else if (
+        msg.includes("500") ||
+        msg.toLowerCase().includes("failed to fetch") ||
+        msg.toLowerCase().includes("network")
+      ) {
         setError("Unable to reach backend server (localhost:8090). Please ensure the backend is running.");
       } else {
         setError(msg || "Invalid username or password.");
@@ -73,17 +87,24 @@ export default function LoginPage() {
             <div className="relative">
               <User
                 size={15}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted z-10"
               />
-              <input
-                type="text"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Username"
-                autoComplete="username"
-                className="w-full rounded-lg border border-border bg-base py-2.5 pl-9 pr-3 text-xs text-ink placeholder:text-muted outline-none transition focus:border-accent"
-              />
+              {mounted ? (
+                <input
+                  type="text"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Username"
+                  autoComplete="username"
+                  data-1p-ignore
+                  data-bwignore
+                  suppressHydrationWarning
+                  className="w-full rounded-lg border border-border bg-base py-2.5 pl-9 pr-3 text-xs text-ink placeholder:text-muted outline-none transition focus:border-accent"
+                />
+              ) : (
+                <div className="h-[38px] w-full rounded-lg border border-border bg-base" />
+              )}
             </div>
           </div>
 
@@ -92,17 +113,24 @@ export default function LoginPage() {
             <div className="relative">
               <Lock
                 size={15}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted z-10"
               />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                autoComplete="current-password"
-                className="w-full rounded-lg border border-border bg-base py-2.5 pl-9 pr-3 text-xs text-ink placeholder:text-muted outline-none transition focus:border-accent"
-              />
+              {mounted ? (
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  autoComplete="current-password"
+                  data-1p-ignore
+                  data-bwignore
+                  suppressHydrationWarning
+                  className="w-full rounded-lg border border-border bg-base py-2.5 pl-9 pr-3 text-xs text-ink placeholder:text-muted outline-none transition focus:border-accent"
+                />
+              ) : (
+                <div className="h-[38px] w-full rounded-lg border border-border bg-base" />
+              )}
             </div>
           </div>
 
