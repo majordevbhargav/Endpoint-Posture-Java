@@ -6,7 +6,7 @@ spring:
     # Port 5434 maps to host port in docker-compose (5434:5432)
     url: ${DB_URL:jdbc:postgresql://localhost:5434/endpoint_posture}
     username: ${DB_USERNAME:ep_app}
-    password: ${DB_PASSWORD} # No default fallback here!
+    password: ${DB_PASSWORD}
 
   servlet:
     multipart:
@@ -87,8 +87,7 @@ app:
     submit-timeout-seconds: 20
     process-timeout-seconds: 70
 
-  # Endpoint 360 diagnostics (on-demand). WinRM open 20 + operation 70 + submit 20
-  # = 110 s, kept below the 130 s outer process timeout.
+  # Endpoint 360 diagnostics (on-demand).
   diagnostics:
     script-path: ../scripts/diagnostic_agent.ps1
     server-base-url: http://localhost:8090
@@ -98,6 +97,16 @@ app:
     process-timeout-seconds: 130
     dns-test-name: www.microsoft.com
     internet-target: 8.8.8.8
+
+  security-indicators:
+    script-path: ../scripts/security_indicator_agent.ps1
+    server-base-url: http://localhost:8090
+    winrm-open-timeout-seconds: 20
+    winrm-operation-timeout-seconds: 100
+    submit-timeout-seconds: 20
+    sample-count: 12
+    sample-interval-seconds: 5
+    process-timeout-seconds: 170
 
   retention:
     enabled: true

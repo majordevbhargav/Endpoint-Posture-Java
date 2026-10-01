@@ -3,6 +3,7 @@
 const GOOD = { bg: "bg-good/10", text: "text-good", dot: "bg-good", border: "border-good/25" };
 const WARN = { bg: "bg-warn/10", text: "text-warn", dot: "bg-warn", border: "border-warn/25" };
 const BAD = { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" };
+const MED = { bg: "bg-medium/10", text: "text-medium", dot: "bg-medium", border: "border-medium/25" };
 
 const TONE_MAP: Record<string, { bg: string; text: string; dot: string; border: string }> = {
   COMPLIANT: GOOD,
@@ -29,6 +30,8 @@ const TONE_MAP: Record<string, { bg: string; text: string; dot: string; border: 
   RUNNING: { bg: "bg-accent/15", text: "text-accent", dot: "bg-accent", border: "border-accent/30" },
   WINRM_UNAVAILABLE: WARN,
   OK: GOOD,
+ "Re-auth requested": WARN,
+ NONE: GOOD, LOW: MED, MEDIUM: WARN, HIGH: BAD,
 };
 
 const LABEL_MAP: Record<string, string> = {
@@ -52,6 +55,7 @@ const LABEL_MAP: Record<string, string> = {
   EXPIRED: "Expired",
   WINRM_UNAVAILABLE: "WinRM unavailable",
   OK: "OK",
+  NONE: "No findings", LOW: "Low", MEDIUM: "Medium", HIGH: "High",
 };
 
 export function StatusBadge({

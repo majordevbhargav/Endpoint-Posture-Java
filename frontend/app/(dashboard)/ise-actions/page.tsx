@@ -22,7 +22,7 @@ interface EnforcementRow {
   hostname: string;
   macAddress: string;
   ipAddress: string | null;
-   state: "Restricted" | "Clear requested" | "Last attempt failed" | "Clear failed";
+  state: "Restricted" | "Re-auth requested" | "Clear requested" | "Last attempt failed" | "Clear failed";
   lastAction: string;
   succeeded: boolean;
   operator: string;
@@ -30,12 +30,12 @@ interface EnforcementRow {
   occurredAt: string;
 }
 
-   function deriveState(actionType: string, succeeded: boolean): EnforcementRow["state"] {
-     if (!succeeded) return actionType === "CLEAR_RESTRICTION" ? "Clear failed" : "Last attempt failed";
-     if (actionType === "RESTRICT") return "Restricted";
-     if (actionType === "CLEAR_RESTRICTION") return "Clear requested";
-     return "Last attempt failed";
-   }
+function deriveState(actionType: string, succeeded: boolean, mode: string): EnforcementRow["state"] {
+  if (!succeeded) return actionType === "CLEAR_RESTRICTION" ? "Clear failed" : "Last attempt failed";
+  if (actionType === "RESTRICT") return mode === "ANC" ? "Restricted" : "Re-auth requested";
+  if (actionType === "CLEAR_RESTRICTION") return "Clear requested";
+  return "Last attempt failed";
+}
 
 const columns: Column<EnforcementRow>[] = [
   {
@@ -162,6 +162,8 @@ export default function IseActionsPage() {
     return map;
   }, [endpoints]);
 
+  const enforcementMode = iseStatus?.enforcementMode ?? "ATTRIBUTE";
+
   const rows: EnforcementRow[] = useMemo(() => {
     if (!states) return [];
     return states.map((s) => {
@@ -171,7 +173,7 @@ export default function IseActionsPage() {
         hostname: ep?.hostname || `Endpoint ${s.endpointId.substring(0, 8)}`,
         macAddress: ep?.macAddress || "Unknown MAC",
         ipAddress: ep?.ipAddress ?? null,
-        state: deriveState(s.actionType, s.succeeded),
+        state: deriveState(s.actionType, s.succeeded, enforcementMode),
         lastAction: s.actionType,
         succeeded: s.succeeded,
         operator: s.operator || "System",
@@ -179,8 +181,7 @@ export default function IseActionsPage() {
         occurredAt: s.occurredAt,
       };
     });
-  }, [states, epMap]);
-
+  }, [states, epMap, enforcementMode]);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
@@ -194,19 +195,20 @@ export default function IseActionsPage() {
     );
   }, [rows, search]);
 
-const counts = useMemo(() => {
+  const counts = useMemo(() => {
     let restricted = 0;
     let clearRequested = 0;
     let failed = 0;
     rows.forEach((r) => {
-      if (r.state === "Restricted") restricted++;
+      if (r.state === "Restricted" || r.state === "Re-auth requested") restricted++;
       else if (r.state === "Clear requested") clearRequested++;
       else if (r.state === "Last attempt failed" || r.state === "Clear failed") failed++;
+
     });
     return { total: rows.length, restricted, clearRequested, failed };
   }, [rows]);
 
-  const enforcementMode = iseStatus?.enforcementMode ?? "ATTRIBUTE";
+
 
   return (
     <div className="space-y-6">
@@ -253,7 +255,7 @@ const counts = useMemo(() => {
           <div className="mt-1 text-2xl font-bold text-ink">{counts.total}</div>
         </div>
         <div className="panel p-4">
-          <div className="text-xs text-bad">Restricted</div>
+          <div className="text-xs text-bad">{enforcementMode === "ANC" ? "Restricted" : "Re-auth requested"}</div>
           <div className="mt-1 text-2xl font-bold text-bad">{counts.restricted}</div>
         </div>
         <div className="panel p-4">

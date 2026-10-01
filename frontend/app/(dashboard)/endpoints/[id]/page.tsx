@@ -19,6 +19,7 @@ import {
   Wifi,
   WifiOff,
   Activity,
+  ShieldAlert,
 } from "lucide-react";
 import {
   api,
@@ -29,11 +30,13 @@ import {
   IseActionAudit,
   SessionEvent,
   DiagnosticResponse,
+  SecurityIndicatorResponse,
 } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { TrendChart, ChartSeries } from "@/components/dashboard/TrendChart";
+import { SecurityIndicatorsTab } from "@/components/endpoints/SecurityIndicatorsTab";
 import { can, DENIED_HINT } from "@/lib/permissions";
 
 
@@ -75,9 +78,11 @@ export default function EndpointDetailPage() {
   const [sessions, setSessions] = useState<SessionEvent[]>([]);
   const [diagnostic, setDiagnostic] = useState<DiagnosticResponse | null>(null);
   const [diagnosticHistory, setDiagnosticHistory] = useState<DiagnosticResponse[]>([]);
+  const [security, setSecurity] = useState<SecurityIndicatorResponse | null>(null);
+  const [securityHistory, setSecurityHistory] = useState<SecurityIndicatorResponse[]>([]);
 
   const [activeTab, setActiveTab] = useState<
-    "posture" | "hardware" | "diagnostics" | "jobs" | "audit" | "sessions"
+    "posture" | "hardware" | "diagnostics" | "security" | "jobs" | "audit" | "sessions"
   >("posture");
 
   // Role gates. UI convenience only: the backend @PreAuthorize rules are the real control.
@@ -91,18 +96,31 @@ export default function EndpointDetailPage() {
       const ep = await api.getEndpoint(id);
       setEndpoint(ep);
 
-      const [postureRes, histRes, hwRes, hwHistRes, jobsRes, auditRes, sessionsRes, diagRes, diagHistRes] =
-        await Promise.allSettled([
-          api.latestPostureOrNull(id),
-          api.postureHistory(id),
-          api.latestHardwareOrNull(id),
-          api.hardwareHistory(id),
-          api.listJobsForEndpoint(id),
-          api.auditActions(id),
-          api.sessionHistory(id),
-          api.latestDiagnosticOrNull(id),
-          api.diagnosticHistory(id),
-        ]);
+      const [
+        postureRes,
+        histRes,
+        hwRes,
+        hwHistRes,
+        jobsRes,
+        auditRes,
+        sessionsRes,
+        diagRes,
+        diagHistRes,
+        secRes,
+        secHistRes,
+      ] = await Promise.allSettled([
+        api.latestPostureOrNull(id),
+        api.postureHistory(id),
+        api.latestHardwareOrNull(id),
+        api.hardwareHistory(id),
+        api.listJobsForEndpoint(id),
+        api.auditActions(id),
+        api.sessionHistory(id),
+        api.latestDiagnosticOrNull(id),
+        api.diagnosticHistory(id),
+        api.latestSecurityOrNull(id),
+        api.securityHistory(id),
+      ]);
 
       if (postureRes.status === "fulfilled") setPosture(postureRes.value);
       if (histRes.status === "fulfilled") setPostureHistory(histRes.value);
@@ -113,6 +131,8 @@ export default function EndpointDetailPage() {
       if (sessionsRes.status === "fulfilled") setSessions(sessionsRes.value);
       if (diagRes.status === "fulfilled") setDiagnostic(diagRes.value);
       if (diagHistRes.status === "fulfilled") setDiagnosticHistory(diagHistRes.value);
+      if (secRes.status === "fulfilled") setSecurity(secRes.value);
+      if (secHistRes.status === "fulfilled") setSecurityHistory(secHistRes.value);
     } catch {
       // Endpoint might not exist
     } finally {
@@ -155,14 +175,19 @@ export default function EndpointDetailPage() {
     }
   }
 
-  async function enqueueCheck(type: "POSTURE_CHECK" | "HARDWARE_CHECK" | "DIAGNOSTIC_CHECK") {
+  async function enqueueCheck(type: "POSTURE_CHECK" | "HARDWARE_CHECK" | "DIAGNOSTIC_CHECK" | "SECURITY_CHECK") {
     setBusy(true);
     try {
       await api.enqueueJob(id, type);
-      const label =
-        type === "POSTURE_CHECK" ? "Posture Check" : type === "HARDWARE_CHECK" ? "Hardware Check" : "Diagnostics";
+      const label = {
+        POSTURE_CHECK: "Posture Check",
+        HARDWARE_CHECK: "Hardware Check",
+        DIAGNOSTIC_CHECK: "Diagnostics",
+        SECURITY_CHECK: "Security Scan",
+      }[type];
+      const durationText = type === "SECURITY_CHECK" ? "usually finishes in about a minute" : "usually finishes in 10 to 30 seconds";
       setActionMsg({
-        text: `${label} job enqueued. It usually finishes in 10 to 30 seconds. Refresh to see it.`,
+        text: `${label} job enqueued. It ${durationText}. Refresh to see it.`,
         success: true,
       });
       api.listJobsForEndpoint(id).then(setJobs).catch(() => { });
@@ -279,6 +304,16 @@ export default function EndpointDetailPage() {
             </button>
 
             <button
+              disabled={busy || !mayEnqueue}
+              title={!mayEnqueue ? DENIED_HINT : undefined}
+              onClick={() => enqueueCheck("SECURITY_CHECK")}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-accent/40 hover:text-accent disabled:opacity-50"
+            >
+              <ShieldAlert size={12} />
+              <span>Run Security Scan</span>
+            </button>
+
+            <button
               disabled={busy}
               onClick={loadAll}
               className="rounded-lg border border-border bg-panel p-2 text-muted transition hover:text-ink disabled:opacity-50"
@@ -381,6 +416,7 @@ export default function EndpointDetailPage() {
             ["posture", "Security Posture"],
             ["hardware", "Hardware Health"],
             ["diagnostics", "Diagnostics"],
+            ["security", "Security Indicators"],
             ["sessions", `Sessions (${sessions.length})`],
             ["jobs", `Job Queue (${jobs.length})`],
             ["audit", `ISE Audit Log (${audits.length})`],
@@ -717,6 +753,11 @@ export default function EndpointDetailPage() {
       {/* Tab: Endpoint 360 diagnostics */}
       {activeTab === "diagnostics" && (
         <DiagnosticsTab latest={diagnostic} history={diagnosticHistory} />
+      )}
+
+      {/* Tab: Security Indicators */}
+      {activeTab === "security" && (
+        <SecurityIndicatorsTab latest={security} history={securityHistory} />
       )}
 
       {/* Tab: Session history (connect / disconnect events from ISE) */}

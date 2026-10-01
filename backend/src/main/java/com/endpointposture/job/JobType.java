@@ -26,10 +26,12 @@ public enum JobType {
     HARDWARE_CHECK,
 
     /**
-     * Run {@code diagnostic_agent.ps1} (gateway ping, DNS, TCP 443, traceroute)
-     * ON the endpoint over WinRM. The agent POSTs its report to
+     * Run {@code diagnostic_agent.ps1} on the endpoint over WinRM. The agent POSTs its report to
      * {@code POST /api/v1/diagnostics}. On-demand only: never queued by the
      * recheck scheduler.
      */
-    DIAGNOSTIC_CHECK
+    DIAGNOSTIC_CHECK,
+
+    /** Sample established TCP connections ON the endpoint over WinRM and look for possible lateral movement/beaconing. On-demand only. */
+    SECURITY_CHECK
 }

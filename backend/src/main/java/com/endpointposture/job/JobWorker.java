@@ -5,6 +5,8 @@ import com.endpointposture.diagnostic.config.DiagnosticAgentProperties;
 import com.endpointposture.endpoint.Endpoint;
 import com.endpointposture.hardware.HardwareHealthService;
 import com.endpointposture.hardware.config.HardwareAgentProperties;
+import com.endpointposture.indicator.SecurityIndicatorService;
+import com.endpointposture.indicator.config.SecurityIndicatorAgentProperties;
 import com.endpointposture.policy.PolicyService;
 import com.endpointposture.posture.AssessmentService;
 import com.endpointposture.posture.config.PostureAgentProperties;
@@ -35,8 +37,7 @@ import java.util.concurrent.TimeUnit;
  *       Posture jobs are handed the active application policy.</li>
  *   <li>The agent POSTs its own report and prints one {@code RESULT_JSON:} line.</li>
  *   <li>{@code submitted: true} means COMPLETE.</li>
- *   <li>Anything else writes a failure evidence row (ERROR assessment, or a
- *       failed hardware / diagnostic row) and fails the job (retry with backoff).</li>
+ *   <li>Anything else writes a failure evidence row and fails the job.</li>
  * </ol>
  *
  * <p>Nothing here calls Cisco ISE; dispatch is observation only.</p>
@@ -48,17 +49,17 @@ public class JobWorker {
 
     private static final String RESULT_PREFIX = "RESULT_JSON:";
     private static final String API_KEY_ENV_VAR = "POSTURE_API_KEY";
-
-    /** Delimiter for the policy lists; PolicyService rejects patterns containing it. */
     private static final String POLICY_LIST_DELIMITER = "|";
 
     private final JobService jobService;
     private final AssessmentService assessmentService;
     private final HardwareHealthService hardwareHealthService;
     private final DiagnosticService diagnosticService;
+    private final SecurityIndicatorService securityIndicatorService;
     private final PostureAgentProperties postureProps;
     private final HardwareAgentProperties hardwareProps;
     private final DiagnosticAgentProperties diagnosticProps;
+    private final SecurityIndicatorAgentProperties securityProps;
     private final PolicyService policyService;
     private final ObjectMapper objectMapper;
 
@@ -66,34 +67,32 @@ public class JobWorker {
                      AssessmentService assessmentService,
                      HardwareHealthService hardwareHealthService,
                      DiagnosticService diagnosticService,
+                     SecurityIndicatorService securityIndicatorService,
                      PostureAgentProperties postureProps,
                      HardwareAgentProperties hardwareProps,
                      DiagnosticAgentProperties diagnosticProps,
+                     SecurityIndicatorAgentProperties securityProps,
                      PolicyService policyService,
                      ObjectMapper objectMapper) {
         this.jobService = jobService;
         this.assessmentService = assessmentService;
         this.hardwareHealthService = hardwareHealthService;
         this.diagnosticService = diagnosticService;
+        this.securityIndicatorService = securityIndicatorService;
         this.postureProps = postureProps;
         this.hardwareProps = hardwareProps;
         this.diagnosticProps = diagnosticProps;
+        this.securityProps = securityProps;
         this.policyService = policyService;
         this.objectMapper = objectMapper;
     }
 
-    /**
-     * Claims and runs at most one job.
-     *
-     * @return true if a job was claimed (the caller should poll again immediately)
-     */
     public boolean runOnce() {
         var claimed = jobService.claimNextJob();
         claimed.ifPresent(this::dispatch);
         return claimed.isPresent();
     }
 
-    /** Runs one claimed job and records the outcome. Never throws. */
     private void dispatch(PostureJob job) {
         Endpoint endpoint = job.getEndpoint();
 
@@ -102,6 +101,7 @@ public class JobWorker {
                 case POSTURE_CHECK -> runPostureAgent(job, endpoint);
                 case HARDWARE_CHECK -> runHardwareAgent(job, endpoint);
                 case DIAGNOSTIC_CHECK -> runDiagnosticAgent(job, endpoint);
+                case SECURITY_CHECK -> runSecurityAgent(job, endpoint);
             };
             handleResult(job, endpoint, result);
         } catch (InterruptedException e) {
@@ -133,19 +133,17 @@ public class JobWorker {
         jobService.markComplete(job.getId());
     }
 
-    /** Writes permanent failure evidence, then fails the job (retry or FAILED). */
     private void fail(PostureJob job, Endpoint endpoint, String reason) {
         switch (job.getJobType()) {
             case POSTURE_CHECK -> assessmentService.recordFailure(endpoint.getId(), job.getId(), reason);
             case HARDWARE_CHECK -> hardwareHealthService.recordFailure(endpoint.getId(), job.getId(), reason);
             case DIAGNOSTIC_CHECK -> diagnosticService.recordFailure(endpoint.getId(), job.getId(), reason);
+            case SECURITY_CHECK -> securityIndicatorService.recordFailure(endpoint.getId(), job.getId(), reason);
         }
         jobService.markFailed(job.getId(), reason);
     }
 
     private RunResult runPostureAgent(PostureJob job, Endpoint endpoint) throws IOException, InterruptedException {
-        // Read the policy first: if there is none, the job fails clearly instead of
-        // running the agent against stale defaults.
         PolicyService.PolicySnapshot policy = policyService.getActive();
 
         List<String> command = new ArrayList<>(List.of(
@@ -159,10 +157,6 @@ public class JobWorker {
                 "-PolicyVersion", String.valueOf(policy.version())
         ));
 
-        // With `powershell -File`, comma-separated values arrive as ONE string, not an
-        // array, so the lists are sent as a single delimited string and split inside
-        // the script. An empty list is omitted (an empty argument can be dropped on
-        // Windows); -PolicyVersion tells the agent the lists are authoritative.
         if (!policy.requiredApps().isEmpty()) {
             command.add("-RequiredAppsList");
             command.add(String.join(POLICY_LIST_DELIMITER, policy.requiredApps()));
@@ -189,8 +183,6 @@ public class JobWorker {
     }
 
     private RunResult runDiagnosticAgent(PostureJob job, Endpoint endpoint) throws IOException, InterruptedException {
-        // -Mac is always passed so the agent can attach a "WinRM unavailable" report
-        // to the right device even when it never manages to connect to it.
         List<String> command = List.of(
                 "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                 "-File", resolveScript(diagnosticProps.getScriptPath()),
@@ -207,7 +199,24 @@ public class JobWorker {
         return runProcess(command, diagnosticProps.getProcessTimeoutSeconds(), agentEnv());
     }
 
-    /** The shared agent key goes in the process environment, never on the command line. */
+    private RunResult runSecurityAgent(PostureJob job, Endpoint endpoint)
+            throws IOException, InterruptedException {
+        List<String> command = List.of(
+                "powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", resolveScript(securityProps.getScriptPath()),
+                "-ComputerName", targetFor(endpoint),
+                "-Mac", endpoint.getMacAddress(),
+                "-JobId", job.getId().toString(),
+                "-PostureAppBase", securityProps.getServerBaseUrl(),
+                "-WinRmOpenTimeoutSec", String.valueOf(securityProps.getWinrmOpenTimeoutSeconds()),
+                "-WinRmOperationTimeoutSec", String.valueOf(securityProps.getWinrmOperationTimeoutSeconds()),
+                "-SubmitTimeoutSec", String.valueOf(securityProps.getSubmitTimeoutSeconds()),
+                "-SampleCount", String.valueOf(securityProps.getSampleCount()),
+                "-SampleIntervalSec", String.valueOf(securityProps.getSampleIntervalSeconds())
+        );
+        return runProcess(command, securityProps.getProcessTimeoutSeconds(), agentEnv());
+    }
+
     private Map<String, String> agentEnv() {
         return isBlank(postureProps.getApiKey())
                 ? Map.of()
@@ -216,8 +225,7 @@ public class JobWorker {
 
     private String resolveScript(String configured) throws IOException {
         if (isBlank(configured)) {
-            throw new IOException("Agent script path is not configured "
-                    + "(app.posture.script-path / app.hardware.script-path / app.diagnostics.script-path)");
+            throw new IOException("Agent script path is not configured");
         }
         Path path = Path.of(configured).toAbsolutePath().normalize();
         if (!Files.isRegularFile(path)) {
@@ -229,13 +237,11 @@ public class JobWorker {
     private String targetFor(Endpoint endpoint) {
         if (!isBlank(endpoint.getIpAddress())) return endpoint.getIpAddress();
         if (!isBlank(endpoint.getHostname())) return endpoint.getHostname();
-        throw new IllegalStateException("Endpoint " + endpoint.getMacAddress() + " has neither an IP address nor a hostname");
+        throw new IllegalStateException(
+                "Endpoint " + endpoint.getMacAddress()
+                        + " has neither an IP address nor a hostname");
     }
 
-    /**
-     * Runs a command with an outer timeout and captures stdout+stderr. The process
-     * is killed on timeout, and also if this thread is interrupted (shutdown).
-     */
     private RunResult runProcess(List<String> command, int timeoutSeconds, Map<String, String> extraEnv)
             throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(command).redirectErrorStream(true);
@@ -244,13 +250,13 @@ public class JobWorker {
 
         StringBuffer output = new StringBuffer();
         Thread drain = new Thread(() -> {
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            try (BufferedReader reader =
+                         new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     output.append(line).append('\n');
                 }
             } catch (IOException ignored) {
-                // stream closed because the process ended or was killed
             }
         });
         drain.setDaemon(true);
@@ -260,16 +266,23 @@ public class JobWorker {
         try {
             finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
-            process.destroyForcibly(); // do not leave an orphan powershell.exe on shutdown
+            process.destroyForcibly();
             throw e;
         }
+
         if (!finished) {
             process.destroyForcibly();
         }
+
         drain.join(2000);
 
         String text = output.toString();
-        return new RunResult(finished ? process.exitValue() : -1, !finished, text, extractResultJson(text));
+        return new RunResult(
+                finished ? process.exitValue() : -1,
+                !finished,
+                text,
+                extractResultJson(text)
+        );
     }
 
     JsonNode extractResultJson(String output) {
@@ -278,7 +291,8 @@ public class JobWorker {
             String trimmed = line.strip();
             if (trimmed.startsWith(RESULT_PREFIX)) {
                 try {
-                    found = objectMapper.readTree(trimmed.substring(RESULT_PREFIX.length()));
+                    found = objectMapper.readTree(
+                            trimmed.substring(RESULT_PREFIX.length()));
                 } catch (Exception e) {
                     log.warn("Could not parse RESULT_JSON line: {}", trimmed, e);
                     found = null;
@@ -297,5 +311,9 @@ public class JobWorker {
         return s == null || s.isBlank();
     }
 
-    private record RunResult(int exitCode, boolean timedOut, String rawOutput, JsonNode resultJson) {}
+    private record RunResult(
+            int exitCode,
+            boolean timedOut,
+            String rawOutput,
+            JsonNode resultJson) {}
 }
