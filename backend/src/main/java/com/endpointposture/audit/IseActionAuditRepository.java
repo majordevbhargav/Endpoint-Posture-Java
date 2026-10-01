@@ -13,4 +13,15 @@ public interface IseActionAuditRepository extends JpaRepository<IseActionAudit, 
 
     /** @return the full ISE action history across every endpoint, newest first */
     List<IseActionAudit> findAllByOrderByOccurredAtDesc();
+
+    /**
+     * Finds the latest RESTRICT or CLEAR_RESTRICTION audit row per endpoint.
+     */
+    @org.springframework.data.jpa.repository.Query(value = """
+            SELECT DISTINCT ON (endpoint_id) *
+            FROM ise_action_audit
+            WHERE action_type IN ('RESTRICT', 'CLEAR_RESTRICTION')
+            ORDER BY endpoint_id, occurred_at DESC
+            """, nativeQuery = true)
+    List<IseActionAudit> findLatestEnforcementActionsPerEndpoint();
 }

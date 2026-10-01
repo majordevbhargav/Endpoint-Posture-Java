@@ -48,6 +48,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { href: "/jobs", label: "Assessment Queue", icon: ListChecks },
       { href: "/policies", label: "Application Policy", icon: SlidersHorizontal },
       { href: "/audit", label: "ISE Action Audit", icon: History },
+      { href: "/ise-actions", label: "ISE Actions State", icon: ShieldCheck },
       { href: "/system", label: "System Health", icon: Activity },
       { href: "/users", label: "Users & Roles", icon: Users, requires: "manageUsers" },
     ],

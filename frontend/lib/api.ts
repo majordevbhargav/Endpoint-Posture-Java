@@ -87,6 +87,15 @@ export interface IseActionAudit {
   occurredAt: string;
 }
 
+export interface IseActionState {
+  endpointId: string;
+  actionType: "RESTRICT" | "CLEAR_RESTRICTION" | "SHARE_POSTURE";
+  succeeded: boolean;
+  operator: string | null;
+  detail: string | null;
+  occurredAt: string;
+}
+
 export interface IseStatus {
   reachable: boolean;
   lastSuccessAt: string | null;
@@ -303,6 +312,7 @@ export const api = {
 
   auditActions: (endpointId?: string) =>
     request<IseActionAudit[]>(`/api/v1/audit/ise-actions${endpointId ? `?endpointId=${endpointId}` : ""}`),
+  iseActionsState: () => request<IseActionState[]>("/api/v1/ise/actions/state"),
 
   iseStatus: () => request<IseStatus>("/api/v1/ise/status"),
   systemHealth: () => request<SystemHealth>("/api/v1/system/health"),

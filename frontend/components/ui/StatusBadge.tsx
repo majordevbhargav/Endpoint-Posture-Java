@@ -13,6 +13,12 @@ const TONE_MAP: Record<string, { bg: string; text: string; dot: string; border: 
   RUNNING: { bg: "bg-accent/15", text: "text-accent", dot: "bg-accent", border: "border-accent/30" },
   COMPLETE: { bg: "bg-good/10", text: "text-good", dot: "bg-good", border: "border-good/25" },
   BLOCKED: { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" },
+  RESTRICTED: { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" },
+  "Restricted": { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" },
+  CLEAR_REQUESTED: { bg: "bg-warn/10", text: "text-warn", dot: "bg-warn", border: "border-warn/25" },
+  "Clear requested": { bg: "bg-warn/10", text: "text-warn", dot: "bg-warn", border: "border-warn/25" },
+  LAST_ATTEMPT_FAILED: { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" },
+  "Last attempt failed": { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" },
 };
 
 const LABEL_MAP: Record<string, string> = {
@@ -28,6 +34,9 @@ const LABEL_MAP: Record<string, string> = {
   COMPLETE: "Completed",
   FAILED: "Failed",
   BLOCKED: "Blocked",
+  RESTRICTED: "Restricted",
+  CLEAR_REQUESTED: "Clear requested",
+  LAST_ATTEMPT_FAILED: "Last attempt failed",
 };
 
 export function StatusBadge({
