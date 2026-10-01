@@ -40,6 +40,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/applications", label: "Installed Software", icon: Boxes },
       { href: "/ports", label: "Listening Ports", icon: Network },
+      { href: "/warranty", label: "Warranty", icon: ShieldCheck },
     ],
   },
   {
@@ -48,6 +49,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { href: "/jobs", label: "Assessment Queue", icon: ListChecks },
       { href: "/policies", label: "Application Policy", icon: SlidersHorizontal },
       { href: "/audit", label: "ISE Action Audit", icon: History },
+      { href: "/ise-actions", label: "ISE Actions State", icon: ShieldCheck },
       { href: "/system", label: "System Health", icon: Activity },
       { href: "/users", label: "Users & Roles", icon: Users, requires: "manageUsers" },
     ],
@@ -122,7 +124,6 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-screen w-64 flex-shrink-0 flex-col border-r border-border bg-panel2">
-      {/* Platform Header — click to go home */}
       <Link
         href="/overview"
         className="flex items-center gap-3 border-b border-border px-5 py-5 transition hover:bg-ink/[0.03]"
@@ -134,15 +135,12 @@ export function Sidebar() {
         <div className="min-w-0 flex-1 leading-tight">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-sm font-bold text-ink">PostureEngine</span>
-            <span className="rounded bg-accent/15 px-1 py-0.2 text-[9px] font-semibold text-accent">
-              ISE
-            </span>
+            <span className="rounded bg-accent/15 px-1 py-0.5 text-[9px] font-semibold text-accent">ISE</span>
           </div>
           <div className="truncate text-[11px] text-muted">Endpoint Zero-Trust</div>
         </div>
       </Link>
 
-      {/* Navigation Sections */}
       <nav className="flex-1 space-y-6 overflow-y-auto px-4 py-5">
         {NAV_SECTIONS.map((sec) => (
           <div key={sec.title}>
@@ -162,17 +160,14 @@ export function Sidebar() {
                       href={item.href}
                       className={`group relative flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-xs font-medium transition ${
                         active
-                          ? "bg-accent/15 text-accent shadow-xs"
+                          ? "bg-accent/15 text-accent shadow-sm"
                           : "text-muted hover:bg-ink/[0.04] hover:text-ink"
                       }`}
                     >
                       {active && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-accent" />
+                        <span className="absolute bottom-1.5 left-0 top-1.5 w-1 rounded-r-full bg-accent" />
                       )}
-                      <Icon
-                        size={16}
-                        className={active ? "text-accent" : "text-muted group-hover:text-ink"}
-                      />
+                      <Icon size={16} className={active ? "text-accent" : "text-muted group-hover:text-ink"} />
                       <span className="truncate">{item.label}</span>
                     </Link>
                   );
@@ -182,7 +177,6 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* System Live Heartbeat */}
       <div className="border-t border-border bg-panel/30">
         <SystemStatus />
       </div>

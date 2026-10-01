@@ -87,6 +87,15 @@ export interface IseActionAudit {
   occurredAt: string;
 }
 
+export interface IseActionState {
+  endpointId: string;
+  actionType: "RESTRICT" | "CLEAR_RESTRICTION" | "SHARE_POSTURE";
+  succeeded: boolean;
+  operator: string | null;
+  detail: string | null;
+  occurredAt: string;
+}
+
 export interface IseStatus {
   reachable: boolean;
   lastSuccessAt: string | null;
@@ -190,6 +199,25 @@ export interface UserView {
   locked: boolean;
 }
 
+
+// ── Warranty types ─────────────────────────────────────────────────────────────
+export interface WarrantyView {
+  id: string;
+  serialNumber: string;
+  vendor: string;
+  expiresOn: string; // ISO date yyyy-MM-dd
+  productName: string | null;
+  daysRemaining: number;
+  status: "COVERED" | "EXPIRING_SOON" | "EXPIRED";
+  source: string;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
+export interface WarrantyUploadResult {
+  savedCount: number;
+  rowErrors: string[];
+}
 const TOKEN_KEY = "vece_token";
 
 export function getToken(): string | null {
@@ -303,6 +331,7 @@ export const api = {
 
   auditActions: (endpointId?: string) =>
     request<IseActionAudit[]>(`/api/v1/audit/ise-actions${endpointId ? `?endpointId=${endpointId}` : ""}`),
+  iseActionsState: () => request<IseActionState[]>("/api/v1/ise/actions/state"),
 
   iseStatus: () => request<IseStatus>("/api/v1/ise/status"),
   systemHealth: () => request<SystemHealth>("/api/v1/system/health"),
@@ -341,4 +370,25 @@ export const api = {
       if (r.status === 403) throw new Error("Your role does not allow this action");
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message ?? `Request failed: ${r.status}`);
     }),
+
+  // ── Warranty ────────────────────────────────────────────────────────────────
+  listWarranty: () => request<WarrantyView[]>("/api/v1/warranty"),
+
+  uploadWarrantyCsv: (file: File): Promise<WarrantyUploadResult> => {
+    const token = getToken();
+    const form = new FormData();
+    form.append("file", file);
+    return fetch("/api/v1/warranty/upload", {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    }).then(async (r) => {
+      if (r.status === 403) throw new Error("Your role does not allow this action");
+      if (!r.ok) {
+        const body = await r.json().catch(() => null);
+        throw new Error(body?.message ?? `Upload failed: ${r.status}`);
+      }
+      return r.json() as Promise<WarrantyUploadResult>;
+    });
+  },
 };

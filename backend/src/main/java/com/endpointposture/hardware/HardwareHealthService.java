@@ -1,6 +1,7 @@
 package com.endpointposture.hardware;
 
 import com.endpointposture.hardware.dto.HardwareHealthResponse;
+import com.endpointposture.warranty.WarrantyService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,35 +12,31 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Reads and writes {@link HardwareHealthReport} +
- * {@link HardwareRecommendation}.
- * The single persistence path - called by {@link HardwareIngestService} once
- * scoring succeeds, or by {@link com.endpointposture.job.JobWorker} via
- * {@link #recordFailure} when a hardware job fails before a report could be
- * produced.
+ * Reads and writes {@link HardwareHealthReport} + {@link HardwareRecommendation}.
+ * Every run, failed or not, is stored (evidence first). The "latest" reads prefer
+ * the newest successful run and attach a newer failure as a notice.
  *
- * <p>
- * Every run, failed or not, is stored (evidence first). Only the "latest"
- * reads are smart: they prefer the newest successful run and attach the
- * newer failure, if any, as a notice.
- * </p>
+ * <p>Warranty is recomputed from the warranty table at read time, because days
+ * remaining changes every day; the stored value is only a fallback.</p>
  */
 @Service
 public class HardwareHealthService {
 
-    // Illustrative bands, per project plan Section 15 question 10 -
-    // not yet confirmed against real fleet data. Change here only.
+    // Illustrative bands - not yet confirmed against real fleet data. Change here only.
     private static final int HEALTHY_THRESHOLD = 85;
     private static final int WARNING_THRESHOLD = 70;
     private static final int DEGRADED_THRESHOLD = 50;
 
     private final HardwareHealthRepository healthRepository;
     private final HardwareRecommendationRepository recommendationRepository;
+    private final WarrantyService warrantyService;
 
     public HardwareHealthService(HardwareHealthRepository healthRepository,
-            HardwareRecommendationRepository recommendationRepository) {
+            HardwareRecommendationRepository recommendationRepository,
+            WarrantyService warrantyService) {
         this.healthRepository = healthRepository;
         this.recommendationRepository = recommendationRepository;
+        this.warrantyService = warrantyService;
     }
 
     public record RecommendationInput(String priority, String area, String action) {
@@ -53,8 +50,7 @@ public class HardwareHealthService {
             Integer hardwareEventCount, String warrantyStatus, Integer warrantyDaysRemaining,
             Map<String, Object> rawReport, Instant collectedAt,
             List<RecommendationInput> recommendations) {
-        // Overall = simple average of the components that actually apply.
-        // Battery is only folded in when present.
+        // Overall = simple average of the components that apply.
         int componentSum = cpuScore + memoryScore + storageScore;
         int componentCount = 3;
         if (batteryScore != null) {
@@ -104,11 +100,7 @@ public class HardwareHealthService {
         return toResponse(report);
     }
 
-    /**
-     * Records that a hardware-health check was attempted but never produced
-     * a scoreable report. Writes a row with {@code succeeded = false} and
-     * every score field {@code null} - never zero.
-     */
+    /** Records a check that never produced a scoreable report: succeeded=false, scores null (never zero). */
     @Transactional
     public HardwareHealthResponse recordFailure(UUID endpointId, UUID jobId, String reason) {
         String detail = reason == null ? "Unknown failure" : reason;
@@ -126,19 +118,12 @@ public class HardwareHealthService {
         return toResponse(report);
     }
 
-    /** Raw history, newest first, failures included. */
     @Transactional(readOnly = true)
     public List<HardwareHealthResponse> getHistoryForEndpoint(UUID endpointId) {
         return healthRepository.findByEndpointIdOrderByCollectedAtDesc(endpointId)
                 .stream().map(this::toResponse).toList();
     }
 
-    /**
-     * Newest successful run for the endpoint. If a newer attempt failed, the
-     * failure is attached as {@code lastAttemptFailedAt}/{@code lastAttemptError}.
-     * If the endpoint has never had a successful run, the newest (failed) row
-     * is returned as-is.
-     */
     @Transactional(readOnly = true)
     public HardwareHealthResponse getLatestForEndpoint(UUID endpointId) {
         HardwareHealthReport newest = healthRepository.findFirstByEndpointIdOrderByCollectedAtDesc(endpointId)
@@ -153,10 +138,6 @@ public class HardwareHealthService {
                 .orElseGet(() -> toResponse(newest));
     }
 
-    /**
-     * @return one row per endpoint that has any report, preferring the last
-     *         successful run (see above)
-     */
     @Transactional(readOnly = true)
     public List<HardwareHealthResponse> getLatestForAllEndpoints() {
         Map<UUID, HardwareHealthReport> lastGood = new HashMap<>();
@@ -208,12 +189,21 @@ public class HardwareHealthService {
                         rec.getPriority().name(), rec.getArea(), rec.getAction()))
                 .toList();
 
+        // Live warranty state beats the value stored at ingest time.
+        String warrantyStatus = r.getWarrantyStatus();
+        Integer warrantyDays = r.getWarrantyDaysRemaining();
+        WarrantyService.Info w = warrantyService.describe(r.getSerialNumber());
+        if (w != null) {
+            warrantyStatus = w.status();
+            warrantyDays = w.daysRemaining();
+        }
+
         return new HardwareHealthResponse(
                 r.getId(), r.getEndpointId(), r.getJobId(),
                 r.getManufacturer(), r.getModel(), r.getSerialNumber(), r.getBiosVersion(),
                 r.getCpuScore(), r.getMemoryScore(), r.getStorageScore(), r.getBatteryScore(),
                 r.getOverallScore(), r.getOverallBand(),
-                r.getHardwareEventCount(), r.getWarrantyStatus(), r.getWarrantyDaysRemaining(),
+                r.getHardwareEventCount(), warrantyStatus, warrantyDays,
                 r.getCollectedAt(), r.isSucceeded(), r.getErrorMessage(),
                 lastAttemptFailedAt, lastAttemptError, recs);
     }

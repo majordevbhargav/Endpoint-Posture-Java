@@ -1,18 +1,32 @@
 "use client";
 
+const GOOD = { bg: "bg-good/10", text: "text-good", dot: "bg-good", border: "border-good/25" };
+const WARN = { bg: "bg-warn/10", text: "text-warn", dot: "bg-warn", border: "border-warn/25" };
+const BAD = { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" };
+
 const TONE_MAP: Record<string, { bg: string; text: string; dot: string; border: string }> = {
-  COMPLIANT: { bg: "bg-good/10", text: "text-good", dot: "bg-good", border: "border-good/25" },
-  HEALTHY: { bg: "bg-good/10", text: "text-good", dot: "bg-good", border: "border-good/25" },
-  NON_COMPLIANT: { bg: "bg-warn/10", text: "text-warn", dot: "bg-warn", border: "border-warn/25" },
-  WARNING: { bg: "bg-warn/10", text: "text-warn", dot: "bg-warn", border: "border-warn/25" },
-  DEGRADED: { bg: "bg-warn/10", text: "text-warn", dot: "bg-warn", border: "border-warn/25" },
-  ERROR: { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" },
-  CRITICAL: { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" },
-  FAILED: { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" },
+  COMPLIANT: GOOD,
+  HEALTHY: GOOD,
+  COVERED: GOOD,
+  COMPLETE: GOOD,
+  NON_COMPLIANT: WARN,
+  WARNING: WARN,
+  DEGRADED: WARN,
+  EXPIRING_SOON: WARN,
+  CLEAR_REQUESTED: WARN,
+  "Clear requested": WARN,
+  ERROR: BAD,
+  CRITICAL: BAD,
+  FAILED: BAD,
+  EXPIRED: BAD,
+  BLOCKED: BAD,
+  RESTRICTED: BAD,
+  Restricted: BAD,
+  LAST_ATTEMPT_FAILED: BAD,
+  "Last attempt failed": BAD,
+  "Clear failed": BAD,
   QUEUED: { bg: "bg-muted/10", text: "text-muted", dot: "bg-muted", border: "border-muted/25" },
   RUNNING: { bg: "bg-accent/15", text: "text-accent", dot: "bg-accent", border: "border-accent/30" },
-  COMPLETE: { bg: "bg-good/10", text: "text-good", dot: "bg-good", border: "border-good/25" },
-  BLOCKED: { bg: "bg-bad/10", text: "text-bad", dot: "bg-bad", border: "border-bad/25" },
 };
 
 const LABEL_MAP: Record<string, string> = {
@@ -28,6 +42,12 @@ const LABEL_MAP: Record<string, string> = {
   COMPLETE: "Completed",
   FAILED: "Failed",
   BLOCKED: "Blocked",
+  RESTRICTED: "Restricted",
+  CLEAR_REQUESTED: "Clear requested",
+  LAST_ATTEMPT_FAILED: "Last attempt failed",
+  COVERED: "Covered",
+  EXPIRING_SOON: "Expiring soon",
+  EXPIRED: "Expired",
 };
 
 export function StatusBadge({

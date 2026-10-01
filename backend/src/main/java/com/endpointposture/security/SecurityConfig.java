@@ -15,17 +15,15 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * Central Spring Security setup: which routes are public, which need a
- * token, how requests are authenticated, and the first-run admin account.
- *
- * <p>The API is stateless — no sessions, no cookies. Every protected request
- * must carry either a JWT ({@link JwtAuthFilter}) or, for the two agent
- * ingestion routes only, the shared agent API key
- * ({@link PostureApiKeyFilter}).</p>
+ * Central Spring Security setup. The API is stateless: every protected request
+ * carries a JWT ({@link JwtAuthFilter}) or, for the two agent ingestion routes
+ * only, the shared agent API key ({@link PostureApiKeyFilter}). Finer rules use
+ * {@code @PreAuthorize} on controllers; admin-only routes are also listed here
+ * (defence in depth).
  */
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity // <-- add (import ...method.configuration.EnableMethodSecurity)
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
@@ -36,21 +34,11 @@ public class SecurityConfig {
         this.postureApiKeyFilter = postureApiKeyFilter;
     }
 
-    /** BCrypt encoder used to hash and verify user passwords. */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    /**
-     * Builds the request-security rules.
-     *
-     * <p>Public: login, health, Swagger UI. Posture and hardware-health
-     * ingestion ({@code POST /api/v1/posture}, {@code POST /api/v1/hardware-health})
-     * accept an admin JWT or the agent key. Changing the application policy
-     * ({@code PUT /api/v1/policy/**}) is ADMIN only. Everything else requires an
-     * authenticated user.</p>
-     */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -64,20 +52,17 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs",
-                                "/v3/api-docs/**"
-                                )
+                                "/v3/api-docs/**")
                         .permitAll()
-                        // Both agent ingestion routes are open to the agent key
-                        // (ROLE_AGENT) and to admins (handy for testing from
-                        // Swagger). The agent role is granted only for these
-                        // two exact routes, so the key cannot read or change
-                        // anything else.
+                        // Prometheus scrape endpoint: authenticated ADMIN only.
+                        .requestMatchers("/actuator/prometheus").hasRole("ADMIN")
+                        // Agent key (ROLE_AGENT) or admin, for these two exact routes only.
                         .requestMatchers(HttpMethod.POST, "/api/v1/posture", "/api/v1/hardware-health")
                         .hasAnyRole("AGENT", "ADMIN")
                         // Changing what counts as compliant is an admin decision.
-                        // Enforced here on the server; hiding the UI is convenience only.
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/policy/**")
-                        .hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/policy/**").hasRole("ADMIN")
+                        // Warranty data feeds hardware health, so uploads are admin only.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/warranty/upload").hasRole("ADMIN")
                         .requestMatchers("/api/v1/users/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
@@ -86,17 +71,7 @@ public class SecurityConfig {
         return http.build();
     }
 
-    /**
-     * Seeds one admin user on startup if the app_user table is empty.
-     * This is the whole of "RBAC" for Stage 1, deliberately: enough that
-     * every route (except /auth and health) requires a real bearer token,
-     * without building out multi-role management before there's more than
-     * one role actually enforced differently anywhere in the app.
-     *
-     * @param seedUsername initial admin login ({@code app.seed-admin.username})
-     * @param seedPassword initial admin password ({@code app.seed-admin.password});
-     *                     change it before this leaves your laptop
-     */
+    /** Seeds one admin when {@code app_user} is empty (first run only). */
     @Bean
     public CommandLineRunner seedAdmin(
             UserRepository userRepository,

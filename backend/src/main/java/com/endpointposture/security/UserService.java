@@ -55,6 +55,13 @@ public class UserService {
                 throw new IllegalStateException("At least one enabled ADMIN must remain");
             }
         }
+
+        // Re-enabling is a fresh start: drop any old counter or lock.
+        if (enabled && !u.isEnabled()) {
+            u.setFailedAttempts(0);
+            u.setLockedUntil(null);
+        }
+
         u.setRole(role);
         u.setEnabled(enabled);
         log.info("User '{}' set to role={} enabled={} by {}", u.getUsername(), role, enabled, actor);
@@ -65,6 +72,10 @@ public class UserService {
     public void resetPassword(UUID id, String password, String actor) {
         User u = users.findById(id).orElseThrow(() -> new IllegalArgumentException("No such user"));
         u.setPasswordHash(encoder.encode(password));
+        // An admin reset also unlocks the account. Done on the entity (not via the
+        // bulk clearLoginState query) so the save below cannot write stale values back.
+        u.setFailedAttempts(0);
+        u.setLockedUntil(null);
         users.save(u);
         log.info("Password reset for '{}' by {}", u.getUsername(), actor);
     }

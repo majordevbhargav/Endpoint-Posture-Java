@@ -31,6 +31,7 @@ import {
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { TrendChart, ChartSeries } from "@/components/dashboard/TrendChart";
 import { can, DENIED_HINT } from "@/lib/permissions";
 
 type ActionResult = { success: boolean; detail: string };
@@ -60,6 +61,7 @@ export default function EndpointDetailPage() {
   const [posture, setPosture] = useState<AssessmentResponse | null>(null);
   const [postureHistory, setPostureHistory] = useState<AssessmentResponse[]>([]);
   const [hardware, setHardware] = useState<HardwareHealthResponse | null>(null);
+  const [hardwareHistory, setHardwareHistory] = useState<HardwareHealthResponse[]>([]);
   const [jobs, setJobs] = useState<JobResponse[]>([]);
   const [audits, setAudits] = useState<IseActionAudit[]>([]);
 
@@ -81,10 +83,11 @@ export default function EndpointDetailPage() {
       const ep = await api.getEndpoint(id);
       setEndpoint(ep);
 
-      const [postureRes, histRes, hwRes, jobsRes, auditRes, sessionsRes] = await Promise.allSettled([
+      const [postureRes, histRes, hwRes, hwHistRes, jobsRes, auditRes, sessionsRes] = await Promise.allSettled([
         api.latestPostureOrNull(id),
         api.postureHistory(id),
         api.latestHardwareOrNull(id),
+        api.hardwareHistory(id),
         api.listJobsForEndpoint(id),
         api.auditActions(id),
         api.sessionHistory(id),
@@ -93,6 +96,7 @@ export default function EndpointDetailPage() {
       if (postureRes.status === "fulfilled") setPosture(postureRes.value);
       if (histRes.status === "fulfilled") setPostureHistory(histRes.value);
       if (hwRes.status === "fulfilled") setHardware(hwRes.value);
+      if (hwHistRes.status === "fulfilled") setHardwareHistory(hwHistRes.value);
       if (jobsRes.status === "fulfilled") setJobs(jobsRes.value);
       if (auditRes.status === "fulfilled") setAudits(auditRes.value);
       if (sessionsRes.status === "fulfilled") setSessions(sessionsRes.value);
@@ -552,11 +556,76 @@ export default function EndpointDetailPage() {
                 </div>
               </div>
 
+              {/* Hardware Health Trend Chart (V4) */}
+              {(() => {
+                const validHardwareRuns = hardwareHistory
+                  .filter((r) => r.succeeded && r.overallScore != null)
+                  .sort((a, b) => new Date(a.collectedAt).getTime() - new Date(b.collectedAt).getTime());
+
+                const hardwareLabels = validHardwareRuns.map((r) =>
+                  new Date(r.collectedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                );
+
+                const hasBattery = validHardwareRuns.some((r) => r.batteryScore != null);
+
+                const hardwareSeries: ChartSeries[] = [
+                  {
+                    name: "Overall",
+                    color: "rgb(var(--color-accent))",
+                    values: validHardwareRuns.map((r) => r.overallScore),
+                  },
+                  {
+                    name: "CPU",
+                    color: "#10b981",
+                    values: validHardwareRuns.map((r) => r.cpuScore),
+                  },
+                  {
+                    name: "Memory",
+                    color: "#8b5cf6",
+                    values: validHardwareRuns.map((r) => r.memoryScore),
+                  },
+                  {
+                    name: "Storage",
+                    color: "#f59e0b",
+                    values: validHardwareRuns.map((r) => r.storageScore),
+                  },
+                ];
+
+                if (hasBattery) {
+                  hardwareSeries.push({
+                    name: "Battery",
+                    color: "#06b6d4",
+                    values: validHardwareRuns.map((r) => r.batteryScore),
+                  });
+                }
+
+                return (
+                  <div className="panel p-5">
+                    <div className="mb-4 flex items-center justify-between">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-muted">
+                        Hardware Health Trend
+                      </div>
+                      {validHardwareRuns.length >= 2 && (
+                        <span className="text-xs text-muted">
+                          {validHardwareRuns.length} recorded run{validHardwareRuns.length === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </div>
+                    <TrendChart
+                      labels={hardwareLabels}
+                      series={hardwareSeries}
+                      height={160}
+                      emptyMessage="Fewer than 2 successful hardware checks recorded. At least 2 points are required to render trend charts."
+                    />
+                  </div>
+                );
+              })()}
+
               <div className="panel p-5">
                 <div className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted">
                   System Specifications
                 </div>
-                <div className="grid grid-cols-2 gap-4 font-mono text-xs sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-4 font-mono text-xs sm:grid-cols-5">
                   <div className="rounded-lg bg-base p-3">
                     <div className="font-sans text-muted">Manufacturer</div>
                     <div className="mt-1 font-semibold text-ink">{hardware.manufacturer || "—"}</div>
@@ -572,6 +641,15 @@ export default function EndpointDetailPage() {
                   <div className="rounded-lg bg-base p-3">
                     <div className="font-sans text-muted">BIOS Version</div>
                     <div className="mt-1 font-semibold text-ink">{hardware.biosVersion || "—"}</div>
+                  </div>
+                  <div className="rounded-lg bg-base p-3">
+                    <div className="font-sans text-muted">Warranty</div>
+                    <div className="mt-1 font-semibold text-ink">
+                      {hardware.warrantyStatus ?? "UNKNOWN"}
+                      {hardware.warrantyDaysRemaining != null && (
+                        <span className="ml-1 font-normal text-muted">({hardware.warrantyDaysRemaining} d)</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -167,6 +167,15 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- Micrometer Prometheus registry — exposes /actuator/prometheus for
+             scraping by Prometheus or any compatible collector (Grafana Agent,
+             VictoriaMetrics, etc.). The registry is auto-configured by Spring
+             Boot as soon as this artifact is on the classpath. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>

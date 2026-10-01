@@ -57,7 +57,7 @@ jobs:
 
 # ─── Frontend type-check ─────────────────────────────────────────────────────
   frontend:
-    name: Frontend — TypeScript type-check
+    name: Frontend — TypeScript type-check & build
     runs-on: ubuntu-24.04
 
     steps:
@@ -78,3 +78,8 @@ jobs:
       - name: TypeScript type-check
         working-directory: frontend
         run: npx tsc --noEmit --skipLibCheck
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+

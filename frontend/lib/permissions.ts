@@ -1,7 +1,13 @@
 import { getCurrentUser } from "@/lib/auth";
 
 export type Role = "ADMIN" | "OPERATOR" | "ANALYST" | "VIEWER";
-export type Action = "enqueue" | "sharePosture" | "restrict" | "editPolicy" | "manageUsers";
+export type Action =
+  | "enqueue"
+  | "sharePosture"
+  | "restrict"
+  | "editPolicy"
+  | "manageUsers"
+  | "uploadWarranty";
 
 // UI convenience only. The backend @PreAuthorize rules are the real control.
 const ALLOWED: Record<Action, Role[]> = {
@@ -10,6 +16,7 @@ const ALLOWED: Record<Action, Role[]> = {
   restrict: ["ADMIN", "OPERATOR"],
   editPolicy: ["ADMIN"],
   manageUsers: ["ADMIN"],
+  uploadWarranty: ["ADMIN"],
 };
 
 export function can(action: Action): boolean {

@@ -1,5 +1,6 @@
 package com.endpointposture.hardware;
 
+import com.endpointposture.warranty.WarrantyService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -8,12 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/**
- * Table-driven test for HardwareHealthService.bandFor's thresholds
- * (85/70/50, currently illustrative per the class Javadoc). This test
- * documents current behavior so a future threshold change is a
- * deliberate, visible diff here, not a silent drift.
- */
+/** Documents current band thresholds (85/70/50, illustrative) so a change is a visible diff. */
 @ExtendWith(MockitoExtension.class)
 class HardwareHealthServiceBandForTest {
 
@@ -21,12 +17,14 @@ class HardwareHealthServiceBandForTest {
     HardwareHealthRepository healthRepository;
     @Mock
     HardwareRecommendationRepository recommendationRepository;
+    @Mock
+    WarrantyService warrantyService;
 
     private HardwareHealthService service;
 
     @BeforeEach
     void setUp() {
-        service = new HardwareHealthService(healthRepository, recommendationRepository);
+        service = new HardwareHealthService(healthRepository, recommendationRepository, warrantyService);
     }
 
     @Test

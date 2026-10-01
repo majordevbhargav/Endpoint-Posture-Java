@@ -26,5 +26,20 @@ services:
     depends_on:
       - postgres
 
+  # Optional: `docker compose up -d --build frontend`. The backend runs on the
+  # Windows host (it needs PowerShell, CIM/DCOM and DPAPI), so the frontend
+  # reaches it through host.docker.internal.
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: http://host.docker.internal:8090
+    container_name: ep-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   ep_pg_data:
