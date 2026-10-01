@@ -59,7 +59,7 @@ export interface HardwareHealthResponse {
   recommendations: { priority: string; area: string; action: string }[];
 }
 
-export type JobType = "POSTURE_CHECK" | "HARDWARE_CHECK" | "DIAGNOSTIC_CHECK";
+export type JobType = "POSTURE_CHECK" | "HARDWARE_CHECK" | "DIAGNOSTIC_CHECK" | "SECURITY_CHECK";
 export type JobStatus = "QUEUED" | "RUNNING" | "COMPLETE" | "FAILED";
 
 export interface JobResponse {
@@ -216,6 +216,7 @@ export interface WarrantyView {
 
 // ── Endpoint 360 diagnostics ──────────────────────────────────────────────────
 export type DiagnosticStatus = "OK" | "WINRM_UNAVAILABLE" | "FAILED";
+export type RiskLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 
 export interface DiagnosticDeduction {
   check: string;
@@ -233,6 +234,26 @@ export interface DiagnosticResponse {
   band: HardwareBand | null;
   deductions: DiagnosticDeduction[] | null;
   results: Record<string, unknown>;
+  errorMessage: string | null;
+  collectedAt: string;
+}
+
+export interface SecurityFinding {
+  type: string;
+  severity: Exclude<RiskLevel, "NONE">;
+  title: string;
+  detail: string;
+  evidence: Record<string, unknown>;
+}
+
+export interface SecurityIndicatorResponse {
+  id: string;
+  endpointId: string;
+  jobId: string | null;
+  status: "OK" | "WINRM_UNAVAILABLE" | "FAILED";
+  riskLevel: RiskLevel | null; // null when nothing was sampled
+  findings: SecurityFinding[] | null;
+  summary: Record<string, unknown> | null;
   errorMessage: string | null;
   collectedAt: string;
 }
@@ -326,6 +347,10 @@ export const api = {
     const history = await request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`);
     return history[0] ?? null; // history is newest first; empty list means never assessed
   },
+  latestSecurityOrNull: (id: string) =>
+    request<SecurityIndicatorResponse | null>(`/api/v1/endpoints/${id}/security-indicators/latest`),
+  securityHistory: (id: string) =>
+    request<SecurityIndicatorResponse[]>(`/api/v1/endpoints/${id}/security-indicators`),
 
   sessionHistory: (id: string) => request<SessionEvent[]>(`/api/v1/endpoints/${id}/sessions`),
 

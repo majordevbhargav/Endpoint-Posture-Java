@@ -16,6 +16,13 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Column, DataTable } from "@/components/ui/DataTable";
 import { usePolling } from "@/lib/usePolling";
 
+const JOB_LABELS: Record<string, string> = {
+  POSTURE_CHECK: "Posture Check",
+  HARDWARE_CHECK: "Hardware Health",
+  DIAGNOSTIC_CHECK: "Diagnostics",
+  SECURITY_CHECK: "Security Scan",
+};
+
 const time = (iso: string | null | undefined) =>
   iso
     ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
@@ -37,12 +44,7 @@ const columns: Column<JobResponse>[] = [
     key: "jobType",
     header: "Job Type",
     className: "font-semibold text-ink",
-    render: (j) =>
-      j.jobType === "POSTURE_CHECK"
-        ? "Posture Check"
-        : j.jobType === "HARDWARE_CHECK"
-          ? "Hardware Health"
-          : "Diagnostics",
+    render: (j) => JOB_LABELS[j.jobType] ?? j.jobType,
     csv: (j) => j.jobType,
   },
   {
@@ -303,6 +305,7 @@ export default function JobsPage() {
             <option value="POSTURE_CHECK">Posture Checks</option>
             <option value="HARDWARE_CHECK">Hardware Checks</option>
             <option value="DIAGNOSTIC_CHECK">Diagnostics</option>
+            <option value="SECURITY_CHECK">Security Scans</option>
           </select>
         </div>
       </div>
@@ -356,7 +359,7 @@ export default function JobsPage() {
 
               <div>
                 <label className="mb-1 block text-xs font-semibold text-ink">Job Type</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setSelectedJobType("POSTURE_CHECK")}
@@ -390,6 +393,17 @@ export default function JobsPage() {
                   >
                     <div className="font-bold">Diagnostics</div>
                     <div className="text-[10px] text-muted">Gateway, DNS, 443</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedJobType("SECURITY_CHECK")}
+                    className={`rounded-lg border p-3 text-left text-xs transition ${selectedJobType === "SECURITY_CHECK"
+                        ? "border-accent bg-accent/10 font-semibold text-accent"
+                        : "border-border bg-base text-muted hover:text-ink"
+                      }`}
+                  >
+                    <div className="font-bold">Security Scan</div>
+                    <div className="text-[10px] text-muted">Connections, fan-out</div>
                   </button>
                 </div>
               </div>
