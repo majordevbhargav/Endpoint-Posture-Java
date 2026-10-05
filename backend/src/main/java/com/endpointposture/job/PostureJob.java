@@ -10,11 +10,13 @@ import java.util.UUID;
 /**
  * One unit of queued work against one endpoint.
  *
- * <p>Maps to the {@code posture_job} table ({@code V3__create_posture_jobs.sql}),
+ * <p>
+ * Maps to the {@code posture_job} table ({@code V3__create_posture_jobs.sql}),
  * which replaces the Python project's flat-file queue. Workers claim rows
  * with {@code SELECT ... FOR UPDATE SKIP LOCKED} (see
  * {@link PostureJobRepository#findNextClaimable()}) so the same job is never
- * run twice.</p>
+ * run twice.
+ * </p>
  */
 @Entity
 @Table(name = "posture_job")
@@ -77,16 +79,32 @@ public class PostureJob {
     @Column(name = "completed_at")
     private Instant completedAt;
 
-    /** Earliest time a retry may be claimed; {@code null} means eligible immediately. */
+    /**
+     * Earliest time a retry may be claimed; {@code null} means eligible
+     * immediately.
+     */
     @Column(name = "next_attempt_at")
     private Instant nextAttemptAt;
+
+    /**
+     * Which runner group may claim this job. {@code default} until a remote runner
+     * exists.
+     */
+    @Column(nullable = false)
+    private String shard;
 
     /** Applies defaults just before the first insert. */
     @PrePersist
     void onCreate() {
-        if (createdAt == null) createdAt = Instant.now();
-        if (status == null) status = JobStatus.QUEUED;
-        if (jobType == null) jobType = JobType.POSTURE_CHECK;
-        if (maxAttempts == 0) maxAttempts = 3;
+        if (createdAt == null)
+            createdAt = Instant.now();
+        if (status == null)
+            status = JobStatus.QUEUED;
+        if (jobType == null)
+            jobType = JobType.POSTURE_CHECK;
+        if (maxAttempts == 0)
+            maxAttempts = 3;
+        if (shard == null)
+            shard = "default";
     }
 }

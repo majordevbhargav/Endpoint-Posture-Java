@@ -17,14 +17,16 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.mock;
 
-/** The RESULT_JSON line is the only contract between the agents and the worker. */
+/**
+ * The RESULT_JSON line is the only contract between the agents and the worker.
+ */
 class JobWorkerResultJsonTest {
 
     JobWorker worker;
 
     @BeforeEach
     void setUp() {
-        worker = new JobWorker(
+                worker = new JobWorker(
                 mock(JobService.class),
                 mock(AssessmentService.class),
                 mock(HardwareHealthService.class),
@@ -35,6 +37,7 @@ class JobWorkerResultJsonTest {
                 new DiagnosticAgentProperties(),
                 new SecurityIndicatorAgentProperties(),
                 mock(PolicyService.class),
+                mock(AgentRunner.class),
                 new ObjectMapper());
     }
 

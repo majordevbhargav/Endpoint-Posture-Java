@@ -51,16 +51,9 @@ app:
   jobs:
     poll-interval-ms: 3000
     worker-threads: 4
-    reconnect-min-gap-minutes: 60 # NEW: 0 disables the reconnect gap
+    reconnect-min-gap-minutes: 60   # 0 disables the reconnect gap
     workers:
       enabled: true
-      # ... rest of app.jobs unchanged ...
-    retention:
-    enabled: true
-    inventory-keep-runs: 10
-    inventory-cron: "0 30 3 * * *"
-    job-days: 30 # NEW: finished jobs older than this are deleted
-    jobs-cron: "0 45 3 * * *" # NEW
     stale-sweep-interval-ms: 60000
     stale-margin-seconds: 60
     recheck:
@@ -95,7 +88,6 @@ app:
     submit-timeout-seconds: 20
     process-timeout-seconds: 70
 
-  # Endpoint 360 diagnostics (on-demand).
   diagnostics:
     script-path: ../scripts/diagnostic_agent.ps1
     server-base-url: http://localhost:8090
@@ -120,6 +112,8 @@ app:
     enabled: true
     inventory-keep-runs: 10
     inventory-cron: "0 30 3 * * *"
+    job-days: 30
+    jobs-cron: "0 45 3 * * *"
 
 management:
   endpoints:
