@@ -1,0 +1,16 @@
+# Scale simulator. Used only with the "sim" profile. Points at a SEPARATE database.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5434/endpoint_posture_sim
+    hikari:
+      maximum-pool-size: 30   # 40 worker threads plus ingest need more than the default 10
+
+app:
+  jobs:
+    worker-threads: 40        # stands in for a fleet of runners
+  sim:
+    sessions: 20000
+    ramp-ticks: 20            # 20 polls (about 5 minutes) to reach all sessions
+    job-seconds: 20
+    failure-percent: 2
+    report-interval-ms: 60000
