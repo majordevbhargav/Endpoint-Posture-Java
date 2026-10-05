@@ -51,8 +51,16 @@ app:
   jobs:
     poll-interval-ms: 3000
     worker-threads: 4
+    reconnect-min-gap-minutes: 60 # NEW: 0 disables the reconnect gap
     workers:
       enabled: true
+      # ... rest of app.jobs unchanged ...
+    retention:
+    enabled: true
+    inventory-keep-runs: 10
+    inventory-cron: "0 30 3 * * *"
+    job-days: 30 # NEW: finished jobs older than this are deleted
+    jobs-cron: "0 45 3 * * *" # NEW
     stale-sweep-interval-ms: 60000
     stale-margin-seconds: 60
     recheck:

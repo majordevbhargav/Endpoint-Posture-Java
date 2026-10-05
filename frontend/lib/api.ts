@@ -327,7 +327,8 @@ export const api = {
   listEndpoints: () => request<EndpointResponse[]>("/api/v1/endpoints"),
   getEndpoint: (id: string) => request<EndpointResponse>(`/api/v1/endpoints/${id}`),
 
-  latestPosture: (id: string) => request<AssessmentResponse>(`/api/v1/endpoints/${id}/posture/latest`),
+  latestPosture: (id: string) =>
+    request<AssessmentResponse | null>(`/api/v1/endpoints/${id}/posture/latest`),
   latestPostureAll: () => request<AssessmentResponse[]>("/api/v1/posture/latest"),
   postureHistory: (id: string) => request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`),
 
@@ -343,10 +344,9 @@ export const api = {
     request<DiagnosticResponse | null>(`/api/v1/endpoints/${id}/diagnostics/latest`),
   diagnosticHistory: (id: string) =>
     request<DiagnosticResponse[]>(`/api/v1/endpoints/${id}/diagnostics`),
-  latestPostureOrNull: async (id: string): Promise<AssessmentResponse | null> => {
-    const history = await request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`);
-    return history[0] ?? null; // history is newest first; empty list means never assessed
-  },
+  /** Resolves to null (HTTP 204) when the endpoint has never been assessed. */
+  latestPostureOrNull: (id: string) =>
+    request<AssessmentResponse | null>(`/api/v1/endpoints/${id}/posture/latest`),
   latestSecurityOrNull: (id: string) =>
     request<SecurityIndicatorResponse | null>(`/api/v1/endpoints/${id}/security-indicators/latest`),
   securityHistory: (id: string) =>
@@ -357,9 +357,9 @@ export const api = {
   dashboardSummary: () => request<DashboardSummary>("/api/v1/dashboard/summary"),
   dashboardTrend: (days = 7) => request<TrendPoint[]>(`/api/v1/dashboard/trend?days=${days}`),
   dashboardCategories: () => request<CategoryRate[]>("/api/v1/dashboard/categories"),
-
-  listJobs: () => request<JobResponse[]>("/api/v1/jobs"),
-  listJobsForEndpoint: (id: string) => request<JobResponse[]>(`/api/v1/jobs/endpoint/${id}`),
+  listJobs: (limit = 500) => request<JobResponse[]>(`/api/v1/jobs?limit=${limit}`),
+  listJobsForEndpoint: (id: string, limit = 100) =>
+    request<JobResponse[]>(`/api/v1/jobs/endpoint/${id}?limit=${limit}`),
   enqueueJob: (endpointId: string, jobType: JobType) =>
     request<JobResponse>("/api/v1/jobs", {
       method: "POST",

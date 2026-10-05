@@ -11,11 +11,10 @@ import {
   X,
   ExternalLink,
 } from "lucide-react";
-import { api, JobResponse, JobType, EndpointResponse } from "@/lib/api";
+import { api, JobResponse, JobType, EndpointResponse, SystemHealth } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Column, DataTable } from "@/components/ui/DataTable";
 import { usePolling } from "@/lib/usePolling";
-
 const JOB_LABELS: Record<string, string> = {
   POSTURE_CHECK: "Posture Check",
   HARDWARE_CHECK: "Hardware Health",
@@ -112,6 +111,7 @@ export default function JobsPage() {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [typeFilter, setTypeFilter] = useState<string>("ALL");
+  const [queueStats, setQueueStats] = useState<SystemHealth["queue"] | null>(null);
 
   // Enqueue Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -123,24 +123,40 @@ export default function JobsPage() {
 
   const loadJobs = async () => {
     try {
-      const data = await api.listJobs();
-      setJobs(data);
+      setJobs(await api.listJobs(500));
     } catch {
       setJobs((prev) => prev ?? []); // keep the last good list on a failed poll
     }
   };
 
+  // Queue totals come from system health: the list above is capped, so counting it would undercount.
+  const loadQueue = async () => {
+    try {
+      setQueueStats((await api.systemHealth()).queue);
+    } catch {
+      // keep the last known totals
+    }
+  };
+
   useEffect(() => {
     loadJobs();
+    loadQueue();
     api.listEndpoints().then(setEndpoints).catch(() => { });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The toggle was previously cosmetic (always 20s). It now really pauses the poll
-  // and matches its "4s" label.
   usePolling(loadJobs, 4000, autoRefresh);
+  usePolling(loadQueue, 10000, autoRefresh);
 
   const stats = useMemo(() => {
+    if (queueStats) {
+      return {
+        running: queueStats.running,
+        queued: queueStats.queued,
+        completed: queueStats.complete,
+        failed: queueStats.failed,
+      };
+    }
     const list = jobs ?? [];
     return {
       running: list.filter((j) => j.status === "RUNNING").length,
@@ -148,7 +164,7 @@ export default function JobsPage() {
       completed: list.filter((j) => j.status === "COMPLETE").length,
       failed: list.filter((j) => j.status === "FAILED").length,
     };
-  }, [jobs]);
+  }, [jobs, queueStats]);
 
   const shown = useMemo(() => {
     if (!jobs) return null;
@@ -319,7 +335,7 @@ export default function JobsPage() {
         loadingMessage="Loading job queue…"
         emptyMessage="No jobs matching your filter. New jobs are enqueued automatically when ISE reports active sessions."
         minWidth={860}
-        toolbarLeft={shown ? `${shown.length} matching job${shown.length === 1 ? "" : "s"}` : undefined}
+        toolbarLeft={shown ? `${shown.length} matching job${shown.length === 1 ? "" : "s"} (latest 500 shown)` : undefined}
       />
 
       {/* Enqueue Modal */}
@@ -387,8 +403,8 @@ export default function JobsPage() {
                     type="button"
                     onClick={() => setSelectedJobType("DIAGNOSTIC_CHECK")}
                     className={`rounded-lg border p-3 text-left text-xs transition ${selectedJobType === "DIAGNOSTIC_CHECK"
-                        ? "border-accent bg-accent/10 font-semibold text-accent"
-                        : "border-border bg-base text-muted hover:text-ink"
+                      ? "border-accent bg-accent/10 font-semibold text-accent"
+                      : "border-border bg-base text-muted hover:text-ink"
                       }`}
                   >
                     <div className="font-bold">Diagnostics</div>
@@ -398,8 +414,8 @@ export default function JobsPage() {
                     type="button"
                     onClick={() => setSelectedJobType("SECURITY_CHECK")}
                     className={`rounded-lg border p-3 text-left text-xs transition ${selectedJobType === "SECURITY_CHECK"
-                        ? "border-accent bg-accent/10 font-semibold text-accent"
-                        : "border-border bg-base text-muted hover:text-ink"
+                      ? "border-accent bg-accent/10 font-semibold text-accent"
+                      : "border-border bg-base text-muted hover:text-ink"
                       }`}
                   >
                     <div className="font-bold">Security Scan</div>

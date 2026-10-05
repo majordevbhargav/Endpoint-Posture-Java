@@ -16,7 +16,9 @@ import java.util.UUID;
  * REST API for the job queue: {@code /api/v1/jobs}.
  *
  * <p>Manual jobs default to priority 10 so they run ahead of automatic
- * (priority 0) rechecks.</p>
+ * (priority 0) rechecks. List endpoints are always bounded by a {@code limit}
+ * because the table grows continuously (old finished jobs are pruned nightly
+ * by {@link JobRetentionScheduler}).</p>
  */
 @RestController
 @RequestMapping("/api/v1/jobs")
@@ -25,6 +27,13 @@ public class JobController {
 
     /** Priority given to jobs enqueued by a person. Automatic jobs use 0. */
     private static final int MANUAL_PRIORITY = 10;
+
+    /** Rows returned by {@code GET /jobs} when the caller gives no limit. */
+    private static final int DEFAULT_LIST_LIMIT = 200;
+    /** Hard ceiling for any list limit, whatever the caller asks for. */
+    private static final int MAX_LIST_LIMIT = 1000;
+    /** Rows returned by {@code GET /jobs/endpoint/{id}} when the caller gives no limit. */
+    private static final int DEFAULT_ENDPOINT_LIMIT = 100;
 
     private final JobService jobService;
 
@@ -53,16 +62,25 @@ public class JobController {
         return toResponse(job);
     }
 
-    @Operation(summary = "List all jobs, newest first")
+    @Operation(summary = "List the newest jobs",
+            description = "Newest first, at most 'limit' rows (default 200, maximum 1000). "
+                    + "Use /api/v1/system/health for queue totals.")
     @GetMapping
-    public List<JobResponse> listAll() {
-        return jobService.listAll().stream().map(this::toResponse).toList();
+    public List<JobResponse> listAll(@RequestParam(defaultValue = "" + DEFAULT_LIST_LIMIT) int limit) {
+        return jobService.listRecent(clamp(limit)).stream().map(this::toResponse).toList();
     }
 
-    @Operation(summary = "List jobs for one endpoint")
+    @Operation(summary = "List the newest jobs for one endpoint",
+            description = "Newest first, at most 'limit' rows (default 100, maximum 1000).")
     @GetMapping("/endpoint/{endpointId}")
-    public List<JobResponse> listForEndpoint(@PathVariable UUID endpointId) {
-        return jobService.listForEndpoint(endpointId).stream().map(this::toResponse).toList();
+    public List<JobResponse> listForEndpoint(@PathVariable UUID endpointId,
+                                             @RequestParam(defaultValue = "" + DEFAULT_ENDPOINT_LIMIT) int limit) {
+        return jobService.listForEndpoint(endpointId, clamp(limit)).stream().map(this::toResponse).toList();
+    }
+
+    /** Keeps a caller-supplied limit between 1 and {@link #MAX_LIST_LIMIT}. */
+    private static int clamp(int limit) {
+        return Math.max(1, Math.min(limit, MAX_LIST_LIMIT));
     }
 
     private JobResponse toResponse(PostureJob job) {

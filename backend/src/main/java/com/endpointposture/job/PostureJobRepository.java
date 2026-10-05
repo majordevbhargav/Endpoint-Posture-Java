@@ -1,6 +1,8 @@
 package com.endpointposture.job;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -12,6 +14,9 @@ import java.util.UUID;
 
 /**
  * Data access for {@link PostureJob}, including the concurrency-safe claim query.
+ *
+ * <p>Listing queries are always bounded by a {@link Pageable}: the job table
+ * grows without limit between retention runs, so nothing here returns "every job".</p>
  */
 public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
 
@@ -30,17 +35,37 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
             """, nativeQuery = true)
     Optional<PostureJob> findNextClaimable();
 
-    /** @return all jobs, newest first, with their endpoints loaded */
+    /**
+     * @param pageable page request, normally {@code PageRequest.of(0, limit)}
+     * @return the newest jobs first, with their endpoints loaded
+     */
     @Query("SELECT j FROM PostureJob j JOIN FETCH j.endpoint ORDER BY j.createdAt DESC")
-    List<PostureJob> findAllByOrderByCreatedAtDesc();
+    List<PostureJob> findRecent(Pageable pageable);
 
-    /** @return that endpoint's jobs, newest first, with the endpoint loaded */
+    /**
+     * @param endpointId the endpoint whose jobs to list
+     * @param pageable   page request, normally {@code PageRequest.of(0, limit)}
+     * @return that endpoint's newest jobs first, with the endpoint loaded
+     */
     @Query("SELECT j FROM PostureJob j JOIN FETCH j.endpoint WHERE j.endpoint.id = :endpointId ORDER BY j.createdAt DESC")
-    List<PostureJob> findByEndpoint_IdOrderByCreatedAtDesc(@Param("endpointId") UUID endpointId);
+    List<PostureJob> findRecentForEndpoint(@Param("endpointId") UUID endpointId, Pageable pageable);
 
     /** @return jobs still RUNNING that started before the cutoff (stalled), endpoints loaded */
     @Query("SELECT j FROM PostureJob j JOIN FETCH j.endpoint WHERE j.status = com.endpointposture.job.JobStatus.RUNNING AND j.startedAt < :cutoff")
     List<PostureJob> findStaleRunning(@Param("cutoff") Instant cutoff);
+
+    /**
+     * Bulk-deletes finished jobs that completed before the cutoff. Evidence rows
+     * (assessments, hardware, diagnostics, indicators) keep existing: their
+     * {@code job_id} foreign keys are {@code ON DELETE SET NULL}.
+     *
+     * @param cutoff   jobs completed strictly before this instant are deleted
+     * @param statuses which statuses may be deleted (callers pass only finished ones)
+     * @return how many rows were deleted
+     */
+    @Modifying
+    @Query("DELETE FROM PostureJob j WHERE j.status IN :statuses AND j.completedAt < :cutoff")
+    int deleteFinishedBefore(@Param("cutoff") Instant cutoff, @Param("statuses") Collection<JobStatus> statuses);
 
     /** @return true if a job of this type for this endpoint is in one of the given statuses */
     boolean existsByEndpoint_IdAndJobTypeAndStatusIn(UUID endpointId, JobType jobType, Collection<JobStatus> statuses);

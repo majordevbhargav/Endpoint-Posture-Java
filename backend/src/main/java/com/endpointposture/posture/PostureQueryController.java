@@ -3,6 +3,7 @@ package com.endpointposture.posture;
 import com.endpointposture.posture.dto.AssessmentResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,11 +39,15 @@ public class PostureQueryController {
 
     /**
      * @param id the endpoint's internal UUID
-     * @return the most recent assessment, or {@code 404} if the endpoint has never been assessed
+     * @return {@code 200} with the most recent assessment, or {@code 204 No Content}
+     *         if the endpoint has never been assessed (same convention as hardware health)
      */
-    @Operation(summary = "Latest assessment for an endpoint")
+    @Operation(summary = "Latest assessment for an endpoint",
+            description = "Returns 204 No Content when the endpoint has never been assessed.")
     @GetMapping("/latest")
-    public AssessmentResponse latest(@PathVariable UUID id) {
-        return service.getLatestForEndpoint(id);
+    public ResponseEntity<AssessmentResponse> latest(@PathVariable UUID id) {
+        return service.findLatestForEndpoint(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 }
