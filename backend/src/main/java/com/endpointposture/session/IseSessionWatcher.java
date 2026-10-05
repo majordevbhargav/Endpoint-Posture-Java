@@ -1,10 +1,7 @@
 package com.endpointposture.session;
 
-import com.endpointposture.endpoint.Endpoint;
 import com.endpointposture.endpoint.EndpointRepository;
-import com.endpointposture.endpoint.EndpointService;
-import com.endpointposture.job.JobService;
-import com.endpointposture.job.JobType;
+import com.endpointposture.endpoint.EndpointRepository.ConnectedRow;
 import com.endpointposture.session.IseSessionClient.SessionPoll;
 import com.endpointposture.session.dto.IseActiveSession;
 import org.slf4j.Logger;
@@ -13,23 +10,32 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 /**
- * Polls ISE for active sessions, updates endpoint connect/disconnect state,
- * and enqueues a posture recheck for anything that just reconnected.
+ * Polls ISE for active sessions and brings endpoint connection state in line with it,
+ * as a set difference rather than device by device:
  *
- * <p>If the poll itself fails, endpoint state is left untouched (and no misses
- * are counted). A successful poll with zero sessions is a real answer.</p>
+ * <ol>
+ *   <li>one light query returns the MAC and IP of every connected endpoint;</li>
+ *   <li>devices in the poll but not connected are <b>appeared</b>: they are connected in
+ *       bulk and get a posture recheck (subject to the reconnect gap);</li>
+ *   <li>devices in both only get a changed IP or a refreshed last-seen time;</li>
+ *   <li>devices connected but missing from the poll are <b>missing</b>: after
+ *       {@code app.ise.disconnect-grace-polls} consecutive misses they are disconnected.</li>
+ * </ol>
  *
- * <p>An endpoint is only marked disconnected after it is missing from
- * {@code app.ise.disconnect-grace-polls} consecutive successful polls, so a
- * roaming device or a single odd poll does not flap its state.</p>
+ * <p>If the poll itself fails, state is left untouched (and no misses are counted). A
+ * successful poll with zero sessions is a real answer. Nothing here calls ISE actions;
+ * this class only observes.</p>
  */
 @Component
 public class IseSessionWatcher {
@@ -38,8 +44,7 @@ public class IseSessionWatcher {
 
     private final IseSessionClient client;
     private final EndpointRepository endpoints;
-    private final EndpointService endpointService;
-    private final JobService jobService;
+    private final SessionBatchWriter batch;
     private final IseLinkHealth linkHealth;
     private final int gracePolls;
 
@@ -47,19 +52,18 @@ public class IseSessionWatcher {
     private final Map<String, Integer> misses = new ConcurrentHashMap<>();
 
     public IseSessionWatcher(IseSessionClient client, EndpointRepository endpoints,
-                             EndpointService endpointService, JobService jobService,
-                             IseLinkHealth linkHealth,
+                             SessionBatchWriter batch, IseLinkHealth linkHealth,
                              @Value("${app.ise.disconnect-grace-polls:2}") int gracePolls) {
         this.client = client;
         this.endpoints = endpoints;
-        this.endpointService = endpointService;
-        this.jobService = jobService;
+        this.batch = batch;
         this.linkHealth = linkHealth;
         this.gracePolls = Math.max(1, gracePolls);
     }
 
     @Scheduled(fixedDelayString = "${app.ise.session-poll-interval-ms:15000}")
     public void tick() {
+        long started = System.nanoTime();
         SessionPoll poll = client.fetchActiveSessions();
 
         if (!poll.ok()) {
@@ -76,60 +80,79 @@ public class IseSessionWatcher {
         }
         linkHealth.success();
 
-        List<IseActiveSession> active = poll.sessions();
+        // MAC -> IP (IP may be null). Duplicates in the poll collapse to one entry.
+        Map<String, String> active = new LinkedHashMap<>();
+        for (IseActiveSession s : poll.sessions()) {
+            if (s.mac() == null || s.mac().isBlank()) continue;
+            String mac = normalize(s.mac());
+            String ip = blankToNull(s.ip());
+            if (!active.containsKey(mac) || active.get(mac) == null) {
+                active.put(mac, ip);
+            }
+        }
 
-        Set<String> activeMacs = active.stream()
-                .map(s -> normalizeMacForCompare(s.mac()))
-                .collect(Collectors.toSet());
+        Map<String, String> connected = new HashMap<>();
+        for (ConnectedRow row : endpoints.findConnectedRows()) {
+            connected.put(row.getMacAddress(), row.getIpAddress());
+        }
 
-        for (IseActiveSession session : active) {
-            String mac = normalizeMacForCompare(session.mac());
-            misses.remove(mac); // seen this poll: reset its miss counter
+        Map<String, String> appeared = new LinkedHashMap<>();
+        Map<String, String> ipChanged = new LinkedHashMap<>();
+        List<String> stillPresent = new ArrayList<>();
 
-            boolean wasConnected = endpoints.findByMacAddress(mac)
-                    .map(Endpoint::isConnected)
-                    .orElse(false);
-
-            endpointService.markConnected(session.mac(), session.ip());
-
-            if (!wasConnected) {
-                Endpoint ep = endpoints.findByMacAddress(mac).orElseThrow();
-                log.info("Endpoint {} connected - enqueuing posture recheck", ep.getMacAddress());
-                if (hasTarget(ep)) {
-                    jobService.enqueueIfDue(ep.getId(), JobType.POSTURE_CHECK);
-                } else {
-                    log.info("Endpoint {} has no IP or hostname yet - skipping posture job", ep.getMacAddress());
+        for (Map.Entry<String, String> e : active.entrySet()) {
+            String mac = e.getKey();
+            String ip = e.getValue();
+            if (!connected.containsKey(mac)) {
+                appeared.put(mac, ip);
+            } else {
+                stillPresent.add(mac);
+                if (ip != null && !ip.equals(connected.get(mac))) {
+                    ipChanged.put(mac, ip);
                 }
             }
         }
 
-        List<Endpoint> connected = endpoints.findAllByConnectedTrue();
+        // Grace period: only devices still flagged connected but absent are counted.
+        Set<String> missing = new HashSet<>(connected.keySet());
+        missing.removeAll(active.keySet());
+        misses.keySet().retainAll(missing); // devices that came back reset to zero
 
-        // Drop counters for endpoints that are no longer flagged connected.
-        Set<String> connectedMacs = connected.stream().map(Endpoint::getMacAddress).collect(Collectors.toSet());
-        misses.keySet().retainAll(connectedMacs);
-
-        for (Endpoint ep : connected) {
-            if (activeMacs.contains(ep.getMacAddress())) continue;
-
-            int count = misses.merge(ep.getMacAddress(), 1, Integer::sum);
+        List<String> toDisconnect = new ArrayList<>();
+        for (String mac : missing) {
+            int count = misses.merge(mac, 1, Integer::sum);
             if (count >= gracePolls) {
-                log.info("Endpoint {} missing from {} consecutive ISE polls - marking disconnected",
-                        ep.getMacAddress(), count);
-                endpointService.markDisconnected(ep.getMacAddress());
-                misses.remove(ep.getMacAddress());
-            } else {
-                log.debug("Endpoint {} missing from ISE poll ({}/{})", ep.getMacAddress(), count, gracePolls);
+                toDisconnect.add(mac);
+                misses.remove(mac);
             }
+        }
+
+        int queued = 0;
+        if (!appeared.isEmpty()) {
+            batch.markConnected(appeared);
+            queued = batch.enqueueReconnectChecks(new ArrayList<>(appeared.keySet()));
+        }
+        batch.updateIps(ipChanged);
+        if (!stillPresent.isEmpty()) {
+            batch.touchSeen(stillPresent);
+        }
+        int disconnected = toDisconnect.isEmpty() ? 0 : batch.markDisconnected(toDisconnect);
+
+        long ms = (System.nanoTime() - started) / 1_000_000;
+        String summary = "ISE tick: active={} +{} connected, -{} disconnected, {} ip changes, "
+                + "{} rechecks queued, {} ms";
+        if (!appeared.isEmpty() || disconnected > 0) {
+            log.info(summary, active.size(), appeared.size(), disconnected, ipChanged.size(), queued, ms);
+        } else {
+            log.debug(summary, active.size(), appeared.size(), disconnected, ipChanged.size(), queued, ms);
         }
     }
 
-    private static boolean hasTarget(Endpoint ep) {
-        return (ep.getIpAddress() != null && !ep.getIpAddress().isBlank())
-                || (ep.getHostname() != null && !ep.getHostname().isBlank());
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
-    private String normalizeMacForCompare(String mac) {
+    private static String normalize(String mac) {
         return mac.trim().replace('-', ':').toUpperCase(Locale.ROOT);
     }
 }
