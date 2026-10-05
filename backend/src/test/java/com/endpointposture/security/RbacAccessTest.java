@@ -156,4 +156,31 @@ class RbacAccessTest {
                 .andReturn().getResponse().getStatus();
         assertTrue(status == 401 || status == 403);
     }
+        @Test
+    void agentRoleCannotUseTheOperatorApi() throws Exception {
+        for (String path : List.of("/api/v1/jobs", "/api/v1/ise/posture/share",
+                "/api/v1/ise/enforcement/restrict", "/api/v1/ise/enforcement/clear")) {
+            assertEquals(403, post(path, "AGENT"), path);
+        }
+    }
+
+    @Test
+    void agentKeyHeaderIsIgnoredOnReadRoutes() throws Exception {
+        // The key filter only runs on POST ingest routes, so a GET with the header stays unauthenticated.
+        int status = mvc.perform(MockMvcRequestBuilders.get("/api/v1/endpoints")
+                .header("X-Posture-Api-Key", "test-agent-key"))
+                .andReturn().getResponse().getStatus();
+        assertTrue(status == 401 || status == 403);
+    }
+
+    @Test
+    void anUnauthenticatedPostToEveryIngestRouteIsRejected() throws Exception {
+        for (String path : List.of("/api/v1/posture", "/api/v1/hardware-health",
+                "/api/v1/diagnostics", "/api/v1/security-indicators")) {
+            int status = mvc.perform(MockMvcRequestBuilders.post(path)
+                    .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andReturn().getResponse().getStatus();
+            assertTrue(status == 401 || status == 403, path);
+        }
+    }
 }

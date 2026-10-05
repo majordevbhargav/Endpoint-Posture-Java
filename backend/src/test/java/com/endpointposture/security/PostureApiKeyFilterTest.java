@@ -4,6 +4,8 @@ import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.Authentication;
@@ -12,17 +14,13 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
-/**
- * PostureApiKeyFilter is the only path a PowerShell agent authenticates
- * through - no user login, just a shared secret scoped to exactly two
- * routes. These tests pin down its documented behavior: no header steps
- * aside, a valid key grants ROLE_AGENT only, a wrong or blank-configured
- * key fails closed with a plain 401 (not a Spring /error redispatch), and
- * every other route is never touched by this filter at all.
- */
 class PostureApiKeyFilterTest {
 
     private static final String VALID_KEY = "correct-horse-battery-staple";
+    private static final String[] INGEST_ROUTES = {
+            "/api/v1/posture", "/api/v1/hardware-health",
+            "/api/v1/diagnostics", "/api/v1/security-indicators"
+    };
 
     private PostureApiKeyFilter filter;
 
@@ -33,106 +31,117 @@ class PostureApiKeyFilterTest {
     }
 
     @AfterEach
-    void tearDown() {
-        SecurityContextHolder.clearContext();
+    void tearDown() { SecurityContextHolder.clearContext(); }
+
+    private MockHttpServletRequest post(String uri) { return new MockHttpServletRequest("POST", uri); }
+
+    // ---- routing ----
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/v1/posture", "/api/v1/hardware-health",
+            "/api/v1/diagnostics", "/api/v1/security-indicators"})
+    void postToEveryIngestRouteIsFiltered(String uri) {
+        assertFalse(filter.shouldNotFilter(post(uri)));
     }
 
-    // --- shouldNotFilter routing ---
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/v1/posture", "/api/v1/hardware-health",
+            "/api/v1/diagnostics", "/api/v1/security-indicators"})
+    void getToAnIngestRouteIsSkipped(String uri) {
+        assertTrue(filter.shouldNotFilter(new MockHttpServletRequest("GET", uri)));
+    }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"/api/v1/endpoints", "/api/v1/jobs", "/api/v1/ise/posture/share",
+            "/api/v1/endpoints/123/diagnostics", "/api/v1/policy/apps"})
+    void postToAnyOtherRouteIsSkipped(String uri) {
+        assertTrue(filter.shouldNotFilter(post(uri)));
+    }
+
+    // ---- behaviour, per route ----
     @Test
-    void postToPostureIngestRouteIsFiltered() {
-        assertFalse(filter.shouldNotFilter(postRequest("/api/v1/posture")));
+    void noHeaderStepsAsideOnEveryRoute() throws Exception {
+        for (String uri : INGEST_ROUTES) {
+            SecurityContextHolder.clearContext();
+            MockHttpServletRequest req = post(uri);
+            MockHttpServletResponse res = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilterInternal(req, res, chain);
+
+            verify(chain).doFilter(req, res);
+            assertNull(SecurityContextHolder.getContext().getAuthentication(), uri);
+            assertEquals(200, res.getStatus(), uri);
+        }
     }
 
     @Test
-    void postToHardwareIngestRouteIsFiltered() {
-        assertFalse(filter.shouldNotFilter(postRequest("/api/v1/hardware-health")));
+    void validKeyGrantsRoleAgentOnEveryRoute() throws Exception {
+        for (String uri : INGEST_ROUTES) {
+            SecurityContextHolder.clearContext();
+            MockHttpServletRequest req = post(uri);
+            req.addHeader(PostureApiKeyFilter.HEADER_NAME, VALID_KEY);
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilterInternal(req, new MockHttpServletResponse(), chain);
+
+            verify(chain).doFilter(any(), any());
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            assertNotNull(auth, uri);
+            assertEquals("posture-agent", auth.getPrincipal());
+            assertEquals(1, auth.getAuthorities().size(), uri);
+            assertTrue(auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_AGENT")));
+        }
     }
 
     @Test
-    void getToIngestRouteIsSkipped_onlyPostIsGuarded() {
-        assertTrue(filter.shouldNotFilter(new MockHttpServletRequest("GET", "/api/v1/posture")));
+    void wrongKeyGets401AndChainNeverRunsOnEveryRoute() throws Exception {
+        for (String uri : INGEST_ROUTES) {
+            SecurityContextHolder.clearContext();
+            MockHttpServletRequest req = post(uri);
+            req.addHeader(PostureApiKeyFilter.HEADER_NAME, "definitely-not-it");
+            MockHttpServletResponse res = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
+
+            filter.doFilterInternal(req, res, chain);
+
+            verify(chain, never()).doFilter(any(), any());
+            assertEquals(401, res.getStatus(), uri);
+            assertNull(SecurityContextHolder.getContext().getAuthentication(), uri);
+        }
     }
 
     @Test
-    void postToAnyOtherRouteIsSkipped() {
-        assertTrue(filter.shouldNotFilter(postRequest("/api/v1/endpoints")));
-    }
-
-    // --- doFilterInternal behavior ---
-
-    @Test
-    void noHeaderPresentStepsAsideAndContinuesUnauthenticated() throws Exception {
-        MockHttpServletRequest req = postRequest("/api/v1/posture");
+    void keyWithTrailingWhitespaceIsNotAccepted() throws Exception {
+        MockHttpServletRequest req = post("/api/v1/diagnostics");
+        req.addHeader(PostureApiKeyFilter.HEADER_NAME, VALID_KEY + " ");
         MockHttpServletResponse res = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
-
-        filter.doFilterInternal(req, res, chain);
-
-        verify(chain).doFilter(req, res);
-        assertNull(SecurityContextHolder.getContext().getAuthentication());
-        assertEquals(200, res.getStatus()); // untouched
-    }
-
-    @Test
-    void validKeyAuthenticatesAsAgentAndContinues() throws Exception {
-        MockHttpServletRequest req = postRequest("/api/v1/posture");
-        req.addHeader(PostureApiKeyFilter.HEADER_NAME, VALID_KEY);
-        MockHttpServletResponse res = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
-
-        filter.doFilterInternal(req, res, chain);
-
-        verify(chain).doFilter(req, res);
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        assertNotNull(auth);
-        assertEquals("posture-agent", auth.getPrincipal());
-        assertTrue(auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_AGENT")));
-    }
-
-    @Test
-    void wrongKeyIsRejectedWith401AndChainNeverRuns() throws Exception {
-        MockHttpServletRequest req = postRequest("/api/v1/posture");
-        req.addHeader(PostureApiKeyFilter.HEADER_NAME, "definitely-not-it");
-        MockHttpServletResponse res = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
-
-        filter.doFilterInternal(req, res, chain);
-
-        verify(chain, never()).doFilter(any(), any());
+        filter.doFilterInternal(req, res, mock(FilterChain.class));
         assertEquals(401, res.getStatus());
-        assertNull(SecurityContextHolder.getContext().getAuthentication());
     }
 
     @Test
-    void emptyConfiguredKeyRejectsEveryPresentedKey_failClosed() throws Exception {
-        PostureApiKeyFilter blankFilter = new PostureApiKeyFilter("");
-        MockHttpServletRequest req = postRequest("/api/v1/posture");
-        req.addHeader(PostureApiKeyFilter.HEADER_NAME, "");
-        MockHttpServletResponse res = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
+    void emptyConfiguredKeyRejectsEveryPresentedKeyFailClosed() throws Exception {
+        PostureApiKeyFilter blank = new PostureApiKeyFilter("");
+        for (String presented : new String[]{"", "anything"}) {
+            MockHttpServletRequest req = post("/api/v1/security-indicators");
+            req.addHeader(PostureApiKeyFilter.HEADER_NAME, presented);
+            MockHttpServletResponse res = new MockHttpServletResponse();
+            FilterChain chain = mock(FilterChain.class);
 
-        blankFilter.doFilterInternal(req, res, chain);
+            blank.doFilterInternal(req, res, chain);
 
-        verify(chain, never()).doFilter(any(), any());
-        assertEquals(401, res.getStatus());
+            verify(chain, never()).doFilter(any(), any());
+            assertEquals(401, res.getStatus());
+        }
     }
 
     @Test
-    void hardwareRouteAcceptsTheSameKey() throws Exception {
-        MockHttpServletRequest req = postRequest("/api/v1/hardware-health");
-        req.addHeader(PostureApiKeyFilter.HEADER_NAME, VALID_KEY);
+    void bodyOfA401SaysInvalidKeyWithoutRevealingTheExpectedOne() throws Exception {
+        MockHttpServletRequest req = post("/api/v1/posture");
+        req.addHeader(PostureApiKeyFilter.HEADER_NAME, "wrong");
         MockHttpServletResponse res = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
-
-        filter.doFilterInternal(req, res, chain);
-
-        verify(chain).doFilter(req, res);
-        assertNotNull(SecurityContextHolder.getContext().getAuthentication());
-    }
-
-    private MockHttpServletRequest postRequest(String uri) {
-        return new MockHttpServletRequest("POST", uri);
+        filter.doFilterInternal(req, res, mock(FilterChain.class));
+        assertEquals("Invalid agent API key", res.getContentAsString());
+        assertFalse(res.getContentAsString().contains(VALID_KEY));
     }
 }
