@@ -83,8 +83,12 @@ public class HardwareHealthService {
                 .build();
 
         report = healthRepository.save(report);
+        healthRepository.updateEndpointLatest(endpointId, report.getId(), false, report.getCollectedAt());
 
         UUID reportId = report.getId();
+        healthRepository.updateEndpointLatest(endpointId, reportId, true, report.getCollectedAt());
+        healthRepository.updateEndpointGood(endpointId, reportId, band.name(), overallScore,
+        batteryScore, report.getCollectedAt());
         for (RecommendationInput r : recommendations) {
             if (r.area() == null || r.action() == null)
                 continue; // skip malformed entries silently
@@ -101,22 +105,23 @@ public class HardwareHealthService {
     }
 
     /** Records a check that never produced a scoreable report: succeeded=false, scores null (never zero). */
-    @Transactional
-    public HardwareHealthResponse recordFailure(UUID endpointId, UUID jobId, String reason) {
-        String detail = reason == null ? "Unknown failure" : reason;
+@Transactional
+public HardwareHealthResponse recordFailure(UUID endpointId, UUID jobId, String reason) {
+    String detail = reason == null ? "Unknown failure" : reason;
 
-        HardwareHealthReport report = HardwareHealthReport.builder()
-                .endpointId(endpointId)
-                .jobId(jobId)
-                .succeeded(false)
-                .errorMessage(detail)
-                .rawReport(Map.of("error", detail))
-                .collectedAt(Instant.now())
-                .build();
+    HardwareHealthReport report = HardwareHealthReport.builder()
+            .endpointId(endpointId)
+            .jobId(jobId)
+            .succeeded(false)
+            .errorMessage(detail)
+            .rawReport(Map.of("error", detail))
+            .collectedAt(Instant.now())
+            .build();
 
-        report = healthRepository.save(report);
-        return toResponse(report);
-    }
+    report = healthRepository.save(report);
+    healthRepository.updateEndpointLatest(endpointId, report.getId(), false, report.getCollectedAt());
+    return toResponse(report);
+}
 
     @Transactional(readOnly = true)
     public List<HardwareHealthResponse> getHistoryForEndpoint(UUID endpointId) {

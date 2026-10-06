@@ -51,7 +51,7 @@ app:
   jobs:
     poll-interval-ms: 3000
     worker-threads: 4
-    reconnect-min-gap-minutes: 60   # 0 disables the reconnect gap
+    reconnect-min-gap-minutes: 60 # 0 disables the reconnect gap
     workers:
       enabled: true
     stale-sweep-interval-ms: 60000
@@ -114,6 +114,11 @@ app:
     inventory-cron: "0 30 3 * * *"
     job-days: 30
     jobs-cron: "0 45 3 * * *"
+
+  task:
+    scheduling:
+      pool:
+      size: 4 # the default is 1, so one long task blocked the ISE watcher
 
 management:
   endpoints:

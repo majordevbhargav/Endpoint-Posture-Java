@@ -50,6 +50,11 @@ public class EndpointController {
     public Map<String, String> names(@RequestParam List<UUID> ids) {
         return queryService.names(ids);
     }
+    @Operation(summary = "Hostname, MAC and IP for up to 100 endpoint ids")
+    @GetMapping("/briefs")
+    public Map<String, com.endpointposture.endpoint.dto.EndpointBrief> briefs(@RequestParam List<UUID> ids) {
+        return queryService.briefs(ids);
+    }
 
     @Operation(summary = "Get one endpoint by its internal ID")
     @GetMapping("/{id}")

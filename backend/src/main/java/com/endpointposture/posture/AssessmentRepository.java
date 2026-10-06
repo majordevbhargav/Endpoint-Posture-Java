@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Collection;
 
 /**
  * Data access for {@link Assessment}. Reads only ever add or list rows;
@@ -53,4 +54,12 @@ public interface AssessmentRepository extends JpaRepository<Assessment, UUID> {
             @org.springframework.data.repository.query.Param("id") UUID id,
             @org.springframework.data.repository.query.Param("status") String status,
             @org.springframework.data.repository.query.Param("at") java.time.Instant at);
+        /** Latest assessment of the given endpoints, via endpoint.latest_assessment_id. */
+    @Query(value = """
+            SELECT a.* FROM assessment a
+              JOIN endpoint e ON e.latest_assessment_id = a.id
+             WHERE e.id IN (:ids)
+            """, nativeQuery = true)
+    List<Assessment> findLatestForEndpoints(
+            @org.springframework.data.repository.query.Param("ids") java.util.Collection<UUID> ids);
 }

@@ -5,6 +5,7 @@ import com.endpointposture.endpoint.dto.PageResponse;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.endpointposture.endpoint.dto.EndpointBrief;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -92,6 +93,24 @@ public class EndpointQueryService {
             return ps;
         }, rs -> {
             out.put(rs.getString("id"), rs.getString("name"));
+        });
+        return out;
+    }
+    
+    /** Hostname, MAC and IP for up to 100 endpoint ids. */
+    @Transactional(readOnly = true)
+    public Map<String, EndpointBrief> briefs(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) return Map.of();
+        List<UUID> limited = ids.size() > MAX_NAMES ? ids.subList(0, MAX_NAMES) : ids;
+        Map<String, EndpointBrief> out = new HashMap<>();
+        jdbc.query(con -> {
+            var ps = con.prepareStatement(
+                    "SELECT id, hostname, mac_address, ip_address FROM endpoint WHERE id = ANY(?)");
+            ps.setArray(1, con.createArrayOf("uuid", limited.toArray()));
+            return ps;
+        }, rs -> {
+            out.put(rs.getString("id"),
+                    new EndpointBrief(rs.getString("hostname"), rs.getString("mac_address"), rs.getString("ip_address")));
         });
         return out;
     }

@@ -64,6 +64,7 @@ public interface DashboardRepository extends Repository<Assessment, UUID> {
                    COUNT(*) FILTER (WHERE cr.status = 'COMPLIANT') AS "passing"
               FROM endpoint e
               JOIN check_result cr ON cr.assessment_id = e.latest_assessment_id
+              WHERE e.connected
              GROUP BY cr.check_type
              ORDER BY cr.check_type
             """, nativeQuery = true)

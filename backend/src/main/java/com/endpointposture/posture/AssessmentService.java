@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Collection;
 
 /**
  * Reads and writes posture evidence ({@link Assessment} and {@link CheckResult}).
@@ -129,6 +130,12 @@ public class AssessmentService {
     @Transactional(readOnly = true)
     public List<AssessmentResponse> getLatestForAllEndpoints() {
         return toResponses(assessmentRepository.findLatestPerEndpoint());
+    }
+    /** Latest assessment with checks for a handful of endpoints (one page on screen). */
+    @Transactional(readOnly = true)
+    public List<AssessmentResponse> getLatestForEndpoints(Collection<UUID> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return toResponses(assessmentRepository.findLatestForEndpoints(ids));
     }
 
     /** Single assessment: one query for its checks. */

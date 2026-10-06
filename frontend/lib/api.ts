@@ -40,7 +40,6 @@ export interface HardwareHealthResponse {
   model: string | null;
   serialNumber: string | null;
   biosVersion: string | null;
-  // Null when the run failed and no earlier good run exists (never zero).
   cpuScore: number | null;
   memoryScore: number | null;
   storageScore: number | null;
@@ -53,13 +52,21 @@ export interface HardwareHealthResponse {
   collectedAt: string;
   succeeded: boolean;
   errorMessage: string | null;
-  // Set on the "latest" endpoints when a newer attempt failed after this (successful) run.
   lastAttemptFailedAt: string | null;
   lastAttemptError: string | null;
-  recommendations: { priority: string; area: string; action: string }[];
+  recommendations: {
+    priority: string;
+    area: string;
+    action: string;
+  }[];
 }
 
-export type JobType = "POSTURE_CHECK" | "HARDWARE_CHECK" | "DIAGNOSTIC_CHECK" | "SECURITY_CHECK";
+export type JobType =
+  | "POSTURE_CHECK"
+  | "HARDWARE_CHECK"
+  | "DIAGNOSTIC_CHECK"
+  | "SECURITY_CHECK";
+
 export type JobStatus = "QUEUED" | "RUNNING" | "COMPLETE" | "FAILED";
 
 export interface JobResponse {
@@ -100,9 +107,7 @@ export interface IseStatus {
   reachable: boolean;
   lastSuccessAt: string | null;
   lastError: string | null;
-  /** Seconds between ISE session polls (app.ise.session-poll-interval-ms). */
   pollIntervalSeconds?: number;
-  /** "ATTRIBUTE" or "ANC" (app.ise.enforcement-mode). */
   enforcementMode?: string;
 }
 
@@ -173,8 +178,15 @@ export interface AppPolicy {
 export interface SystemHealth {
   status: "UP" | "DEGRADED" | "DOWN";
   checkedAt: string;
-  database: { reachable: boolean; error: string | null };
-  ise: { reachable: boolean; lastSuccessAt: string | null; lastError: string | null };
+  database: {
+    reachable: boolean;
+    error: string | null;
+  };
+  ise: {
+    reachable: boolean;
+    lastSuccessAt: string | null;
+    lastError: string | null;
+  };
   queue: {
     queued: number;
     running: number;
@@ -183,7 +195,10 @@ export interface SystemHealth {
     oldestQueuedAgeSeconds: number | null;
     failedLast24h: number;
   };
-  workers: { enabled: boolean; threads: number };
+  workers: {
+    enabled: boolean;
+    threads: number;
+  };
   warnings: string[];
 }
 
@@ -199,13 +214,12 @@ export interface UserView {
   locked: boolean;
 }
 
-
 // ── Warranty types ─────────────────────────────────────────────────────────────
 export interface WarrantyView {
   id: string;
   serialNumber: string;
   vendor: string;
-  expiresOn: string; // ISO date yyyy-MM-dd
+  expiresOn: string;
   productName: string | null;
   daysRemaining: number;
   status: "COVERED" | "EXPIRING_SOON" | "EXPIRED";
@@ -215,7 +229,9 @@ export interface WarrantyView {
 }
 
 // ── Endpoint 360 diagnostics ──────────────────────────────────────────────────
+
 export type DiagnosticStatus = "OK" | "WINRM_UNAVAILABLE" | "FAILED";
+
 export type RiskLevel = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 
 export interface DiagnosticDeduction {
@@ -229,7 +245,6 @@ export interface DiagnosticResponse {
   endpointId: string;
   jobId: string | null;
   status: DiagnosticStatus;
-  // Null when nothing was measured (WinRM unavailable or failed). Never zero.
   score: number | null;
   band: HardwareBand | null;
   deductions: DiagnosticDeduction[] | null;
@@ -251,7 +266,7 @@ export interface SecurityIndicatorResponse {
   endpointId: string;
   jobId: string | null;
   status: "OK" | "WINRM_UNAVAILABLE" | "FAILED";
-  riskLevel: RiskLevel | null; // null when nothing was sampled
+  riskLevel: RiskLevel | null;
   findings: SecurityFinding[] | null;
   summary: Record<string, unknown> | null;
   errorMessage: string | null;
@@ -262,6 +277,7 @@ export interface WarrantyUploadResult {
   savedCount: number;
   rowErrors: string[];
 }
+
 const TOKEN_KEY = "vece_token";
 
 export function getToken(): string | null {
@@ -285,12 +301,50 @@ export interface EndpointListItem extends EndpointResponse {
 export interface PageResponse<T> {
   items: T[];
   total: number;
-  page: number; // zero-based
+  page: number;
   size: number;
+}
+
+export interface HardwareListItem {
+  endpointId: string;
+  hostname: string | null;
+  macAddress: string;
+  state: "OK" | "FAILED" | "NO_REPORT";
+  manufacturer: string | null;
+  model: string | null;
+  cpuScore: number | null;
+  memoryScore: number | null;
+  storageScore: number | null;
+  batteryScore: number | null;
+  overallScore: number | null;
+  overallBand: HardwareBand | null;
+  collectedAt: string | null;
+  lastAttemptFailedAt: string | null;
+  lastAttemptError: string | null;
+  recommendationCount: number;
+}
+
+export interface HardwareSummary {
+  total: number;
+  withReport: number;
+  avgScore: number;
+  criticalOrDegraded: number;
+  batteryWarnings: number;
+  lastAttemptFailed: number;
+  neverCollected: number;
+  noReport: number;
+  recommendations: number;
+}
+
+export interface EndpointBrief {
+  hostname: string | null;
+  macAddress: string;
+  ipAddress: string | null;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
+
   const res = await fetch(path, {
     ...init,
     headers: {
@@ -301,16 +355,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401) {
-    // A wrong password on the login form is not an expired session: do not
-    // clear the token or reload the page (a reload closes the dev HMR socket
-    // and wipes the error message).
     if (path === "/api/v1/auth/login") {
       throw new Error(
-        "Invalid username or password. Accounts are locked for a few minutes after repeated failed attempts."
+        "Invalid username or password. Accounts are locked for a few minutes after repeated failed attempts.",
       );
     }
+
     clearToken();
-    if (typeof window !== "undefined") window.location.href = "/login";
+
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+
     throw new Error("Unauthorized");
   }
 
@@ -320,155 +376,378 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.message ?? body?.error ?? `Request failed: ${res.status}`);
+
+    throw new Error(
+      body?.message ?? body?.error ?? `Request failed: ${res.status}`,
+    );
   }
 
-  // 204 No Content (for example "no hardware report yet") has no body to parse.
-  if (res.status === 204) return null as T;
+  if (res.status === 204) {
+    return null as T;
+  }
 
   return res.json();
 }
 
 export const api = {
   login: (username: string, password: string) =>
-    request<{ token: string; username: string; role: string }>("/api/v1/auth/login", {
+    request<{
+      token: string;
+      username: string;
+      role: string;
+    }>("/api/v1/auth/login", {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({
+        username,
+        password,
+      }),
     }),
 
   listEndpoints: () => request<EndpointResponse[]>("/api/v1/endpoints"),
-  getEndpoint: (id: string) => request<EndpointResponse>(`/api/v1/endpoints/${id}`),
+
+  getEndpoint: (id: string) =>
+    request<EndpointResponse>(`/api/v1/endpoints/${id}`),
 
   latestPosture: (id: string) =>
-    request<AssessmentResponse | null>(`/api/v1/endpoints/${id}/posture/latest`),
-  latestPostureAll: () => request<AssessmentResponse[]>("/api/v1/posture/latest"),
-  postureHistory: (id: string) => request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`),
+    request<AssessmentResponse | null>(
+      `/api/v1/endpoints/${id}/posture/latest`,
+    ),
 
-  /** Resolves to null (HTTP 204) when the endpoint has never had a hardware check. */
+  latestPostureAll: () =>
+    request<AssessmentResponse[]>("/api/v1/posture/latest"),
+
+  postureHistory: (id: string) =>
+    request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`),
+
   latestHardwareOrNull: (id: string) =>
-    request<HardwareHealthResponse | null>(`/api/v1/endpoints/${id}/hardware-health/latest`),
+    request<HardwareHealthResponse | null>(
+      `/api/v1/endpoints/${id}/hardware-health/latest`,
+    ),
+
   latestHardware: (id: string) =>
-    request<HardwareHealthResponse | null>(`/api/v1/endpoints/${id}/hardware-health/latest`),
-  latestHardwareAll: () => request<HardwareHealthResponse[]>("/api/v1/hardware-health/latest"),
-  hardwareHistory: (id: string) => request<HardwareHealthResponse[]>(`/api/v1/endpoints/${id}/hardware-health`),
-  /** Resolves to null (HTTP 204) when the endpoint has never been diagnosed. */
+    request<HardwareHealthResponse | null>(
+      `/api/v1/endpoints/${id}/hardware-health/latest`,
+    ),
+
+  latestHardwareAll: () =>
+    request<HardwareHealthResponse[]>("/api/v1/hardware-health/latest"),
+
+  hardwareHistory: (id: string) =>
+    request<HardwareHealthResponse[]>(
+      `/api/v1/endpoints/${id}/hardware-health`,
+    ),
+
+  hardwarePage: (
+    p: {
+      page?: number;
+      size?: number;
+      q?: string;
+      band?: string;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams({
+      page: String(p.page ?? 0),
+      size: String(p.size ?? 25),
+    });
+
+    if (p.q?.trim()) {
+      qs.set("q", p.q.trim());
+    }
+
+    if (p.band && p.band !== "ALL") {
+      qs.set("band", p.band);
+    }
+
+    return request<PageResponse<HardwareListItem>>(
+      `/api/v1/hardware-health/page?${qs}`,
+    );
+  },
+
+  hardwareSummary: () =>
+    request<HardwareSummary>("/api/v1/hardware-health/summary"),
+
+  latestPostureBatch: (ids: string[]) =>
+    ids.length === 0
+      ? Promise.resolve([] as AssessmentResponse[])
+      : request<AssessmentResponse[]>(
+          `/api/v1/posture/latest/batch?ids=${ids.join(",")}`,
+        ),
+
+  endpointBriefs: async (ids: string[]) => {
+    const out: Record<string, EndpointBrief> = {};
+
+    for (let i = 0; i < ids.length; i += 100) {
+      Object.assign(
+        out,
+        await request<Record<string, EndpointBrief>>(
+          `/api/v1/endpoints/briefs?ids=${ids.slice(i, i + 100).join(",")}`,
+        ),
+      );
+    }
+
+    return out;
+  },
+
   latestDiagnosticOrNull: (id: string) =>
-    request<DiagnosticResponse | null>(`/api/v1/endpoints/${id}/diagnostics/latest`),
+    request<DiagnosticResponse | null>(
+      `/api/v1/endpoints/${id}/diagnostics/latest`,
+    ),
+
   diagnosticHistory: (id: string) =>
     request<DiagnosticResponse[]>(`/api/v1/endpoints/${id}/diagnostics`),
-  /** Resolves to null (HTTP 204) when the endpoint has never been assessed. */
+
   latestPostureOrNull: (id: string) =>
-    request<AssessmentResponse | null>(`/api/v1/endpoints/${id}/posture/latest`),
+    request<AssessmentResponse | null>(
+      `/api/v1/endpoints/${id}/posture/latest`,
+    ),
+
   latestSecurityOrNull: (id: string) =>
-    request<SecurityIndicatorResponse | null>(`/api/v1/endpoints/${id}/security-indicators/latest`),
+    request<SecurityIndicatorResponse | null>(
+      `/api/v1/endpoints/${id}/security-indicators/latest`,
+    ),
+
   securityHistory: (id: string) =>
-    request<SecurityIndicatorResponse[]>(`/api/v1/endpoints/${id}/security-indicators`),
+    request<SecurityIndicatorResponse[]>(
+      `/api/v1/endpoints/${id}/security-indicators`,
+    ),
 
-  sessionHistory: (id: string) => request<SessionEvent[]>(`/api/v1/endpoints/${id}/sessions`),
+  sessionHistory: (id: string) =>
+    request<SessionEvent[]>(`/api/v1/endpoints/${id}/sessions`),
 
-  dashboardSummary: () => request<DashboardSummary>("/api/v1/dashboard/summary"),
-  dashboardTrend: (days = 7) => request<TrendPoint[]>(`/api/v1/dashboard/trend?days=${days}`),
-  dashboardCategories: () => request<CategoryRate[]>("/api/v1/dashboard/categories"),
-  listJobs: (limit = 500) => request<JobResponse[]>(`/api/v1/jobs?limit=${limit}`),
+  dashboardSummary: () =>
+    request<DashboardSummary>("/api/v1/dashboard/summary"),
+
+  dashboardTrend: (days = 7) =>
+    request<TrendPoint[]>(`/api/v1/dashboard/trend?days=${days}`),
+
+  dashboardCategories: () =>
+    request<CategoryRate[]>("/api/v1/dashboard/categories"),
+
+  listJobs: (limit = 500) =>
+    request<JobResponse[]>(`/api/v1/jobs?limit=${limit}`),
+
   listJobsForEndpoint: (id: string, limit = 100) =>
     request<JobResponse[]>(`/api/v1/jobs/endpoint/${id}?limit=${limit}`),
+
   enqueueJob: (endpointId: string, jobType: JobType) =>
     request<JobResponse>("/api/v1/jobs", {
       method: "POST",
-      body: JSON.stringify({ endpointId, jobType }),
+      body: JSON.stringify({
+        endpointId,
+        jobType,
+      }),
     }),
 
   sharePosture: (endpointId: string) =>
-    request<{ success: boolean; detail: string }>("/api/v1/ise/posture/share", {
-      method: "POST",
-      body: JSON.stringify({ endpointId }),
-    }),
-  restrict: (endpointId: string, policy?: string) =>
-    request<{ success: boolean; detail: string }>("/api/v1/ise/enforcement/restrict", {
-      method: "POST",
-      body: JSON.stringify({ endpointId, policy }),
-    }),
-  clearRestriction: (endpointId: string) =>
-    request<{ success: boolean; detail: string }>("/api/v1/ise/enforcement/clear", {
+    request<{
+      success: boolean;
+      detail: string;
+    }>("/api/v1/ise/posture/share", {
       method: "POST",
       body: JSON.stringify({ endpointId }),
     }),
 
-  endpointsPage: (p: { page?: number; size?: number; q?: string; connected?: boolean; status?: string } = {}) => {
-    const qs = new URLSearchParams({ page: String(p.page ?? 0), size: String(p.size ?? 25) });
-    if (p.q?.trim()) qs.set("q", p.q.trim());
-    if (p.connected !== undefined) qs.set("connected", String(p.connected));
-    if (p.status && p.status !== "ALL") qs.set("status", p.status);
-    return request<PageResponse<EndpointListItem>>(`/api/v1/endpoints/page?${qs}`);
+  restrict: (endpointId: string, policy?: string) =>
+    request<{
+      success: boolean;
+      detail: string;
+    }>("/api/v1/ise/enforcement/restrict", {
+      method: "POST",
+      body: JSON.stringify({
+        endpointId,
+        policy,
+      }),
+    }),
+
+  clearRestriction: (endpointId: string) =>
+    request<{
+      success: boolean;
+      detail: string;
+    }>("/api/v1/ise/enforcement/clear", {
+      method: "POST",
+      body: JSON.stringify({ endpointId }),
+    }),
+
+  endpointsPage: (
+    p: {
+      page?: number;
+      size?: number;
+      q?: string;
+      connected?: boolean;
+      status?: string;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams({
+      page: String(p.page ?? 0),
+      size: String(p.size ?? 25),
+    });
+
+    if (p.q?.trim()) {
+      qs.set("q", p.q.trim());
+    }
+
+    if (p.connected !== undefined) {
+      qs.set("connected", String(p.connected));
+    }
+
+    if (p.status && p.status !== "ALL") {
+      qs.set("status", p.status);
+    }
+
+    return request<PageResponse<EndpointListItem>>(
+      `/api/v1/endpoints/page?${qs}`,
+    );
   },
+
   endpointNames: (ids: string[]) =>
     ids.length === 0
       ? Promise.resolve({} as Record<string, string>)
-      : request<Record<string, string>>(`/api/v1/endpoints/names?ids=${ids.join(",")}`),
+      : request<Record<string, string>>(
+          `/api/v1/endpoints/names?ids=${ids.join(",")}`,
+        ),
+
   bulkEnqueue: (jobType: JobType) =>
-    request<{ queued: number }>("/api/v1/jobs/bulk", { method: "POST", body: JSON.stringify({ jobType }) }),
+    request<{ queued: number }>("/api/v1/jobs/bulk", {
+      method: "POST",
+      body: JSON.stringify({ jobType }),
+    }),
 
   auditActions: (endpointId?: string, limit = 500) => {
-    const qs = new URLSearchParams({ limit: String(limit) });
-    if (endpointId) qs.set("endpointId", endpointId);
+    const qs = new URLSearchParams({
+      limit: String(limit),
+    });
+
+    if (endpointId) {
+      qs.set("endpointId", endpointId);
+    }
+
     return request<IseActionAudit[]>(`/api/v1/audit/ise-actions?${qs}`);
   },
 
+  /*
+   * Returns the latest ISE action state for each endpoint.
+   *
+   * IMPORTANT:
+   * This requires the backend endpoint:
+   * GET /api/v1/audit/ise-actions/state
+   */
+  iseActionsState: () =>
+    request<IseActionState[]>("/api/v1/audit/ise-actions/state"),
+
   iseStatus: () => request<IseStatus>("/api/v1/ise/status"),
+
   systemHealth: () => request<SystemHealth>("/api/v1/system/health"),
 
   listApplications: () => request<AppRow[]>("/api/v1/applications"),
+
   listPorts: () => request<PortRow[]>("/api/v1/ports"),
 
   policy: () => request<AppPolicy>("/api/v1/policy/apps"),
+
   policyHistory: () => request<AppPolicy[]>("/api/v1/policy/apps/history"),
+
   updatePolicy: (requiredApps: string[], blockedApps: string[]) =>
     request<AppPolicy>("/api/v1/policy/apps", {
       method: "PUT",
-      body: JSON.stringify({ requiredApps, blockedApps }),
+      body: JSON.stringify({
+        requiredApps,
+        blockedApps,
+      }),
     }),
 
   users: () => request<UserView[]>("/api/v1/users"),
+
   createUser: (username: string, password: string, role: UserRole) =>
-    request<UserView>("/api/v1/users", { method: "POST", body: JSON.stringify({ username, password, role }) }),
-  updateUser: (id: string, patch: { role?: UserRole; enabled?: boolean }) =>
-    request<UserView>(`/api/v1/users/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
-  // Uses fetch directly: the endpoint returns 204 with no body.
+    request<UserView>("/api/v1/users", {
+      method: "POST",
+      body: JSON.stringify({
+        username,
+        password,
+        role,
+      }),
+    }),
+
+  updateUser: (
+    id: string,
+    patch: {
+      role?: UserRole;
+      enabled?: boolean;
+    },
+  ) =>
+    request<UserView>(`/api/v1/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
   resetPassword: (id: string, password: string) =>
     fetch(`/api/v1/users/${id}/password`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getToken()}`,
+      },
       body: JSON.stringify({ password }),
     }).then(async (r) => {
-      if (r.status === 403) throw new Error("Your role does not allow this action");
-      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message ?? `Request failed: ${r.status}`);
+      if (r.status === 403) {
+        throw new Error("Your role does not allow this action");
+      }
+
+      if (!r.ok) {
+        throw new Error(
+          (await r.json().catch(() => null))?.message ??
+            `Request failed: ${r.status}`,
+        );
+      }
     }),
+
   deleteUser: (id: string) =>
     fetch(`/api/v1/users/${id}`, {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${getToken()}` },
+      headers: {
+        Authorization: `Bearer ${getToken()}`,
+      },
     }).then(async (r) => {
-      if (r.status === 403) throw new Error("Your role does not allow this action");
-      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message ?? `Request failed: ${r.status}`);
+      if (r.status === 403) {
+        throw new Error("Your role does not allow this action");
+      }
+
+      if (!r.ok) {
+        throw new Error(
+          (await r.json().catch(() => null))?.message ??
+            `Request failed: ${r.status}`,
+        );
+      }
     }),
 
   // ── Warranty ────────────────────────────────────────────────────────────────
+
   listWarranty: () => request<WarrantyView[]>("/api/v1/warranty"),
 
   uploadWarrantyCsv: (file: File): Promise<WarrantyUploadResult> => {
     const token = getToken();
     const form = new FormData();
+
     form.append("file", file);
+
     return fetch("/api/v1/warranty/upload", {
       method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: token
+        ? {
+            Authorization: `Bearer ${token}`,
+          }
+        : {},
       body: form,
     }).then(async (r) => {
-      if (r.status === 403) throw new Error("Your role does not allow this action");
+      if (r.status === 403) {
+        throw new Error("Your role does not allow this action");
+      }
+
       if (!r.ok) {
         const body = await r.json().catch(() => null);
+
         throw new Error(body?.message ?? `Upload failed: ${r.status}`);
       }
+
       return r.json() as Promise<WarrantyUploadResult>;
     });
   },
