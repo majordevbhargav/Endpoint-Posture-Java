@@ -8,12 +8,11 @@ import {
   HardDrive, Battery, Server, Info, AlertTriangle,
 } from "lucide-react";
 import {
-  api, EndpointResponse, AssessmentResponse, HardwareHealthResponse, AssessmentStatus,
+  api, EndpointResponse, AssessmentResponse, HardwareHealthResponse, AssessmentStatus, DashboardSummary, EndpointListItem,
 } from "@/lib/api";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ExportCsvButton, PaginationBar } from "@/components/ui/PaginationBar";
-import { usePagination } from "@/lib/usePagination";
 import { datedFilename, downloadCsv } from "@/lib/csv";
 
 interface EndpointWithDetails extends EndpointResponse {
@@ -247,10 +246,15 @@ function ExpandedPanel({ ep }: { ep: EndpointWithDetails }) {
 }
 
 export default function EndpointsPage() {
-  const [endpoints, setEndpoints] = useState<EndpointWithDetails[] | null>(null);
+  const [items, setItems] = useState<EndpointWithDetails[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [page, setPage] = useState(1); // 1-based for the pager
+  const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
   const [connFilter, setConnFilter] = useState<"ALL" | "CONNECTED" | "DISCONNECTED">("ALL");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -258,26 +262,51 @@ export default function EndpointsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState<string | null>(null);
 
+  const connectedParam = connFilter === "ALL" ? undefined : connFilter === "CONNECTED";
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebounced(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const loadEndpoints = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // Two requests total, instead of one per device.
-      const [list, latest] = await Promise.all([api.listEndpoints(), api.latestPostureAll()]);
-      const byEndpoint = new Map(latest.map((a) => [a.endpointId, a]));
-      const withStatus = list.map(
-        (ep): EndpointWithDetails => ({ ...ep, postureStatus: byEndpoint.get(ep.id)?.status })
+      const [res, sum] = await Promise.all([
+        api.endpointsPage({
+          page: page - 1,
+          size: pageSize,
+          q: debounced,
+          connected: connectedParam,
+          status: statusFilter,
+        }),
+        api.dashboardSummary().catch(() => null),
+      ]);
+      setItems(
+        res.items.map(
+          (it): EndpointWithDetails => ({
+            ...it,
+            postureStatus: it.postureStatus ?? undefined,
+          })
+        )
       );
-      setEndpoints(withStatus);
+      setTotal(res.total);
+      setSummary(sum);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load endpoints.");
-      setEndpoints([]);
+      setItems((prev) => prev ?? []);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, pageSize, debounced, connectedParam, statusFilter]);
 
-  useEffect(() => { loadEndpoints(); }, [loadEndpoints]);
+  useEffect(() => {
+    loadEndpoints();
+  }, [loadEndpoints]);
 
   function copyText(text: string, key: string) {
     navigator.clipboard.writeText(text);
@@ -304,7 +333,7 @@ export default function EndpointsPage() {
         api.latestPosture(ep.id),
         api.latestHardwareOrNull(ep.id),
       ]);
-      setEndpoints((prev) =>
+      setItems((prev) =>
         prev ? prev.map((e) =>
           e.id === ep.id ? {
             ...e,
@@ -318,61 +347,66 @@ export default function EndpointsPage() {
   }
 
   const stats = useMemo(() => {
-    const list = endpoints ?? [];
+    const sum = summary;
+    const list = items ?? [];
     return {
-      total: list.length,
-      connected: list.filter((e) => e.connected).length,
-      compliant: list.filter((e) => e.postureStatus === "COMPLIANT").length,
-      atRisk: list.filter((e) => e.postureStatus === "NON_COMPLIANT" || e.postureStatus === "ERROR").length,
+      total: sum?.total ?? total,
+      connected: sum?.connected ?? list.filter((e) => e.connected).length,
+      compliant: sum?.compliant ?? list.filter((e) => e.postureStatus === "COMPLIANT").length,
+      atRisk: sum
+        ? sum.nonCompliant + sum.error
+        : list.filter((e) => e.postureStatus === "NON_COMPLIANT" || e.postureStatus === "ERROR").length,
     };
-  }, [endpoints]);
+  }, [items, summary, total]);
 
-  const filtered = useMemo(() => {
-    if (!endpoints) return [];
-    return endpoints.filter((ep) => {
-      if (connFilter === "CONNECTED" && !ep.connected) return false;
-      if (connFilter === "DISCONNECTED" && ep.connected) return false;
-      if (statusFilter !== "ALL") {
-        if (statusFilter === "UNASSESSED" && ep.postureStatus) return false;
-        if (statusFilter !== "UNASSESSED" && ep.postureStatus !== statusFilter) return false;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+
+  async function exportCsv() {
+    // Export every row matching the active filters by walking the server-side pages.
+    try {
+      const exportPageSize = 100;
+      const all: EndpointListItem[] = [];
+      let exportPage = 0;
+      let expectedTotal = total;
+
+      while (all.length < expectedTotal) {
+        const res = await api.endpointsPage({
+          page: exportPage,
+          size: exportPageSize,
+          q: debounced,
+          connected: connectedParam,
+          status: statusFilter,
+        });
+
+        all.push(...res.items);
+        expectedTotal = res.total;
+
+        if (res.items.length === 0 || res.items.length < exportPageSize) break;
+        exportPage += 1;
       }
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        if (!ep.macAddress.toLowerCase().includes(q) &&
-          !ep.ipAddress?.toLowerCase().includes(q) &&
-          !ep.hostname?.toLowerCase().includes(q) &&
-          !ep.osName?.toLowerCase().includes(q)) return false;
-      }
-      return true;
-    });
-  }, [endpoints, connFilter, statusFilter, search]);
 
-  // Pagination slices the filtered list; the accordion below renders only the current page.
-  const pager = usePagination(filtered, 25, "endpoints");
-  const { resetPage } = pager;
-
-  // A new search/filter should start from page 1.
-  useEffect(() => { resetPage(); }, [search, connFilter, statusFilter, resetPage]);
-
-  function exportCsv() {
-    // Exports EVERY row matching the active filters (all pages), not just the visible page.
-    downloadCsv(
-      datedFilename("endpoints"),
-      ["Hostname", "MAC Address", "IP Address", "Operating System", "OS Version", "ISE Connected", "Posture Status", "Last Seen (UTC)"],
-      filtered.map((ep) => [
-        ep.hostname,
-        ep.macAddress,
-        ep.ipAddress,
-        ep.osName,
-        ep.osVersion,
-        ep.connected ? "Yes" : "No",
-        ep.postureStatus ?? "UNASSESSED",
-        ep.lastSeenAt,
-      ])
-    );
+      downloadCsv(
+        datedFilename("endpoints"),
+        ["Hostname", "MAC Address", "IP Address", "Operating System", "OS Version", "ISE Connected", "Posture Status", "Last Seen (UTC)"],
+        all.map((ep) => [
+          ep.hostname,
+          ep.macAddress,
+          ep.ipAddress,
+          ep.osName,
+          ep.osVersion,
+          ep.connected ? "Yes" : "No",
+          ep.postureStatus ?? "UNASSESSED",
+          ep.lastSeenAt,
+        ])
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export endpoints.");
+    }
   }
 
-  const offlineCount = endpoints?.filter((e) => !e.connected).length ?? 0;
+  const offlineCount = Math.max(0, stats.total - stats.connected);
 
   return (
     <div className="space-y-6">
@@ -386,7 +420,7 @@ export default function EndpointsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2.5">
-          <ExportCsvButton onClick={exportCsv} disabled={filtered.length === 0} />
+          <ExportCsvButton onClick={exportCsv} disabled={total === 0} />
           <button
             onClick={loadEndpoints}
             disabled={loading}
@@ -462,14 +496,14 @@ export default function EndpointsPage() {
         </div>
 
         <div className="divide-y divide-border/40">
-          {endpoints === null && (
+          {items === null && (
             <div className="py-12 text-center text-xs text-muted">Loading endpoints directory…</div>
           )}
-          {endpoints !== null && filtered.length === 0 && (
+          {items !== null && items.length === 0 && (
             <div className="py-12 text-center text-xs text-muted">No endpoints match the specified criteria.</div>
           )}
 
-          {pager.pageItems.map((ep) => {
+          {items?.map((ep) => {
             const isExpanded = expandedId === ep.id;
             const isLoadingThis = loadingDetail === ep.id;
             return (
@@ -552,16 +586,16 @@ export default function EndpointsPage() {
           })}
         </div>
 
-        {endpoints !== null && (
+        {items !== null && (
           <PaginationBar
-            page={pager.page}
-            pageCount={pager.pageCount}
-            pageSize={pager.pageSize}
-            total={pager.total}
-            from={pager.from}
-            to={pager.to}
-            setPage={pager.setPage}
-            setPageSize={pager.setPageSize}
+            page={page}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            total={total}
+            from={from}
+            to={to}
+            setPage={setPage}
+            setPageSize={(size) => { setPageSize(size); setPage(1); }}
           />
         )}
       </div>

@@ -32,9 +32,11 @@ public class AuditQueryController {
      */
     @Operation(summary = "List ISE actions, newest first, optionally filtered to one endpoint")
     @GetMapping("/ise-actions")
-    public List<IseActionAudit> list(@RequestParam(required = false) UUID endpointId) {
+    public List<IseActionAudit> list(@RequestParam(required = false) UUID endpointId,
+            @RequestParam(defaultValue = "500") int limit) {
+        var page = org.springframework.data.domain.PageRequest.of(0, Math.max(1, Math.min(limit, 2000)));
         return endpointId != null
-                ? repository.findAllByEndpointIdOrderByOccurredAtDesc(endpointId)
-                : repository.findAllByOrderByOccurredAtDesc();
+                ? repository.findAllByEndpointIdOrderByOccurredAtDesc(endpointId, page)
+                : repository.findAllByOrderByOccurredAtDesc(page);
     }
 }

@@ -1,6 +1,7 @@
 package com.endpointposture.sim;
 
 import com.endpointposture.dashboard.DashboardService;
+import com.endpointposture.endpoint.EndpointQueryService;
 import com.endpointposture.endpoint.EndpointService;
 import com.endpointposture.job.JobStatus;
 import com.endpointposture.job.PostureJobRepository;
@@ -30,18 +31,20 @@ public class SimReporter {
     private final JdbcTemplate jdbc;
     private final DashboardService dashboard;
     private final EndpointService endpoints;
+    private final EndpointQueryService query;
     private final AssessmentService assessments;
     private final SimulatedIseSessionClient iseClient;
     private long lastComplete = 0;
     private long lastAt = System.currentTimeMillis();
 
     public SimReporter(PostureJobRepository jobs, JdbcTemplate jdbc, DashboardService dashboard,
-                       EndpointService endpoints, AssessmentService assessments,
-                       SimulatedIseSessionClient iseClient) {
+                       EndpointService endpoints, EndpointQueryService query,
+                       AssessmentService assessments, SimulatedIseSessionClient iseClient) {
         this.jobs = jobs;
         this.jdbc = jdbc;
         this.dashboard = dashboard;
         this.endpoints = endpoints;
+        this.query = query;
         this.assessments = assessments;
         this.iseClient = iseClient;
     }
@@ -65,9 +68,10 @@ public class SimReporter {
                     count("endpoint"), count("assessment"), count("check_result"),
                     count("endpoint_inventory"), count("posture_job"));
 
-            log.info("latency ms: dashboardSummary={} dashboardTrend7={} listEndpoints={} latestPostureAll={}",
+            log.info("latency ms: dashboardSummary={} dashboardTrend7={} listEndpoints={} latestPostureAll={} endpointsPage25={} endpointsSearch={}",
                     time(dashboard::summary), time(() -> dashboard.trend(7)),
-                    time(endpoints::listAll), time(assessments::getLatestForAllEndpoints));
+                    time(endpoints::listAll), time(assessments::getLatestForAllEndpoints),
+                    time(() -> query.page(0, 25, null, true, null)), time(() -> query.page(0, 5, "SIM-0123", null, null)));
         } catch (Exception e) {
             log.warn("Report failed: {}", e.getMessage());
         }

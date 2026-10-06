@@ -24,7 +24,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
     api
-      .listEndpoints()
+      .iseStatus()
       .then(() => setReady(true))
       .catch(() => {
         clearToken();

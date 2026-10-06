@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -50,6 +51,8 @@ public class JobController {
      */
     public record EnqueueRequest(@NotNull UUID endpointId, JobType jobType, Integer priority) {}
 
+    public record BulkEnqueueRequest(@NotNull JobType jobType) {}
+
     @Operation(summary = "Manually enqueue a job for an endpoint")
     @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','ANALYST')")
     @PostMapping
@@ -60,6 +63,13 @@ public class JobController {
                 request.priority() != null ? request.priority() : MANUAL_PRIORITY
         );
         return toResponse(job);
+    }
+
+    @Operation(summary = "Enqueue a job for every connected endpoint (one statement)")
+    @PreAuthorize("hasAnyRole('ADMIN','OPERATOR','ANALYST')")
+    @PostMapping("/bulk")
+    public Map<String, Integer> enqueueBulk(@Valid @RequestBody BulkEnqueueRequest request) {
+        return Map.of("queued", jobService.enqueueForConnected(request.jobType(), MANUAL_PRIORITY));
     }
 
     @Operation(summary = "List the newest jobs",

@@ -1,58 +1,59 @@
 package com.endpointposture.endpoint;
 
+import com.endpointposture.endpoint.dto.EndpointListItem;
 import com.endpointposture.endpoint.dto.EndpointResponse;
+import com.endpointposture.endpoint.dto.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
-/**
- * Read-only REST API for endpoints: {@code /api/v1/endpoints}.
- *
- * <p>Endpoints are created by the collectors (posture ingestion, ISE
- * watcher), not through this controller.</p>
- */
+/** Read-only REST API for endpoints: {@code /api/v1/endpoints}. Endpoints are created by collectors, not here. */
 @RestController
 @RequestMapping("/api/v1/endpoints")
 @Tag(name = "Endpoints", description = "Devices discovered through Cisco ISE or posture ingestion. Requires a bearer token.")
 public class EndpointController {
 
     private final EndpointService service;
+    private final EndpointQueryService queryService;
 
-    public EndpointController(EndpointService service) {
+    public EndpointController(EndpointService service, EndpointQueryService queryService) {
         this.service = service;
+        this.queryService = queryService;
     }
 
-    /** @return every known endpoint */
-    @Operation(
-            summary = "List all known endpoints",
-            description = "Returns every endpoint this platform has ever seen, connected "
-                    + "or not. Connection state is tracked independently of posture status "
-                    + "- see the 'connected' field."
-    )
+    @Operation(summary = "List all known endpoints",
+            description = "Returns every endpoint. Fine for small fleets; large screens should use /page.")
     @GetMapping
     public List<EndpointResponse> listAll() {
         return service.listAll();
     }
 
-    /**
-     * @param id the endpoint's internal UUID
-     * @return the endpoint, or {@code 404} if the ID is unknown
-     */
-    @Operation(
-            summary = "Get one endpoint by its internal ID",
-            description = "Looks up by the platform's internal UUID, not the device's MAC "
-                    + "address. MAC address is the real business key used by ingestion; "
-                    + "the UUID exists purely as a stable external API reference."
-    )
+    @Operation(summary = "One page of endpoints with their latest posture status",
+            description = "page is zero-based; size 1..200. status is a comma list of COMPLIANT, NON_COMPLIANT, ERROR, UNASSESSED. "
+                    + "q matches hostname, MAC, IP or OS.")
+    @GetMapping("/page")
+    public PageResponse<EndpointListItem> page(@RequestParam(defaultValue = "0") int page,
+                                               @RequestParam(defaultValue = "25") int size,
+                                               @RequestParam(required = false) String q,
+                                               @RequestParam(required = false) Boolean connected,
+                                               @RequestParam(required = false) String status) {
+        return queryService.page(page, size, q, connected, status);
+    }
+
+    @Operation(summary = "Display names (hostname, else MAC) for up to 100 endpoint ids")
+    @GetMapping("/names")
+    public Map<String, String> names(@RequestParam List<UUID> ids) {
+        return queryService.names(ids);
+    }
+
+    @Operation(summary = "Get one endpoint by its internal ID")
     @GetMapping("/{id}")
-    public EndpointResponse getById(
-            @Parameter(description = "Internal endpoint UUID, from the list response above")
-            @PathVariable UUID id
-    ) {
+    public EndpointResponse getById(@Parameter(description = "Internal endpoint UUID") @PathVariable UUID id) {
         return service.getById(id);
     }
 }

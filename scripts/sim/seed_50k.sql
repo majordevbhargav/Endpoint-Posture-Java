@@ -8,7 +8,7 @@ FROM (
            upper('02:00:' || substr(h,1,2) || ':' || substr(h,3,2) || ':' || substr(h,5,2) || ':' || substr(h,7,2)) AS mac,
            '10.' || ((i >> 16) & 255) || '.' || ((i >> 8) & 255) || '.' || (i & 255) AS ip
     FROM (SELECT i, lpad(to_hex(i), 8, '0') AS h FROM generate_series(1, 50000) AS i) x
-) y
+)
 ON CONFLICT (mac_address) DO NOTHING;
 
 INSERT INTO assessment (id, endpoint_id, status, detail, started_at, completed_at, created_at)
@@ -22,3 +22,8 @@ INSERT INTO check_result (assessment_id, check_type, status, details)
 SELECT a.id, 'FIREWALL', CASE WHEN a.status = 'ERROR' THEN 'COMPLIANT' ELSE a.status END, '{"summary":"sim"}'::jsonb
 FROM assessment a JOIN endpoint e ON e.id = a.endpoint_id
 WHERE e.mac_address LIKE '02:00:%' AND a.detail = 'sim seed';
+UPDATE endpoint e
+   SET latest_assessment_id = a.id, latest_status = a.status, latest_assessed_at = a.created_at
+  FROM (SELECT DISTINCT ON (endpoint_id) id, endpoint_id, status, created_at
+          FROM assessment ORDER BY endpoint_id, created_at DESC) a
+ WHERE a.endpoint_id = e.id AND e.mac_address LIKE '02:00:%';

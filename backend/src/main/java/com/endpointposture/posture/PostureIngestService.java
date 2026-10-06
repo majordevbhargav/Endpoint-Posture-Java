@@ -17,12 +17,16 @@ import java.util.UUID;
 /**
  * Turns a posture report from an agent into stored evidence.
  *
- * <p>One report becomes, in a single transaction: the endpoint found or
+ * <p>
+ * One report becomes, in a single transaction: the endpoint found or
  * created by MAC (plus its hardware identity), one {@link Assessment}, one
  * {@link CheckResult} per check, and one inventory row (ports, apps,
- * processes). If any step fails, nothing is saved.</p>
+ * processes). If any step fails, nothing is saved.
+ * </p>
  *
- * <p><b>Non-negotiable rule:</b> nothing in this class calls Cisco ISE.</p>
+ * <p>
+ * <b>Non-negotiable rule:</b> nothing in this class calls Cisco ISE.
+ * </p>
  */
 @Service
 public class PostureIngestService {
@@ -32,8 +36,8 @@ public class PostureIngestService {
     private final EndpointInventoryRepository inventoryRepository;
 
     public PostureIngestService(EndpointService endpointService,
-                                AssessmentService assessmentService,
-                                EndpointInventoryRepository inventoryRepository) {
+            AssessmentService assessmentService,
+            EndpointInventoryRepository inventoryRepository) {
         this.endpointService = endpointService;
         this.assessmentService = assessmentService;
         this.inventoryRepository = inventoryRepository;
@@ -77,7 +81,10 @@ public class PostureIngestService {
         return saved;
     }
 
-    /** Most severe of the reported status and every check; relies on {@link AssessmentStatus} ordering. */
+    /**
+     * Most severe of the reported status and every check; relies on
+     * {@link AssessmentStatus} ordering.
+     */
     private AssessmentStatus overallStatus(AssessmentStatus reported, List<CheckInput> checks) {
         AssessmentStatus worst = reported;
         for (CheckInput check : checks) {
@@ -89,7 +96,8 @@ public class PostureIngestService {
     }
 
     private String summarize(List<CheckInput> checks) {
-        if (checks.isEmpty()) return "No checks reported";
+        if (checks.isEmpty())
+            return "No checks reported";
 
         List<String> problems = checks.stream()
                 .filter(c -> c.status() != AssessmentStatus.COMPLIANT)
@@ -103,7 +111,8 @@ public class PostureIngestService {
     }
 
     private UUID parseUuidOrNull(String s) {
-        if (s == null || s.isBlank()) return null;
+        if (s == null || s.isBlank())
+            return null;
         try {
             return UUID.fromString(s);
         } catch (IllegalArgumentException e) {

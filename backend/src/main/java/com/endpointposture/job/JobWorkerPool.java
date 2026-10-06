@@ -1,6 +1,7 @@
 package com.endpointposture.job;
 
-import jakarta.annotation.PostConstruct;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,11 +20,15 @@ import java.util.concurrent.atomic.AtomicInteger;
  * sleep only when the queue is empty. Concurrent claiming is safe because
  * the claim query uses FOR UPDATE SKIP LOCKED.
  *
- * <p>Each running job starts a powershell.exe, so size
- * {@code app.jobs.worker-threads} to what the host can bear.</p>
+ * <p>
+ * Each running job starts a powershell.exe, so size
+ * {@code app.jobs.worker-threads} to what the host can bear.
+ * </p>
  *
- * <p>If the backend stops mid-job, the interrupted job stays RUNNING until
- * {@link StaleJobRecoveryScheduler} recovers it.</p>
+ * <p>
+ * If the backend stops mid-job, the interrupted job stays RUNNING until
+ * {@link StaleJobRecoveryScheduler} recovers it.
+ * </p>
  */
 @Component
 @ConditionalOnProperty(name = "app.jobs.workers.enabled", havingValue = "true", matchIfMissing = true)
@@ -38,18 +43,19 @@ public class JobWorkerPool {
     private ExecutorService executor;
 
     public JobWorkerPool(JobWorker worker,
-                         @Value("${app.jobs.worker-threads:4}") int threads,
-                         @Value("${app.jobs.poll-interval-ms:3000}") long idleSleepMs) {
+            @Value("${app.jobs.worker-threads:4}") int threads,
+            @Value("${app.jobs.poll-interval-ms:3000}") long idleSleepMs) {
         this.worker = worker;
         this.threads = Math.max(1, threads);
         this.idleSleepMs = idleSleepMs;
     }
+
     /** @return the configured number of worker threads */
     public int getThreads() {
         return threads;
     }
 
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void start() {
         running = true;
         AtomicInteger n = new AtomicInteger();
@@ -69,7 +75,8 @@ public class JobWorkerPool {
         while (running && !Thread.currentThread().isInterrupted()) {
             try {
                 boolean ranJob = worker.runOnce();
-                if (!ranJob) Thread.sleep(idleSleepMs);
+                if (!ranJob)
+                    Thread.sleep(idleSleepMs);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -89,7 +96,8 @@ public class JobWorkerPool {
     @PreDestroy
     public void stop() {
         running = false;
-        if (executor == null) return;
+        if (executor == null)
+            return;
         executor.shutdownNow(); // interrupts workers; JobWorker kills any child powershell.exe
         try {
             executor.awaitTermination(10, TimeUnit.SECONDS);

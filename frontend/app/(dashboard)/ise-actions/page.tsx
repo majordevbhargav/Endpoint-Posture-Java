@@ -12,7 +12,7 @@ import {
   User,
   Monitor,
 } from "lucide-react";
-import { api, EndpointResponse, IseActionState, IseStatus } from "@/lib/api";
+import { api, EndpointResponse, IseActionAudit, IseStatus } from "@/lib/api";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Column, DataTable } from "@/components/ui/DataTable";
 import { usePolling } from "@/lib/usePolling";
@@ -127,7 +127,7 @@ const columns: Column<EnforcementRow>[] = [
 ];
 
 export default function IseActionsPage() {
-  const [states, setStates] = useState<IseActionState[] | null>(null);
+  const [states, setStates] = useState<IseActionAudit[] | null>(null);
   const [endpoints, setEndpoints] = useState<EndpointResponse[]>([]);
   const [iseStatus, setIseStatus] = useState<IseStatus | null>(null);
   const [search, setSearch] = useState("");
@@ -135,12 +135,27 @@ export default function IseActionsPage() {
 
   const load = async () => {
     try {
-      const [st, epList, stIse] = await Promise.all([
-        api.iseActionsState(),
+      const [audit, epList, stIse] = await Promise.all([
+        api.auditActions(),
         api.listEndpoints().catch(() => [] as EndpointResponse[]),
         api.iseStatus().catch(() => null),
       ]);
-      setStates(st);
+
+      // api.iseActionsState() is not exposed by the current frontend API client.
+      // Reconstruct the same fleet state from the audit log: keep the latest
+      // RESTRICT/CLEAR_RESTRICTION action for each endpoint.
+      const latestByEndpoint = new Map<string, IseActionAudit>();
+      [...audit]
+        .filter((a) => a.actionType === "RESTRICT" || a.actionType === "CLEAR_RESTRICTION")
+        .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+        .forEach((a) => {
+          if (!latestByEndpoint.has(a.endpointId)) {
+            latestByEndpoint.set(a.endpointId, a);
+          }
+        });
+
+      setStates([...latestByEndpoint.values()]);
+
       setEndpoints(epList);
       setIseStatus(stIse);
     } catch {

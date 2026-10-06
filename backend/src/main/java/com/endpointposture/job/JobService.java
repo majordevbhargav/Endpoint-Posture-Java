@@ -20,22 +20,31 @@ import java.util.UUID;
  * The job queue's business logic: enqueue, claim, complete, fail (with
  * retry backoff), recovery, scheduled-recheck decisions and listing.
  *
- * <p>Every state change happens inside a transaction, and claiming uses a
- * row lock so several workers can never run the same job twice.</p>
+ * <p>
+ * Every state change happens inside a transaction, and claiming uses a
+ * row lock so several workers can never run the same job twice.
+ * </p>
  *
- * <p>Priority convention: manual jobs use 10, automatic ones 0.</p>
+ * <p>
+ * Priority convention: manual jobs use 10, automatic ones 0.
+ * </p>
  */
 @Service
 public class JobService {
 
-    /** Default minimum gap between a completed check and a reconnect-triggered one. */
+    /**
+     * Default minimum gap between a completed check and a reconnect-triggered one.
+     */
     static final Duration DEFAULT_RECONNECT_MIN_GAP = Duration.ofMinutes(60);
 
     private final PostureJobRepository jobRepository;
     private final EndpointRepository endpointRepository;
     private final Duration reconnectMinGap;
 
-    /** Uses {@link #DEFAULT_RECONNECT_MIN_GAP}. Kept so existing tests can build the service directly. */
+    /**
+     * Uses {@link #DEFAULT_RECONNECT_MIN_GAP}. Kept so existing tests can build the
+     * service directly.
+     */
     public JobService(PostureJobRepository jobRepository, EndpointRepository endpointRepository) {
         this(jobRepository, endpointRepository, DEFAULT_RECONNECT_MIN_GAP);
     }
@@ -43,20 +52,22 @@ public class JobService {
     /**
      * Constructor used by Spring.
      *
-     * @param reconnectMinGapMinutes {@code app.jobs.reconnect-min-gap-minutes}; a reconnect does
-     *                               not queue a new check if the last one completed within this
+     * @param reconnectMinGapMinutes {@code app.jobs.reconnect-min-gap-minutes}; a
+     *                               reconnect does
+     *                               not queue a new check if the last one completed
+     *                               within this
      *                               many minutes. {@code 0} disables the gap.
      */
     @Autowired
     public JobService(PostureJobRepository jobRepository,
-                      EndpointRepository endpointRepository,
-                      @Value("${app.jobs.reconnect-min-gap-minutes:60}") long reconnectMinGapMinutes) {
+            EndpointRepository endpointRepository,
+            @Value("${app.jobs.reconnect-min-gap-minutes:60}") long reconnectMinGapMinutes) {
         this(jobRepository, endpointRepository, Duration.ofMinutes(Math.max(0, reconnectMinGapMinutes)));
     }
 
     private JobService(PostureJobRepository jobRepository,
-                       EndpointRepository endpointRepository,
-                       Duration reconnectMinGap) {
+            EndpointRepository endpointRepository,
+            Duration reconnectMinGap) {
         this.jobRepository = jobRepository;
         this.endpointRepository = endpointRepository;
         this.reconnectMinGap = reconnectMinGap;
@@ -82,6 +93,14 @@ public class JobService {
                 .build();
 
         return jobRepository.save(job);
+    }
+
+    /**
+     * Queues one job of this type for every connected endpoint that has a target and nothing pending.
+     */
+    @Transactional
+    public int enqueueForConnected(JobType type, int priority) {
+        return jobRepository.enqueueForConnected(type.name(), priority);
     }
 
     /**
@@ -151,13 +170,15 @@ public class JobService {
     public boolean markFailedIfRunning(UUID jobId, String errorMessage) {
         boolean running = jobRepository.findById(jobId)
                 .map(j -> j.getStatus() == JobStatus.RUNNING).orElse(false);
-        if (!running) return false;
+        if (!running)
+            return false;
         markFailed(jobId, errorMessage);
         return true;
     }
 
     /**
-     * @param limit how many jobs to return; the caller is responsible for keeping it sensible
+     * @param limit how many jobs to return; the caller is responsible for keeping
+     *              it sensible
      * @return the newest jobs first, at most {@code limit} of them
      */
     @Transactional(readOnly = true)
@@ -180,10 +201,12 @@ public class JobService {
      * RUNNING for the endpoint, or the last one COMPLETED within the reconnect
      * minimum gap ({@code app.jobs.reconnect-min-gap-minutes}, default 60).
      *
-     * <p>Without the gap, every device reconnecting each morning would queue a
+     * <p>
+     * Without the gap, every device reconnecting each morning would queue a
      * fresh check even if it was checked minutes earlier. Prevents the session
      * watcher flooding the queue. Regular timed rechecks are decided by
-     * {@link #enqueueIfDue(UUID, JobType, Duration, Duration)}.</p>
+     * {@link #enqueueIfDue(UUID, JobType, Duration, Duration)}.
+     * </p>
      */
     @Transactional
     public void enqueueIfDue(UUID endpointId, JobType type) {
@@ -196,7 +219,8 @@ public class JobService {
         if (!reconnectMinGap.isZero()) {
             Instant tooRecentAfter = Instant.now().minus(reconnectMinGap);
             boolean checkedRecently = jobRepository
-                    .findFirstByEndpoint_IdAndJobTypeAndStatusOrderByCompletedAtDesc(endpointId, type, JobStatus.COMPLETE)
+                    .findFirstByEndpoint_IdAndJobTypeAndStatusOrderByCompletedAtDesc(endpointId, type,
+                            JobStatus.COMPLETE)
                     .map(PostureJob::getCompletedAt)
                     .map(done -> done.isAfter(tooRecentAfter))
                     .orElse(false);

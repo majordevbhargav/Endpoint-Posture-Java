@@ -16,17 +16,41 @@ public interface AssessmentRepository extends JpaRepository<Assessment, UUID> {
     /** @return that endpoint's assessments, newest first */
     List<Assessment> findByEndpointIdOrderByCreatedAtDesc(UUID endpointId);
 
-    /** @return its most recent assessment, or empty if it has never been assessed */
+    /**
+     * @return its most recent assessment, or empty if it has never been assessed
+     */
     Optional<Assessment> findFirstByEndpointIdOrderByCreatedAtDesc(UUID endpointId);
 
-    /** @return true if the endpoint has at least one assessment whose status is not the given one */
+    /**
+     * @return true if the endpoint has at least one assessment whose status is not
+     *         the given one
+     */
     boolean existsByEndpointIdAndStatusNot(UUID endpointId, AssessmentStatus status);
 
-    /** @return the newest assessment for every endpoint that has at least one */
+    /**
+     * @return the newest assessment of every endpoint that has one (via
+     *         endpoint.latest_assessment_id)
+     */
     @Query(value = """
-            SELECT DISTINCT ON (endpoint_id) *
-            FROM assessment
-            ORDER BY endpoint_id, created_at DESC
+            SELECT a.* FROM assessment a
+              JOIN endpoint e ON e.latest_assessment_id = a.id
             """, nativeQuery = true)
     List<Assessment> findLatestPerEndpoint();
+
+    /**
+     * Moves the endpoint's "latest" pointer forward; never backwards (a late, older
+     * write cannot win).
+     */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @Query(value = """
+            UPDATE endpoint
+               SET latest_assessment_id = :id, latest_status = :status,
+                   latest_assessed_at = CAST(:at AS timestamptz)
+             WHERE id = :endpointId
+               AND (latest_assessed_at IS NULL OR latest_assessed_at <= CAST(:at AS timestamptz))
+            """, nativeQuery = true)
+    int updateEndpointLatest(@org.springframework.data.repository.query.Param("endpointId") UUID endpointId,
+            @org.springframework.data.repository.query.Param("id") UUID id,
+            @org.springframework.data.repository.query.Param("status") String status,
+            @org.springframework.data.repository.query.Param("at") java.time.Instant at);
 }

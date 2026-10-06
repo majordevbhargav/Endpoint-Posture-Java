@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, ChevronDown, LogOut, Monitor, ExternalLink, Shield } from "lucide-react";
+import { Search, ChevronDown, LogOut, Monitor, ExternalLink } from "lucide-react";
 import { api, clearToken, EndpointResponse } from "@/lib/api";
 import { clearCurrentUser, getCurrentUser, initials, CurrentUser } from "@/lib/auth";
 import { ThemeToggle } from "./ThemeToggle";
@@ -15,7 +15,6 @@ export function Topbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<EndpointResponse[]>([]);
-  const [allEndpoints, setAllEndpoints] = useState<EndpointResponse[]>([]);
   const [searchFocused, setSearchFocused] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
@@ -23,7 +22,6 @@ export function Topbar() {
 
   useEffect(() => {
     setUser(getCurrentUser());
-    api.listEndpoints().then(setAllEndpoints).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -40,20 +38,16 @@ export function Topbar() {
   }, []);
 
   useEffect(() => {
-    if (!searchTerm.trim()) {
+    const q = searchTerm.trim();
+    if (!q) {
       setSearchResults([]);
       return;
     }
-    const q = searchTerm.toLowerCase();
-    const hits = allEndpoints.filter(
-      (ep) =>
-        ep.macAddress.toLowerCase().includes(q) ||
-        (ep.ipAddress && ep.ipAddress.toLowerCase().includes(q)) ||
-        (ep.hostname && ep.hostname.toLowerCase().includes(q)) ||
-        (ep.osName && ep.osName.toLowerCase().includes(q))
-    );
-    setSearchResults(hits.slice(0, 5));
-  }, [searchTerm, allEndpoints]);
+    const t = setTimeout(() => {
+      api.endpointsPage({ q, size: 5 }).then((r) => setSearchResults(r.items)).catch(() => setSearchResults([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   function signOut() {
     clearToken();

@@ -6,60 +6,66 @@ import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-/** Read-only aggregate queries for the dashboard. */
+/** Read-only aggregate queries for the dashboard. All of them read the endpoint table, not assessment history. */
 public interface DashboardRepository extends Repository<Assessment, UUID> {
 
-    interface TrendRow {
-        String getDay();
-        long getAssessed();
-        long getCompliant();
+    interface FleetRow {
+        long getTotal(); long getConnected(); long getCompliant(); long getNonCompliant();
+        long getError(); long getUnassessed(); long getStale();
     }
 
-    interface CategoryRow {
-        String getCheckType();
-        long getTotal();
-        long getPassing();
-    }
+    interface AssessedRow { long getAssessed(); long getCompliant(); }
 
-    /**
-     * For each day between from and to (inclusive), each endpoint's latest
-     * assessment created before the end of that day, counted overall and as COMPLIANT.
-     */
+    interface TrendRow { String getDay(); long getAssessed(); long getCompliant(); }
+
+    interface CategoryRow { String getCheckType(); long getTotal(); long getPassing(); }
+
+    /** One pass over endpoint: totals, and posture buckets for connected devices only. */
     @Query(value = """
-            SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
-                   COUNT(a.id) AS assessed,
-                   COUNT(a.id) FILTER (WHERE a.status = 'COMPLIANT') AS compliant
-            FROM generate_series(CAST(:from AS timestamptz), CAST(:to AS timestamptz), interval '1 day') AS d(day)
-            CROSS JOIN endpoint e
-            LEFT JOIN LATERAL (
-                SELECT a2.id, a2.status
-                FROM assessment a2
-                WHERE a2.endpoint_id = e.id
-                  AND a2.created_at < d.day + interval '1 day'
-                ORDER BY a2.created_at DESC
-                LIMIT 1
-            ) a ON TRUE
-            GROUP BY d.day
-            ORDER BY d.day
+            SELECT COUNT(*) AS "total",
+                   COUNT(*) FILTER (WHERE connected) AS "connected",
+                   COUNT(*) FILTER (WHERE connected AND latest_status = 'COMPLIANT') AS "compliant",
+                   COUNT(*) FILTER (WHERE connected AND latest_status = 'NON_COMPLIANT') AS "nonCompliant",
+                   COUNT(*) FILTER (WHERE connected AND latest_status = 'ERROR') AS "error",
+                   COUNT(*) FILTER (WHERE connected AND latest_status IS NULL) AS "unassessed",
+                   COUNT(*) FILTER (WHERE connected AND latest_status IS NOT NULL
+                                      AND latest_assessed_at < CAST(:staleBefore AS timestamptz)) AS "stale"
+              FROM endpoint
             """, nativeQuery = true)
-    List<TrendRow> trend(@Param("from") Instant from, @Param("to") Instant to);
+    FleetRow fleet(@Param("staleBefore") Instant staleBefore);
 
-    /** Pass counts per check type, using each endpoint's latest assessment only. */
+    /** Today's live point: every endpoint with an assessment, and how many of them are COMPLIANT. */
+    @Query(value = """
+            SELECT COUNT(latest_status) AS "assessed",
+                   COUNT(*) FILTER (WHERE latest_status = 'COMPLIANT') AS "compliant"
+              FROM endpoint
+            """, nativeQuery = true)
+    AssessedRow assessedNow();
+
+    /** Stored daily points, inclusive. */
+    @Query(value = """
+            SELECT to_char(day, 'YYYY-MM-DD') AS "day",
+                   CAST(assessed AS bigint) AS "assessed",
+                   CAST(compliant AS bigint) AS "compliant"
+              FROM compliance_daily
+             WHERE day BETWEEN CAST(:from AS date) AND CAST(:to AS date)
+             ORDER BY day
+            """, nativeQuery = true)
+    List<TrendRow> rollup(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** Pass counts per check type, from each endpoint's latest assessment. */
     @Query(value = """
             SELECT cr.check_type AS "checkType",
-                   COUNT(*) AS total,
-                   COUNT(*) FILTER (WHERE cr.status = 'COMPLIANT') AS passing
-            FROM check_result cr
-            JOIN (
-                SELECT DISTINCT ON (endpoint_id) id
-                FROM assessment
-                ORDER BY endpoint_id, created_at DESC
-            ) la ON la.id = cr.assessment_id
-            GROUP BY cr.check_type
-            ORDER BY cr.check_type
+                   COUNT(*) AS "total",
+                   COUNT(*) FILTER (WHERE cr.status = 'COMPLIANT') AS "passing"
+              FROM endpoint e
+              JOIN check_result cr ON cr.assessment_id = e.latest_assessment_id
+             GROUP BY cr.check_type
+             ORDER BY cr.check_type
             """, nativeQuery = true)
     List<CategoryRow> categories();
 }

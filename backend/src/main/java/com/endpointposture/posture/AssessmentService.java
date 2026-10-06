@@ -68,6 +68,13 @@ public class AssessmentService {
 
         assessment = assessmentRepository.save(assessment);
 
+        assessmentRepository.updateEndpointLatest(
+                endpointId,
+                assessment.getId(),
+                assessment.getStatus().name(),
+                assessment.getCreatedAt() != null ? assessment.getCreatedAt() : Instant.now()
+        );
+
         UUID assessmentId = assessment.getId();
         for (CheckInput check : checks) {
             CheckResult result = CheckResult.builder()

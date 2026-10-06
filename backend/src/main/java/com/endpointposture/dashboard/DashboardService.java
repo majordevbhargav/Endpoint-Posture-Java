@@ -3,96 +3,82 @@ package com.endpointposture.dashboard;
 import com.endpointposture.dashboard.DashboardDtos.CategoryRate;
 import com.endpointposture.dashboard.DashboardDtos.Summary;
 import com.endpointposture.dashboard.DashboardDtos.TrendPoint;
-import com.endpointposture.endpoint.EndpointRepository;
-import com.endpointposture.posture.Assessment;
-import com.endpointposture.posture.AssessmentRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.endpointposture.endpoint.Endpoint;
-import java.util.Set;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Read-only dashboard numbers. Never calls ISE.
+ * Read-only dashboard numbers. Never calls ISE. Everything here is one or two indexed
+ * reads of the endpoint table (and compliance_daily), whatever the fleet size.
  *
- * <p>Trend definition: for each UTC day, take every endpoint's latest assessment
- * created before the end of that day; the percentage is COMPLIANT / assessed.</p>
+ * <p>Trend: past UTC days come from the {@code compliance_daily} rollup, written every
+ * 15 minutes by {@link TrendRollupScheduler} (a day's last snapshot is its final value).
+ * Today is computed live. Days with no stored row show {@code null}.</p>
  */
 @Service
 public class DashboardService {
 
-    private final EndpointRepository endpoints;
-    private final AssessmentRepository assessments;
     private final DashboardRepository dashboard;
     private final long postureHours;
 
-    public DashboardService(EndpointRepository endpoints,
-                            AssessmentRepository assessments,
-                            DashboardRepository dashboard,
+    public DashboardService(DashboardRepository dashboard,
                             @Value("${app.jobs.recheck.posture-hours:4}") long postureHours) {
-        this.endpoints = endpoints;
-        this.assessments = assessments;
         this.dashboard = dashboard;
         this.postureHours = postureHours;
     }
 
-@Transactional(readOnly = true)
-public Summary summary() {
-    long total = endpoints.count();
-    Set<UUID> connectedIds = endpoints.findAllByConnectedTrue().stream()
-            .map(Endpoint::getId).collect(Collectors.toSet());
-    long connected = connectedIds.size();
-
-    Instant staleBefore = Instant.now().minus(Duration.ofHours(2 * postureHours));
-    long compliant = 0, nonCompliant = 0, error = 0, stale = 0, assessedConnected = 0;
-
-    for (Assessment a : assessments.findLatestPerEndpoint()) {
-        if (!connectedIds.contains(a.getEndpointId())) continue; // live counts: connected devices only
-        assessedConnected++;
-        switch (a.getStatus()) {
-            case COMPLIANT -> compliant++;
-            case NON_COMPLIANT -> nonCompliant++;
-            case ERROR -> error++;
-        }
-        if (a.getCreatedAt() != null && a.getCreatedAt().isBefore(staleBefore)) stale++;
+    @Transactional(readOnly = true)
+    public Summary summary() {
+        Instant staleBefore = Instant.now().minus(Duration.ofHours(2 * postureHours));
+        DashboardRepository.FleetRow r = dashboard.fleet(staleBefore);
+        return new Summary(r.getTotal(), r.getConnected(), Math.max(0, r.getTotal() - r.getConnected()),
+                r.getCompliant(), r.getNonCompliant(), r.getError(), r.getUnassessed(), r.getStale());
     }
-
-    long unassessed = Math.max(0, connected - assessedConnected);
-    return new Summary(total, connected, Math.max(0, total - connected),
-            compliant, nonCompliant, error, unassessed, stale);
-}
 
     @Transactional(readOnly = true)
     public List<TrendPoint> trend(int days) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        Instant from = today.minusDays(days - 1L).atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant to = today.atStartOfDay(ZoneOffset.UTC).toInstant();
+        LocalDate from = today.minusDays(days - 1L);
 
-        return dashboard.trend(from, to).stream()
-                .map(r -> new TrendPoint(
-                        r.getDay(),
-                        r.getAssessed(),
-                        r.getAssessed() == 0 ? null : round1(100.0 * r.getCompliant() / r.getAssessed())))
-                .toList();
+        Map<String, DashboardRepository.TrendRow> stored = new HashMap<>();
+        if (from.isBefore(today)) {
+            for (DashboardRepository.TrendRow r : dashboard.rollup(from, today.minusDays(1))) {
+                stored.put(r.getDay(), r);
+            }
+        }
+        DashboardRepository.AssessedRow now = dashboard.assessedNow();
+
+        List<TrendPoint> out = new ArrayList<>();
+        for (LocalDate d = from; !d.isAfter(today); d = d.plusDays(1)) {
+            if (d.equals(today)) {
+                out.add(point(d.toString(), now.getAssessed(), now.getCompliant()));
+            } else {
+                DashboardRepository.TrendRow r = stored.get(d.toString());
+                out.add(r == null ? point(d.toString(), 0, 0) : point(d.toString(), r.getAssessed(), r.getCompliant()));
+            }
+        }
+        return out;
     }
 
     @Transactional(readOnly = true)
     public List<CategoryRate> categories() {
         return dashboard.categories().stream()
-                .map(r -> new CategoryRate(
-                        r.getCheckType(),
-                        r.getTotal(),
-                        r.getPassing(),
+                .map(r -> new CategoryRate(r.getCheckType(), r.getTotal(), r.getPassing(),
                         r.getTotal() == 0 ? 0 : round1(100.0 * r.getPassing() / r.getTotal())))
                 .toList();
+    }
+
+    private static TrendPoint point(String date, long assessed, long compliant) {
+        return new TrendPoint(date, assessed, assessed == 0 ? null : round1(100.0 * compliant / assessed));
     }
 
     private static double round1(double v) {

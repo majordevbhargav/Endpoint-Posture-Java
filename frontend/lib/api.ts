@@ -277,6 +277,18 @@ export function clearToken() {
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
+export interface EndpointListItem extends EndpointResponse {
+  postureStatus: AssessmentStatus | null;
+  postureAt: string | null;
+}
+
+export interface PageResponse<T> {
+  items: T[];
+  total: number;
+  page: number; // zero-based
+  size: number;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const res = await fetch(path, {
@@ -382,9 +394,25 @@ export const api = {
       body: JSON.stringify({ endpointId }),
     }),
 
-  auditActions: (endpointId?: string) =>
-    request<IseActionAudit[]>(`/api/v1/audit/ise-actions${endpointId ? `?endpointId=${endpointId}` : ""}`),
-  iseActionsState: () => request<IseActionState[]>("/api/v1/ise/actions/state"),
+  endpointsPage: (p: { page?: number; size?: number; q?: string; connected?: boolean; status?: string } = {}) => {
+    const qs = new URLSearchParams({ page: String(p.page ?? 0), size: String(p.size ?? 25) });
+    if (p.q?.trim()) qs.set("q", p.q.trim());
+    if (p.connected !== undefined) qs.set("connected", String(p.connected));
+    if (p.status && p.status !== "ALL") qs.set("status", p.status);
+    return request<PageResponse<EndpointListItem>>(`/api/v1/endpoints/page?${qs}`);
+  },
+  endpointNames: (ids: string[]) =>
+    ids.length === 0
+      ? Promise.resolve({} as Record<string, string>)
+      : request<Record<string, string>>(`/api/v1/endpoints/names?ids=${ids.join(",")}`),
+  bulkEnqueue: (jobType: JobType) =>
+    request<{ queued: number }>("/api/v1/jobs/bulk", { method: "POST", body: JSON.stringify({ jobType }) }),
+
+  auditActions: (endpointId?: string, limit = 500) => {
+    const qs = new URLSearchParams({ limit: String(limit) });
+    if (endpointId) qs.set("endpointId", endpointId);
+    return request<IseActionAudit[]>(`/api/v1/audit/ise-actions?${qs}`);
+  },
 
   iseStatus: () => request<IseStatus>("/api/v1/ise/status"),
   systemHealth: () => request<SystemHealth>("/api/v1/system/health"),

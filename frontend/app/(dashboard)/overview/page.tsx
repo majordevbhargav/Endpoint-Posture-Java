@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import {useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Monitor,
@@ -19,8 +19,7 @@ import {
 } from "lucide-react";
 import {
   api,
-  EndpointResponse,
-  AssessmentStatus,
+  EndpointListItem,
   IseActionAudit,
   DashboardSummary,
   TrendPoint,
@@ -37,19 +36,6 @@ import { TrendChart } from "@/components/dashboard/TrendChart";
 import { RiskList, RiskItem } from "@/components/dashboard/RiskList";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ConnectionDot } from "@/components/ui/ConnectionDot";
-
-interface EndpointRow extends EndpointResponse {
-  status?: AssessmentStatus;
-}
-
-type Band = "healthy" | "atRisk" | "critical" | "unassessed";
-
-function bandFor(status?: AssessmentStatus): Band {
-  if (status === "COMPLIANT") return "healthy";
-  if (status === "NON_COMPLIANT") return "atRisk";
-  if (status === "ERROR") return "critical";
-  return "unassessed"; // never checked: not counted as compliant
-}
 
 /** "ATTRIBUTE" -> "Attribute" */
 function titleCase(s: string): string {
@@ -77,30 +63,24 @@ function SectionHeader({
 }
 
 interface OverviewData {
-  rows: EndpointRow[];
-  audit: IseActionAudit[];
   summary: DashboardSummary | null;
   trend: TrendPoint[];
+  live: EndpointListItem[];
+  risks: EndpointListItem[];
+  audit: IseActionAudit[];
+  names: Record<string, string>;
 }
 
 async function fetchOverview(): Promise<OverviewData> {
-  // Per-row status still comes from the fleet call; KPI numbers and the trend come from the dashboard APIs.
-  const [endpoints, latest, summary, trend] = await Promise.all([
-    api.listEndpoints(),
-    api.latestPostureAll(),
+  const [summary, trend, live, risks, audit] = await Promise.all([
     api.dashboardSummary().catch(() => null),
     api.dashboardTrend(7).catch(() => [] as TrendPoint[]),
+    api.endpointsPage({ connected: true, size: 8 }),
+    api.endpointsPage({ connected: true, status: "NON_COMPLIANT,ERROR", size: 5 }),
+    api.auditActions(undefined, 8).catch(() => [] as IseActionAudit[]),
   ]);
-  const byEndpoint = new Map(latest.map((a) => [a.endpointId, a]));
-  const rows: EndpointRow[] = endpoints.map((e) => ({ ...e, status: byEndpoint.get(e.id)?.status }));
-
-  let audit: IseActionAudit[] = [];
-  try {
-    audit = (await api.auditActions()).slice(0, 8);
-  } catch {
-    /* audit table is optional */
-  }
-  return { rows, audit, summary, trend };
+  const names = await api.endpointNames([...new Set(audit.map((a) => a.endpointId))]).catch(() => ({}));
+  return { summary, trend, live: live.items, risks: risks.items, audit, names };
 }
 
 export default function OverviewPage() {
@@ -114,93 +94,76 @@ export default function OverviewPage() {
     ttlMs: 15000,
     pollMs: 20000,
   });
-  const rows = data?.rows ?? null;
   const audit = data?.audit ?? [];
   const summary = data?.summary ?? null;
 
   const [searchFilter, setSearchFilter] = useState("");
+  const [searchRows, setSearchRows] = useState<EndpointListItem[] | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
+  // The live-device filter asks the server, so it searches the whole fleet, not just the 8 rows shown.
+  useEffect(() => {
+    const q = searchFilter.trim();
+    if (!q) {
+      setSearchRows(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      api.endpointsPage({ connected: true, q, size: 8 }).then((r) => setSearchRows(r.items)).catch(() => setSearchRows([]));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchFilter]);
+
   const stats = useMemo(() => {
-    const list = rows ?? [];
-    // Posture numbers cover CONNECTED devices only. The backend summary already
-    // does this; the fallback below mirrors it if the summary call failed.
-    const connectedList = list.filter((r) => r.connected);
-    const healthy = summary
-      ? summary.compliant
-      : connectedList.filter((r) => bandFor(r.status) === "healthy").length;
-    const atRisk = summary
-      ? summary.nonCompliant
-      : connectedList.filter((r) => bandFor(r.status) === "atRisk").length;
-    const critical = summary
-      ? summary.error
-      : connectedList.filter((r) => bandFor(r.status) === "critical").length;
+    const healthy = summary?.compliant ?? 0;
+    const atRisk = summary?.nonCompliant ?? 0;
+    const critical = summary?.error ?? 0;
     const assessed = healthy + atRisk + critical;
-    // Stored flag: while ISE is down this is the last known state (ConnectionDot labels it).
-    const connected = connectedList.length;
-    const total = summary ? summary.total : list.length;
-    const score = assessed === 0 ? null : Math.round((healthy / assessed) * 100);
-    const stale = summary ? summary.stale : 0;
-    const unassessed = summary
-      ? summary.unassessed
-      : connectedList.filter((r) => bandFor(r.status) === "unassessed").length;
-    return { healthy, atRisk, critical, assessed, connected, total, score, stale, unassessed };
-  }, [rows, summary]);
+    return {
+      healthy, atRisk, critical, assessed,
+      connected: summary?.connected ?? 0,
+      total: summary?.total ?? 0,
+      score: assessed === 0 ? null : Math.round((healthy / assessed) * 100),
+      stale: summary?.stale ?? 0,
+      unassessed: summary?.unassessed ?? 0,
+    };
+  }, [summary]);
 
   const risks: RiskItem[] = useMemo(
     () =>
-      (rows ?? [])
-        .filter((r) => r.connected && ["atRisk", "critical"].includes(bandFor(r.status)))
-        .slice(0, 5)
-        .map((r) => ({
-          id: r.id,
-          severity: bandFor(r.status) === "critical" ? "Critical" : "High",
-          title: r.hostname ?? r.macAddress,
-          subtitle:
-            r.status === "ERROR"
-              ? "CIM/WinRM collection error on last run"
-              : "Firewall disabled or policy non-compliant",
-        })),
-    [rows]
+      (data?.risks ?? []).map((r) => ({
+        id: r.id,
+        severity: r.postureStatus === "ERROR" ? "Critical" : "High",
+        title: r.hostname ?? r.macAddress,
+        subtitle:
+          r.postureStatus === "ERROR"
+            ? "CIM/WinRM collection error on last run"
+            : "Firewall disabled or policy non-compliant",
+      })),
+    [data]
   );
 
-  const liveRows = useMemo(() => {
-    const live = (rows ?? []).filter((r) => r.connected);
-    const q = searchFilter.trim().toLowerCase();
-    if (!q) return live;
-    return live.filter(
-      (r) =>
-        r.macAddress.toLowerCase().includes(q) ||
-        r.hostname?.toLowerCase().includes(q) ||
-        r.ipAddress?.toLowerCase().includes(q)
-    );
-  }, [rows, searchFilter]);
-
-  const nameById = useMemo(
-    () => new Map((rows ?? []).map((r) => [r.id, r.hostname ?? r.macAddress])),
-    [rows]
-  );
-
+  const liveRows = searchRows ?? data?.live ?? [];
+  const nameById = useMemo(() => new Map(Object.entries(data?.names ?? {})), [data]);
   const offlineCount = stats.total - stats.connected;
 
-  // Read from the backend so these labels can never disagree with application.yml.
   const pollLabel = ise?.pollIntervalSeconds != null ? `${ise.pollIntervalSeconds}s` : "—";
   const modeLabel = ise?.enforcementMode ? titleCase(ise.enforcementMode) : "—";
 
   async function triggerScanAll() {
     if (!mayEnqueue) return;
-    // Agents talk to endpoints directly, so scanning works even while the ISE poll is down.
-    const targets = (rows ?? []).filter((r) => r.connected);
-    if (targets.length === 0) {
-      setActionNotice("No connected devices to scan right now.");
-      setTimeout(() => setActionNotice(null), 4000);
-      return;
-    }
     setActionNotice("Queuing posture checks for connected endpoints…");
-    const results = await Promise.allSettled(targets.map((r) => api.enqueueJob(r.id, "POSTURE_CHECK")));
-    const queued = results.filter((x) => x.status === "fulfilled").length;
-    setActionNotice(`Queued ${queued} posture checks. Follow progress in Assessment Queue.`);
-    reload();
+    try {
+      const res = await api.bulkEnqueue("POSTURE_CHECK");
+      setActionNotice(
+        res.queued === 0
+          ? "Nothing to queue: every connected device already has a check pending."
+          : `Queued ${res.queued} posture checks. Follow progress in Assessment Queue.`
+      );
+      reload();
+    } catch (e) {
+      setActionNotice(e instanceof Error ? e.message : "Could not queue the scan.");
+    }
     setTimeout(() => setActionNotice(null), 5000);
   }
 
@@ -208,14 +171,7 @@ export default function OverviewPage() {
     downloadCsv(
       datedFilename("live-endpoints"),
       ["Hostname", "MAC Address", "IP Address", "Operating System", "Posture Status", "Last Seen (UTC)"],
-      liveRows.map((r) => [
-        r.hostname,
-        r.macAddress,
-        r.ipAddress,
-        r.osName,
-        r.status ?? "UNASSESSED",
-        r.lastSeenAt,
-      ])
+      liveRows.map((r) => [r.hostname, r.macAddress, r.ipAddress, r.osName, r.postureStatus ?? "UNASSESSED", r.lastSeenAt])
     );
   }
 
@@ -429,7 +385,7 @@ export default function OverviewPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
-              {rows === null && (
+              {data === null && (
                 <tr>
                   <td colSpan={7} className="py-10 text-center text-muted">
                     {error
@@ -438,7 +394,7 @@ export default function OverviewPage() {
                   </td>
                 </tr>
               )}
-              {rows !== null && liveRows.length === 0 && (
+              {data !== null && liveRows.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-10 text-center text-muted">
                     {iseDown
@@ -447,7 +403,7 @@ export default function OverviewPage() {
                   </td>
                 </tr>
               )}
-              {liveRows.slice(0, 8).map((r) => (
+              {liveRows.map((r) => (
                 <tr key={r.id} className="transition hover:bg-ink/[0.03]">
                   <td className="py-3.5 pr-4">
                     <Link href={`/endpoints/${r.id}`} className="font-mono font-medium text-accent hover:underline">
@@ -461,7 +417,7 @@ export default function OverviewPage() {
                     <ConnectionDot connected={r.connected} />
                   </td>
                   <td className="py-3.5 pr-4">
-                    {r.status ? <StatusBadge value={r.status} /> : <span className="text-muted">Not assessed</span>}
+                    {r.postureStatus ? <StatusBadge value={r.postureStatus} /> : <span className="text-muted">Not assessed</span>}
                   </td>
                   <td className="py-3.5 pr-4 text-muted">
                     {new Date(r.lastSeenAt).toLocaleString([], {
