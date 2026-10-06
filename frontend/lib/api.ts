@@ -624,15 +624,9 @@ export const api = {
     return request<IseActionAudit[]>(`/api/v1/audit/ise-actions?${qs}`);
   },
 
-  /*
-   * Returns the latest ISE action state for each endpoint.
-   *
-   * IMPORTANT:
-   * This requires the backend endpoint:
-   * GET /api/v1/audit/ise-actions/state
-   */
+
   iseActionsState: () =>
-    request<IseActionState[]>("/api/v1/audit/ise-actions/state"),
+  request<IseActionState[]>("/api/v1/ise/actions/state"),
 
   iseStatus: () => request<IseStatus>("/api/v1/ise/status"),
 
