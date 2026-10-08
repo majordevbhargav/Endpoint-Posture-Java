@@ -59,10 +59,19 @@ app:
     username: ${SEED_ADMIN_USER:admin}
     password: ${SEED_ADMIN_PASSWORD}
 
+  docs:
+    public: false
+
   security:
+    trust-forwarded-for: false
     login:
       max-attempts: 5
       lock-minutes: 5
+      rate-limit:
+        enabled: true
+        capacity: 10
+        refill-tokens: 10
+        refill-duration-seconds: 60
 
   api:
     # S12: /posture/latest and /hardware-health/latest (whole fleet) refuse to run

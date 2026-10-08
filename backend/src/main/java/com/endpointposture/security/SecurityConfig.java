@@ -21,12 +21,18 @@ public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
     private final PostureApiKeyFilter postureApiKeyFilter;
+    private final SecurityHeadersFilter securityHeadersFilter;
+    private final boolean docsPublic;
 
     public SecurityConfig(
             JwtAuthFilter jwtAuthFilter,
-            PostureApiKeyFilter postureApiKeyFilter) {
+            PostureApiKeyFilter postureApiKeyFilter,
+            SecurityHeadersFilter securityHeadersFilter,
+            @Value("${app.docs.public:false}") boolean docsPublic) {
         this.jwtAuthFilter = jwtAuthFilter;
         this.postureApiKeyFilter = postureApiKeyFilter;
+        this.securityHeadersFilter = securityHeadersFilter;
+        this.docsPublic = docsPublic;
     }
 
     @Bean
@@ -43,39 +49,45 @@ public class SecurityConfig {
                 .sessionManagement(sm ->
                         sm.sessionCreationPolicy(
                                 SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/api/v1/auth/**",
-                                "/actuator/health",
-                                "/error",
+                .authorizeHttpRequests(auth -> {
+                    auth.requestMatchers(
+                            "/api/v1/auth/**",
+                            "/actuator/health",
+                            "/error"
+                    ).permitAll();
+
+                    if (docsPublic) {
+                        auth.requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs",
-                                "/v3/api-docs/**")
-                        .permitAll()
-                        .requestMatchers(
-                                "/actuator/prometheus")
-                        .hasRole("ADMIN")
+                                "/v3/api-docs/**"
+                        ).permitAll();
+                    } else {
+                        auth.requestMatchers(
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/v3/api-docs",
+                                "/v3/api-docs/**"
+                        ).hasRole("ADMIN");
+                    }
+
+                    auth.requestMatchers("/actuator/prometheus").hasRole("ADMIN")
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/v1/posture",
                                 "/api/v1/hardware-health",
                                 "/api/v1/diagnostics",
-                                "/api/v1/security-indicators")
-                        .hasAnyRole("AGENT", "ADMIN")
-                        .requestMatchers(
-                                HttpMethod.PUT,
-                                "/api/v1/policy/**")
-                        .hasRole("ADMIN")
-                        .requestMatchers(
-                                HttpMethod.POST,
-                                "/api/v1/warranty/upload")
-                        .hasRole("ADMIN")
-                        .requestMatchers(
-                                "/api/v1/users/**")
-                        .hasRole("ADMIN")
-                        .anyRequest()
-                        .authenticated())
+                                "/api/v1/security-indicators"
+                        ).hasAnyRole("AGENT", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/policy/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/warranty/upload").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/users/**").hasRole("ADMIN")
+                        .anyRequest().authenticated();
+                })
+                .addFilterBefore(
+                        securityHeadersFilter,
+                        UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(
                         jwtAuthFilter,
                         UsernamePasswordAuthenticationFilter.class)

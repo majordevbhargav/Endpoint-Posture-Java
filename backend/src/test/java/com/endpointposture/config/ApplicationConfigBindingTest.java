@@ -45,5 +45,13 @@ class ApplicationConfigBindingTest {
         assertEquals("500", props.getProperty("app.jobs.recheck.max-per-sweep"));
         assertEquals("5", props.getProperty("app.ise.touch-min-minutes"));
         assertEquals("2000", props.getProperty("app.api.fleet-list-max-endpoints"));
+
+        // Phase B hardening assertions
+        assertEquals("false", props.getProperty("app.docs.public"));
+        assertEquals("false", props.getProperty("app.security.trust-forwarded-for"));
+        assertEquals("true", props.getProperty("app.security.login.rate-limit.enabled"));
+        assertEquals("10", props.getProperty("app.security.login.rate-limit.capacity"));
+        assertEquals("10", props.getProperty("app.security.login.rate-limit.refill-tokens"));
+        assertEquals("60", props.getProperty("app.security.login.rate-limit.refill-duration-seconds"));
     }
 }

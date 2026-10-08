@@ -183,4 +183,20 @@ class RbacAccessTest {
             assertTrue(status == 401 || status == 403, path);
         }
     }
+
+    @Test
+    void swaggerAndApiDocsRequireAdminByDefault() throws Exception {
+        // Unauthenticated access
+        int unauthStatus = mvc.perform(MockMvcRequestBuilders.get("/v3/api-docs"))
+                .andReturn().getResponse().getStatus();
+        assertTrue(unauthStatus == 401 || unauthStatus == 403);
+
+        // Non-admin roles
+        for (String r : List.of("VIEWER", "ANALYST", "OPERATOR")) {
+            assertEquals(403, get("/v3/api-docs", r), "role " + r);
+        }
+
+        // Admin role allowed
+        assertEquals(200, get("/v3/api-docs", "ADMIN"));
+    }
 }

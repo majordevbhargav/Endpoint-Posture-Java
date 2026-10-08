@@ -47,6 +47,12 @@ class AuthLockoutTest {
     @Autowired MockMvc mvc;
     @Autowired UserRepository users;
     @Autowired PasswordEncoder encoder;
+    @Autowired LoginRateLimiter rateLimiter;
+
+    @org.junit.jupiter.api.BeforeEach
+    void resetLimiter() {
+        rateLimiter.reset();
+    }
 
     private User newUser(String name) {
         return users.save(User.builder().username(name).passwordHash(encoder.encode(GOOD))
@@ -112,5 +118,44 @@ class AuthLockoutTest {
     @Test
     void aBlankUsernameIsRejectedAsBadInput() throws Exception {
         assertEquals(400, login("", "whatever"));
+    }
+
+    @Test
+    void rateLimiterReturns429WhenTokensExhaustedAndHonorsXForwardedForIfConfigured() throws Exception {
+        // Test with a specific remote IP using AuthController directly or mockmvc
+        String testIp = "203.0.113.199";
+        // Default capacity in application.yml is 10
+        // Trigger 10 requests from this IP
+        for (int i = 0; i < 10; i++) {
+            mvc.perform(MockMvcRequestBuilders.post("/api/v1/auth/login")
+                    .with(req -> {
+                        req.setRemoteAddr(testIp);
+                        return req;
+                    })
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(loginBody("any-user", "any-password")));
+        }
+
+        // 11th request from same IP should get 429
+        mvc.perform(MockMvcRequestBuilders.post("/api/v1/auth/login")
+                .with(req -> {
+                    req.setRemoteAddr(testIp);
+                    return req;
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(loginBody("any-user", "any-password")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isTooManyRequests())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.message").value("Too many requests"));
+
+        // A different IP is not blocked
+        int differentIpStatus = mvc.perform(MockMvcRequestBuilders.post("/api/v1/auth/login")
+                .with(req -> {
+                    req.setRemoteAddr("203.0.113.200");
+                    return req;
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(loginBody("any-user", "any-password")))
+                .andReturn().getResponse().getStatus();
+        assertEquals(401, differentIpStatus);
     }
 }

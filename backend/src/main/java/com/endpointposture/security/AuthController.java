@@ -31,14 +31,20 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final LoginAttemptService loginAttempts;
+    private final LoginRateLimiter rateLimiter;
+    private final boolean trustForwardedFor;
     private final String dummyHash;
 
     public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder,
-                          JwtService jwtService, LoginAttemptService loginAttempts) {
+                          JwtService jwtService, LoginAttemptService loginAttempts,
+                          LoginRateLimiter rateLimiter,
+                          @org.springframework.beans.factory.annotation.Value("${app.security.trust-forwarded-for:false}") boolean trustForwardedFor) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.loginAttempts = loginAttempts;
+        this.rateLimiter = rateLimiter;
+        this.trustForwardedFor = trustForwardedFor;
         this.dummyHash = passwordEncoder.encode("not-a-real-password");
     }
 
@@ -57,7 +63,13 @@ public class AuthController {
     )
     @SecurityRequirement(name = "")   // overrides the global requirement - this route needs no token
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request, jakarta.servlet.http.HttpServletRequest servletRequest) {
+        String clientIp = resolveClientIp(servletRequest);
+        if (!rateLimiter.tryAcquire(clientIp)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
+                    .body(java.util.Map.of("message", "Too many requests"));
+        }
+
         User user = userRepository.findByUsername(request.username()).orElse(null);
 
         // Always pay for one BCrypt check so timing is the same for every outcome.
@@ -86,5 +98,18 @@ public class AuthController {
 
     private ResponseEntity<String> unauthorized() {
         return ResponseEntity.status(401).body(BAD_LOGIN);
+    }
+
+    private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
+        if (request == null) {
+            return "unknown";
+        }
+        if (trustForwardedFor) {
+            String xff = request.getHeader("X-Forwarded-For");
+            if (xff != null && !xff.isBlank()) {
+                return xff.split(",")[0].trim();
+            }
+        }
+        return request.getRemoteAddr();
     }
 }
