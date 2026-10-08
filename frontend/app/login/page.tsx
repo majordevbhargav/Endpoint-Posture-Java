@@ -1,301 +1,155 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import {
-  Boxes,
-  Search,
-  RefreshCw,
-  ShieldCheck,
-  AlertTriangle,
-  Monitor,
-  CheckCircle2,
-  ExternalLink,
-  Lock,
-} from "lucide-react";
-import { AppRow, listApplications } from "@/lib/inventory";
-import { api, AppPolicy } from "@/lib/api";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Column, DataTable } from "@/components/ui/DataTable";
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Eye, EyeOff, Loader2, LogIn, ShieldCheck } from "lucide-react";
+import { api, getToken, setToken } from "@/lib/api";
+import { setCurrentUser } from "@/lib/auth";
+import { isTokenValid } from "@/lib/session";
+import { clearFetchCache } from "@/lib/useCachedFetch";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
-// The API rows have no unique id, so one is added on load (DataTable needs a stable row key).
-type KeyedApp = AppRow & { rowId: string };
-
-const columns: Column<KeyedApp>[] = [
-  {
-    key: "name",
-    header: "Application",
-    className: "font-semibold text-ink",
-    csv: (r) => r.name,
-  },
-  {
-    key: "version",
-    header: "Version",
-    className: "font-mono text-muted",
-    render: (r) => r.version || "—",
-    csv: (r) => r.version,
-  },
-  {
-    key: "status",
-    header: "Status",
-    render: (r) =>
-      r.status ? (
-        <StatusBadge value={r.status} />
-      ) : (
-        <span className="text-[11px] text-muted">Installed</span>
-      ),
-    csv: (r) => r.status ?? "INSTALLED",
-  },
-  {
-    key: "publisher",
-    header: "Publisher / Source",
-    className: "text-muted",
-    render: (r) => r.publisher || "Windows Registry",
-    csv: (r) => r.publisher,
-  },
-  {
-    key: "hostname",
-    header: "Device Hostname",
-    className: "text-ink",
-    render: (r) => r.hostname || "Windows Host",
-    csv: (r) => r.hostname,
-  },
-  {
-    key: "macAddress",
-    header: "MAC Address",
-    className: "font-mono text-muted",
-  },
-  {
-    key: "summary",
-    header: "Evaluation Details",
-    className: "max-w-xs truncate text-muted",
-    render: (r) => r.summary || "—",
-    csv: (r) => r.summary,
-  },
-  {
-    key: "view",
-    header: "View",
-    headerClassName: "text-right",
-    className: "text-right",
-    exportable: false,
-    render: () => (
-      <Link
-        href="/endpoints"
-        className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
-      >
-        <span>Device</span>
-        <ExternalLink size={10} />
-      </Link>
-    ),
-  },
-];
-
-export default function ApplicationsPage() {
-  const [rows, setRows] = useState<KeyedApp[] | null>(null);
-  const [policy, setPolicy] = useState<AppPolicy | null>(null);
-  const [loading, setLoading] = useState(false);
+export default function LoginPage() {
+  const router = useRouter();
+  const [checking, setChecking] = useState(true); // avoids flashing the form for a signed-in user
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLock, setCapsLock] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [q, setQ] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
-
-  const loadData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [data, activePolicy] = await Promise.all([
-        listApplications(),
-        api.policy().catch(() => null), // the banner is optional; the table is not
-      ]);
-      setRows(data.map((r, i) => ({ ...r, rowId: `${r.macAddress}-${i}` })));
-      setPolicy(activePolicy);
-    } catch (e) {
-      setRows([]);
-      // Show the server's reason (for example the fleet-size cap), not a generic message.
-      setError(e instanceof Error ? e.message : "Could not load inventory from the backend.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (isTokenValid(getToken())) {
+      router.replace("/overview");
+    } else {
+      setChecking(false);
+    }
+  }, [router]);
 
-  const stats = useMemo(() => {
-    const list = rows ?? [];
-    const total = list.length;
-    const compliant = list.filter((r) => r.status === "COMPLIANT").length;
-    const violations = list.filter((r) => r.status === "NON_COMPLIANT").length;
-    const uniqueDevices = new Set(list.map((r) => r.macAddress)).size;
-    return { total, compliant, violations, uniqueDevices };
-  }, [rows]);
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.login(username.trim(), password);
+      clearFetchCache(); // never show the previous user's cached data
+      setToken(res.token);
+      setCurrentUser({ username: res.username, role: res.role });
+      router.push("/overview");
+    } catch (err) {
+      setPassword(""); // do not leave a rejected password sitting in the field
+      setError(err instanceof Error ? err.message : "Sign in failed. Try again.");
+      setBusy(false);
+    }
+  }
 
-  const shown = useMemo(() => {
-    if (!rows) return null;
-    return rows.filter((r) => {
-      if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
+  if (checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-xs text-muted">
+        <Loader2 size={14} className="mr-2 animate-spin text-accent" />
+        Loading…
+      </div>
+    );
+  }
 
-      if (q.trim()) {
-        const query = q.toLowerCase();
-        const matches =
-          r.name?.toLowerCase().includes(query) ||
-          r.publisher?.toLowerCase().includes(query) ||
-          r.hostname?.toLowerCase().includes(query) ||
-          r.macAddress?.toLowerCase().includes(query) ||
-          r.summary?.toLowerCase().includes(query);
-        if (!matches) return false;
-      }
-      return true;
-    });
-  }, [rows, statusFilter, q]);
+  const canSubmit = !busy && username.trim().length > 0 && password.length > 0;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-ink">Application Control & Software</h1>
-          <p className="mt-1 text-xs text-muted">
-            Installed endpoint software evaluated against enterprise allowed and blocked policy lists.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={loadData}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent/40 disabled:opacity-50"
-          >
-            <RefreshCw size={13} className={loading ? "animate-spin text-accent" : "text-muted"} />
-            <span>Refresh</span>
-          </button>
-        </div>
+    <main className="relative flex min-h-screen items-center justify-center bg-base p-4">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-xs text-bad">{error}</div>
-      )}
-
-      {/* Policy banner (live from the active policy) */}
-      <div className="panel grid grid-cols-1 gap-4 bg-panel2/50 p-4 md:grid-cols-2">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-good/15 p-2 text-good">
-            <ShieldCheck size={18} />
+      <div className="w-full max-w-sm">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/15 text-accent shadow-sm">
+            <ShieldCheck size={28} />
+            <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-base bg-good" />
           </div>
-          <div>
-            <div className="text-xs font-bold text-ink">Mandatory Required Applications</div>
-            <div className="mt-0.5 text-xs text-muted">
-              Must be installed on all Windows endpoints:{" "}
-              <span className="font-mono font-semibold text-good">
-                {policy ? policy.requiredApps.join(", ") || "None" : "…"}
-              </span>
+          <h1 className="mt-4 text-xl font-bold tracking-tight text-ink">PostureEngine</h1>
+          <p className="mt-1 text-xs text-muted">Endpoint posture and compliance, with Cisco ISE</p>
+        </div>
+
+        <div className="panel p-6">
+          <h2 className="text-sm font-semibold text-ink">Sign in</h2>
+
+          {error && (
+            <div
+              role="alert"
+              className="mt-4 flex items-start gap-2 rounded-lg border border-bad/30 bg-bad/10 p-3 text-xs text-bad"
+            >
+              <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+              <span>{error}</span>
             </div>
-          </div>
-        </div>
+          )}
 
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg bg-bad/15 p-2 text-bad">
-            <Lock size={18} />
-          </div>
-          <div>
-            <div className="text-xs font-bold text-ink">Prohibited / Blocked Applications</div>
-            <div className="mt-0.5 text-xs text-muted">
-              Forbidden on enterprise endpoints:{" "}
-              <span className="font-mono font-semibold text-bad">
-                {policy ? policy.blockedApps.join(", ") || "None" : "…"}
-              </span>
+          <form onSubmit={onSubmit} className="mt-4 space-y-4" noValidate>
+            <div>
+              <label htmlFor="username" className="mb-1 block text-xs font-semibold text-ink">
+                Username
+              </label>
+              <input
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full rounded-lg border border-border bg-base px-3 py-2 text-xs text-ink outline-none transition focus:border-accent"
+              />
             </div>
-          </div>
+
+            <div>
+              <label htmlFor="password" className="mb-1 block text-xs font-semibold text-ink">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyUp={(e) => setCapsLock(e.getModifierState("CapsLock"))}
+                  onKeyDown={(e) => setCapsLock(e.getModifierState("CapsLock"))}
+                  onBlur={() => setCapsLock(false)}
+                  className="w-full rounded-lg border border-border bg-base py-2 pl-3 pr-9 text-xs text-ink outline-none transition focus:border-accent"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted transition hover:text-ink"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              {capsLock && <p className="mt-1.5 text-[11px] text-warn">Caps Lock is on.</p>}
+            </div>
+
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2.5 text-xs font-semibold text-base transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {busy ? <Loader2 size={13} className="animate-spin" /> : <LogIn size={13} />}
+              <span>{busy ? "Signing in…" : "Sign in"}</span>
+            </button>
+          </form>
         </div>
 
-        {policy && (
-          <div className="text-[11px] text-muted md:col-span-2">
-            Policy version <span className="font-mono font-semibold text-ink">v{policy.version}</span>
-            {policy.createdBy ? ` · set by ${policy.createdBy}` : ""}
-            {" · "}
-            <Link href="/policies" className="text-accent hover:underline">
-              Manage policy
-            </Link>
-          </div>
-        )}
+        <p className="mt-4 text-center text-[11px] text-muted">
+          Accounts lock for a few minutes after repeated wrong passwords.
+        </p>
       </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="panel p-4">
-          <div className="flex items-center justify-between text-xs text-muted">
-            <span>Evaluated Endpoints</span>
-            <Monitor size={16} className="text-accent" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-ink">{stats.uniqueDevices}</div>
-          <div className="text-[11px] text-muted">With application inventory</div>
-        </div>
-
-        <div className="panel p-4">
-          <div className="flex items-center justify-between text-xs text-muted">
-            <span>Required Apps Present</span>
-            <CheckCircle2 size={16} className="text-good" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-good">{stats.compliant}</div>
-          <div className="text-[11px] text-muted">Satisfies baseline policy</div>
-        </div>
-
-        <div className="panel p-4">
-          <div className="flex items-center justify-between text-xs text-muted">
-            <span>Blocked Apps Found</span>
-            <AlertTriangle size={16} className="text-bad" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-bad">{stats.violations}</div>
-          <div className="text-[11px] text-muted">Policy violations</div>
-        </div>
-
-        <div className="panel p-4">
-          <div className="flex items-center justify-between text-xs text-muted">
-            <span>Total Installed Apps</span>
-            <Boxes size={16} className="text-accent" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-ink">{stats.total}</div>
-          <div className="text-[11px] text-muted">Across all endpoints</div>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="panel flex flex-col justify-between gap-3 p-3 sm:flex-row sm:items-center">
-        <div className="relative max-w-md flex-1">
-          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <input
-            type="text"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Filter by application name, publisher, device, or MAC…"
-            className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink outline-none placeholder:text-muted focus:border-accent"
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-lg border border-border bg-panel px-2.5 py-1.5 text-xs text-ink outline-none focus:border-accent"
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="COMPLIANT">Required Present</option>
-            <option value="NON_COMPLIANT">Blocked Found</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Applications table (paginated + CSV) */}
-      <DataTable<KeyedApp>
-        rows={shown}
-        columns={columns}
-        rowKey={(r) => r.rowId}
-        csvFilename="installed-software"
-        loadingMessage="Loading application inventory…"
-        emptyMessage="No matching software records found. Inventory appears once posture checks run."
-        minWidth={860}
-        toolbarLeft={shown ? `${shown.length} matching application${shown.length === 1 ? "" : "s"}` : undefined}
-      />
-    </div>
+    </main>
   );
 }
