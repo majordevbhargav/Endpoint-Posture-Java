@@ -55,9 +55,9 @@ jobs:
           POSTURE_API_KEY: ci-test-agent-key
         run: mvn -B clean verify -Duser.timezone=UTC
 
-# ─── Frontend type-check ─────────────────────────────────────────────────────
+# ─── Frontend type-check & test ─────────────────────────────────────────────
   frontend:
-    name: Frontend — TypeScript type-check & build
+    name: Frontend — TypeScript type-check, test & build
     runs-on: ubuntu-24.04
 
     steps:
@@ -79,7 +79,46 @@ jobs:
         working-directory: frontend
         run: npx tsc --noEmit --skipLibCheck
 
+      - name: Run frontend unit tests
+        working-directory: frontend
+        run: npm test
+
       - name: Build frontend
         working-directory: frontend
         run: npm run build
 
+# ─── Docker image (frontend) — only on main branch ───────────────────────────
+  docker-frontend:
+    name: Build & push frontend Docker image
+    runs-on: ubuntu-24.04
+    needs: frontend
+    # Only publish when merging to main; PRs just skip this job.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: frontend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-frontend:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

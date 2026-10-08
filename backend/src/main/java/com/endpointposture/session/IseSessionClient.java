@@ -114,7 +114,7 @@ public class IseSessionClient {
         }
     }
 
-    private List<IseActiveSession> parseActiveList(String xml) throws Exception {
+    List<IseActiveSession> parseActiveList(String xml) throws Exception {
         if (xml == null || xml.isBlank()) return List.of();
 
         Document doc = DocumentBuilderFactory.newInstance()

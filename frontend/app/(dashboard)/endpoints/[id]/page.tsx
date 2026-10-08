@@ -1009,8 +1009,6 @@ function DiagnosticsTab({
   const bool = (p: Probe, k: string) => (p && typeof p[k] === "boolean" ? (p[k] as boolean) : null);
   const ms = (v: unknown) => (num(v) == null ? "—" : `${Math.round(num(v) as number)} ms`);
 
-  const trend = [...history].filter((h) => h.status === "OK" && h.score != null).slice(0, 10).reverse();
-
   return (
     <div className="space-y-6">
       <div className="panel p-5">
@@ -1121,7 +1119,7 @@ function DiagnosticsTab({
       {history.length > 1 && (
         <div className="panel p-5">
           <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
-            Run history ({history.length}){trend.length >= 2 ? "" : ""}
+            Run history ({history.length})
           </div>
           <div className="divide-y divide-border/40 text-xs">
             {history.slice(0, 15).map((h) => (
