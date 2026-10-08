@@ -121,4 +121,26 @@ class SessionBatchWriterTest {
         assertEquals("10.0.0.10", jdbc.queryForObject(
                 "SELECT ip_address FROM endpoint WHERE mac_address = ?", String.class, MAC));
     }
+
+    @Test
+    void touchSeenRespectsTouchMinMinutes() {
+        batch.markConnected(Map.of(MAC, "10.0.0.9"));
+        // Set last_seen_at to 2 minutes ago (within default 5 minutes)
+        jdbc.update("UPDATE endpoint SET last_seen_at = now() - interval '2 minutes' WHERE mac_address = ?", MAC);
+        java.time.Instant before = jdbc.queryForObject(
+                "SELECT last_seen_at FROM endpoint WHERE mac_address = ?", java.time.Instant.class, MAC);
+
+        batch.touchSeen(List.of(MAC));
+        java.time.Instant after = jdbc.queryForObject(
+                "SELECT last_seen_at FROM endpoint WHERE mac_address = ?", java.time.Instant.class, MAC);
+        assertEquals(before, after, "Should not update last_seen_at when newer than touch-min-minutes");
+
+        // Set last_seen_at to 6 minutes ago (older than default 5 minutes)
+        jdbc.update("UPDATE endpoint SET last_seen_at = now() - interval '6 minutes' WHERE mac_address = ?", MAC);
+        batch.touchSeen(List.of(MAC));
+        java.time.Instant touched = jdbc.queryForObject(
+                "SELECT last_seen_at FROM endpoint WHERE mac_address = ?", java.time.Instant.class, MAC);
+        org.junit.jupiter.api.Assertions.assertTrue(touched.isAfter(before),
+                "Should update last_seen_at when older than touch-min-minutes");
+    }
 }

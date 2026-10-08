@@ -38,10 +38,12 @@ class RecheckSqlTest {
 
     @Autowired RecheckScheduler scheduler;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PostureJobRepository jobRepository;
 
     @AfterEach
     void cleanUp() {
         jdbc.update("DELETE FROM posture_job");
+        jdbc.update("DELETE FROM assessment");
         jdbc.update("DELETE FROM endpoint");
     }
 
@@ -106,5 +108,70 @@ class RecheckSqlTest {
         assertEquals(1, jobs("POSTURE_CHECK"));
         assertEquals(1, jdbc.queryForObject(
                 "SELECT count(*) FROM posture_job WHERE endpoint_id = ? AND status = 'QUEUED'", Long.class, old));
+    }
+
+    @Test
+    void maxPerSweepLimitIsRespectedAcrossTwoSweepsPickingOldestCheckedFirst() {
+        RecheckScheduler limitedScheduler = new RecheckScheduler(jdbc, 4, 24, 6, 2);
+
+        UUID e1 = endpoint("DD:DD:DD:DD:DD:11", "10.0.0.11", true);
+        UUID e2 = endpoint("DD:DD:DD:DD:DD:12", "10.0.0.12", true);
+        UUID e3 = endpoint("DD:DD:DD:DD:DD:13", "10.0.0.13", true);
+
+        // e1 was checked 10 hours ago; e2 was never checked (nulls first); e3 was checked 5 hours ago
+        jdbc.update("INSERT INTO posture_job (endpoint_id, job_type, status, completed_at) "
+                + "VALUES (?, 'POSTURE_CHECK', 'COMPLETE', now() - interval '10 hours')", e1);
+        jdbc.update("INSERT INTO posture_job (endpoint_id, job_type, status, completed_at) "
+                + "VALUES (?, 'POSTURE_CHECK', 'COMPLETE', now() - interval '5 hours')", e3);
+
+        // First sweep with limit 2: should queue e2 (null) and e1 (10 hours ago), but not e3
+        limitedScheduler.sweep();
+        assertEquals(2, jobs("POSTURE_CHECK"));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM posture_job WHERE endpoint_id = ? AND status = 'QUEUED'", Long.class, e2));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM posture_job WHERE endpoint_id = ? AND status = 'QUEUED'", Long.class, e1));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM posture_job WHERE endpoint_id = ? AND status = 'QUEUED'", Long.class, e3));
+
+        // Second sweep: e1 and e2 already QUEUED, now e3 is queued
+        limitedScheduler.sweep();
+        assertEquals(3, jobs("POSTURE_CHECK"));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM posture_job WHERE endpoint_id = ? AND status = 'QUEUED'", Long.class, e3));
+    }
+
+    @Test
+    void hardwareJobsGetLowerPriorityThanPostureAndClaimOrderingHandlesNegatives() {
+        UUID id = endpoint("DD:DD:DD:DD:DD:20", "10.0.0.20", true);
+        jdbc.update("INSERT INTO assessment (endpoint_id, status, started_at) VALUES (?, 'COMPLIANT', now())", id);
+
+        scheduler.sweep();
+
+        assertEquals(1, jobs("POSTURE_CHECK"));
+        assertEquals(1, jobs("HARDWARE_CHECK"));
+
+        Integer posturePriority = jdbc.queryForObject(
+                "SELECT priority FROM posture_job WHERE endpoint_id = ? AND job_type = 'POSTURE_CHECK'",
+                Integer.class, id);
+        Integer hardwarePriority = jdbc.queryForObject(
+                "SELECT priority FROM posture_job WHERE endpoint_id = ? AND job_type = 'HARDWARE_CHECK'",
+                Integer.class, id);
+
+        assertEquals(0, posturePriority);
+        assertEquals(-5, hardwarePriority);
+
+        // findNextClaimable must claim posture (priority 0) first, then hardware (priority -5)
+        PostureJob first = jobRepository.findNextClaimable().orElseThrow();
+        assertEquals(JobType.POSTURE_CHECK, first.getJobType());
+        assertEquals(0, first.getPriority());
+
+        // Mark first RUNNING so the second can be claimed
+        first.setStatus(JobStatus.RUNNING);
+        jobRepository.save(first);
+
+        PostureJob second = jobRepository.findNextClaimable().orElseThrow();
+        assertEquals(JobType.HARDWARE_CHECK, second.getJobType());
+        assertEquals(-5, second.getPriority());
     }
 }

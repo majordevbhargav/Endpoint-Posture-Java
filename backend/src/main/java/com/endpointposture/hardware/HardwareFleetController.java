@@ -21,15 +21,25 @@ public class HardwareFleetController {
 
     private final HardwareHealthService service;
     private final HardwareQueryService queryService;
+    private final com.endpointposture.endpoint.EndpointRepository endpointRepository;
+    private final long fleetListMaxEndpoints;
 
-    public HardwareFleetController(HardwareHealthService service, HardwareQueryService queryService) {
+    public HardwareFleetController(HardwareHealthService service, HardwareQueryService queryService,
+                                  com.endpointposture.endpoint.EndpointRepository endpointRepository,
+                                  @org.springframework.beans.factory.annotation.Value("${app.api.fleet-list-max-endpoints:2000}") long fleetListMaxEndpoints) {
         this.service = service;
         this.queryService = queryService;
+        this.endpointRepository = endpointRepository;
+        this.fleetListMaxEndpoints = fleetListMaxEndpoints;
     }
 
     @Operation(summary = "Latest hardware report for every endpoint (unbounded; small fleets only)")
     @GetMapping("/latest")
     public List<HardwareHealthResponse> latestForAll() {
+        long count = endpointRepository.count();
+        if (count > fleetListMaxEndpoints) {
+            throw new com.endpointposture.endpoint.FleetListLimitExceededException(count, fleetListMaxEndpoints);
+        }
         return service.getLatestForAllEndpoints();
     }
 

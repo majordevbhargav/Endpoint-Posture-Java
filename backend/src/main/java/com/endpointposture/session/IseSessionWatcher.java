@@ -4,6 +4,9 @@ import com.endpointposture.endpoint.EndpointRepository;
 import com.endpointposture.endpoint.EndpointRepository.ConnectedRow;
 import com.endpointposture.session.IseSessionClient.SessionPoll;
 import com.endpointposture.session.dto.IseActiveSession;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Polls ISE for active sessions and brings endpoint connection state in line with it,
@@ -47,33 +51,46 @@ public class IseSessionWatcher {
     private final SessionBatchWriter batch;
     private final IseLinkHealth linkHealth;
     private final int gracePolls;
+    private final Timer watcherTickTimer;
 
     /** Consecutive missed polls per (normalized) MAC. */
     private final Map<String, Integer> misses = new ConcurrentHashMap<>();
 
     public IseSessionWatcher(IseSessionClient client, EndpointRepository endpoints,
                              SessionBatchWriter batch, IseLinkHealth linkHealth,
-                             @Value("${app.ise.disconnect-grace-polls:2}") int gracePolls) {
+                             int gracePolls) {
+        this(client, endpoints, batch, linkHealth, gracePolls, new SimpleMeterRegistry());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public IseSessionWatcher(IseSessionClient client, EndpointRepository endpoints,
+                             SessionBatchWriter batch, IseLinkHealth linkHealth,
+                             @Value("${app.ise.disconnect-grace-polls:2}") int gracePolls,
+                             MeterRegistry registry) {
         this.client = client;
         this.endpoints = endpoints;
         this.batch = batch;
         this.linkHealth = linkHealth;
         this.gracePolls = Math.max(1, gracePolls);
+        this.watcherTickTimer = Timer.builder("ise_watcher_tick_seconds")
+                .description("Duration of ISE session watcher tick")
+                .register(registry);
     }
 
     @Scheduled(fixedDelayString = "${app.ise.session-poll-interval-ms:15000}")
     public void tick() {
         long started = System.nanoTime();
-        SessionPoll poll = client.fetchActiveSessions();
+        try {
+            SessionPoll poll = client.fetchActiveSessions();
 
-        if (!poll.ok()) {
-            boolean wasReachable = linkHealth.reachable();
-            linkHealth.failure(poll.error());
-            if (wasReachable && !linkHealth.reachable()) {
-                log.warn("ISE marked unreachable - endpoint session state frozen at last known values");
+            if (!poll.ok()) {
+                boolean wasReachable = linkHealth.reachable();
+                linkHealth.failure(poll.error());
+                if (wasReachable && !linkHealth.reachable()) {
+                    log.warn("ISE marked unreachable - endpoint session state frozen at last known values");
+                }
+                return; // we don't know who is connected: leave state and miss counters alone
             }
-            return; // we don't know who is connected: leave state and miss counters alone
-        }
 
         if (!linkHealth.reachable()) {
             log.info("ISE reachable again - resuming session tracking");
@@ -145,6 +162,9 @@ public class IseSessionWatcher {
             log.info(summary, active.size(), appeared.size(), disconnected, ipChanged.size(), queued, ms);
         } else {
             log.debug(summary, active.size(), appeared.size(), disconnected, ipChanged.size(), queued, ms);
+        }
+        } finally {
+            watcherTickTimer.record(System.nanoTime() - started, TimeUnit.NANOSECONDS);
         }
     }
 

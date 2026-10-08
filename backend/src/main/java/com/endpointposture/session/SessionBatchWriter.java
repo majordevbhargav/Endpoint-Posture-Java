@@ -36,7 +36,7 @@ public class SessionBatchWriter {
             UPDATE endpoint
                SET last_seen_at = now(), updated_at = now()
              WHERE mac_address = ANY(?::text[])
-               AND last_seen_at < now() - interval '1 minute'
+               AND last_seen_at < now() - (?::bigint * interval '1 minute')
             """;
 
     private static final String CONNECT_SQL = """
@@ -94,11 +94,14 @@ public class SessionBatchWriter {
 
     private final JdbcTemplate jdbc;
     private final long reconnectGapMinutes;
+    private final long touchMinMinutes;
 
     public SessionBatchWriter(JdbcTemplate jdbc,
-                              @Value("${app.jobs.reconnect-min-gap-minutes:60}") long reconnectGapMinutes) {
+                              @Value("${app.jobs.reconnect-min-gap-minutes:60}") long reconnectGapMinutes,
+                              @Value("${app.ise.touch-min-minutes:5}") long touchMinMinutes) {
         this.jdbc = jdbc;
         this.reconnectGapMinutes = reconnectGapMinutes;
+        this.touchMinMinutes = touchMinMinutes;
     }
 
     /**
@@ -158,11 +161,14 @@ public class SessionBatchWriter {
         }
     }
 
-    /** Refreshes {@code last_seen_at} for devices still connected (only if older than a minute). */
+    /** Refreshes {@code last_seen_at} for devices still connected (only if older than touchMinMinutes). */
     @Transactional
     public void touchSeen(List<String> macs) {
         for (List<String> chunk : chunks(macs)) {
-            jdbc.update(TOUCH_SQL, ps -> setTextArray(ps, 1, chunk));
+            jdbc.update(TOUCH_SQL, ps -> {
+                setTextArray(ps, 1, chunk);
+                ps.setLong(2, touchMinMinutes);
+            });
         }
     }
 

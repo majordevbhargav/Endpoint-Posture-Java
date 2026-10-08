@@ -20,16 +20,26 @@ public class EndpointController {
 
     private final EndpointService service;
     private final EndpointQueryService queryService;
+    private final EndpointRepository endpointRepository;
+    private final long fleetListMaxEndpoints;
 
-    public EndpointController(EndpointService service, EndpointQueryService queryService) {
+    public EndpointController(EndpointService service, EndpointQueryService queryService,
+                              EndpointRepository endpointRepository,
+                              @org.springframework.beans.factory.annotation.Value("${app.api.fleet-list-max-endpoints:2000}") long fleetListMaxEndpoints) {
         this.service = service;
         this.queryService = queryService;
+        this.endpointRepository = endpointRepository;
+        this.fleetListMaxEndpoints = fleetListMaxEndpoints;
     }
 
     @Operation(summary = "List all known endpoints",
             description = "Returns every endpoint. Fine for small fleets; large screens should use /page.")
     @GetMapping
     public List<EndpointResponse> listAll() {
+        long count = endpointRepository.count();
+        if (count > fleetListMaxEndpoints) {
+            throw new FleetListLimitExceededException(count, fleetListMaxEndpoints);
+        }
         return service.listAll();
     }
 

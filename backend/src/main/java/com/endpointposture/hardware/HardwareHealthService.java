@@ -83,7 +83,6 @@ public class HardwareHealthService {
                 .build();
 
         report = healthRepository.save(report);
-        healthRepository.updateEndpointLatest(endpointId, report.getId(), false, report.getCollectedAt());
 
         UUID reportId = report.getId();
         healthRepository.updateEndpointLatest(endpointId, reportId, true, report.getCollectedAt());

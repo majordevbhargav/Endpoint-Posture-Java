@@ -34,5 +34,16 @@ class ApplicationConfigBindingTest {
         assertEquals("24", props.getProperty("app.jobs.recheck.hardware-hours"));
         assertEquals("6", props.getProperty("app.jobs.recheck.failure-backoff-hours"));
         assertEquals("300000", props.getProperty("app.jobs.recheck.sweep-interval-ms"));
+
+        // S12 & hardening assertions
+        assertEquals("4", props.getProperty("spring.task.scheduling.pool.size"));
+        assertTrue(props.keySet().stream().noneMatch(k -> k.toString().startsWith("app.task.")),
+                "No app.task.* property should exist; task scheduling belongs under spring.task.scheduling");
+        assertEquals("120000", props.getProperty("spring.datasource.hikari.keepalive-time"));
+        assertEquals("900000", props.getProperty("spring.datasource.hikari.max-lifetime"));
+        assertEquals("15000", props.getProperty("spring.datasource.hikari.connection-timeout"));
+        assertEquals("500", props.getProperty("app.jobs.recheck.max-per-sweep"));
+        assertEquals("5", props.getProperty("app.ise.touch-min-minutes"));
+        assertEquals("2000", props.getProperty("app.api.fleet-list-max-endpoints"));
     }
 }

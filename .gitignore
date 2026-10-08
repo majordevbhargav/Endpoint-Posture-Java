@@ -13,6 +13,7 @@ target/
 
 # Logs
 *.log
+gc-sim.log
 
 # Environment / secrets
 .env

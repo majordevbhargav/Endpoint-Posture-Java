@@ -25,10 +25,10 @@ public class RecheckScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(RecheckScheduler.class);
 
-    /** %1$s = job type (an enum name, never user input), %2$s = extra condition. */
+    /** %1$s = job type (an enum name, never user input), %2$s = extra condition, %3$d = priority. */
     private static final String ENQUEUE_SQL = """
             INSERT INTO posture_job (endpoint_id, job_type, status, priority, attempt_count, max_attempts)
-            SELECT e.id, '%1$s', 'QUEUED', 0, 0, 3
+            SELECT e.id, '%1$s', 'QUEUED', %3$d, 0, 3
               FROM endpoint e
              WHERE e.connected
                AND (COALESCE(e.ip_address, '') <> '' OR COALESCE(e.hostname, '') <> '')
@@ -46,6 +46,9 @@ public class RecheckScheduler {
                                   AND j.completed_at > now() - (?::bigint * interval '1 second')
                                   AND j.created_at = (SELECT max(m.created_at) FROM posture_job m
                                                        WHERE m.endpoint_id = e.id AND m.job_type = '%1$s'))
+             ORDER BY (SELECT max(j.completed_at) FROM posture_job j
+                        WHERE j.endpoint_id = e.id AND j.job_type = '%1$s' AND j.status = 'COMPLETE') ASC NULLS FIRST, e.id ASC
+             LIMIT ?
             """;
 
     private static final String HARDWARE_ONLY = """
@@ -56,15 +59,18 @@ public class RecheckScheduler {
     private final long postureSeconds;
     private final long hardwareSeconds;
     private final long backoffSeconds;
+    private final int maxPerSweep;
 
     public RecheckScheduler(JdbcTemplate jdbc,
                             @Value("${app.jobs.recheck.posture-hours:4}") long postureHours,
                             @Value("${app.jobs.recheck.hardware-hours:24}") long hardwareHours,
-                            @Value("${app.jobs.recheck.failure-backoff-hours:6}") long failureBackoffHours) {
+                            @Value("${app.jobs.recheck.failure-backoff-hours:6}") long failureBackoffHours,
+                            @Value("${app.jobs.recheck.max-per-sweep:500}") int maxPerSweep) {
         this.jdbc = jdbc;
         this.postureSeconds = Duration.ofHours(postureHours).toSeconds();
         this.hardwareSeconds = Duration.ofHours(hardwareHours).toSeconds();
         this.backoffSeconds = Duration.ofHours(failureBackoffHours).toSeconds();
+        this.maxPerSweep = maxPerSweep;
     }
 
     @Scheduled(
@@ -73,10 +79,10 @@ public class RecheckScheduler {
     public void sweep() {
         try {
             long started = System.nanoTime();
-            int posture = jdbc.update(ENQUEUE_SQL.formatted(JobType.POSTURE_CHECK.name(), ""),
-                    postureSeconds, backoffSeconds);
-            int hardware = jdbc.update(ENQUEUE_SQL.formatted(JobType.HARDWARE_CHECK.name(), HARDWARE_ONLY),
-                    hardwareSeconds, backoffSeconds);
+            int posture = jdbc.update(ENQUEUE_SQL.formatted(JobType.POSTURE_CHECK.name(), "", 0),
+                    postureSeconds, backoffSeconds, maxPerSweep);
+            int hardware = jdbc.update(ENQUEUE_SQL.formatted(JobType.HARDWARE_CHECK.name(), HARDWARE_ONLY, -5),
+                    hardwareSeconds, backoffSeconds, maxPerSweep);
 
             if (posture > 0 || hardware > 0) {
                 log.info("Recheck sweep queued {} posture and {} hardware job(s) in {} ms",

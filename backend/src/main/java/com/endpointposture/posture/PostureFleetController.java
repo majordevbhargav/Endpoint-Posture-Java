@@ -22,14 +22,24 @@ public class PostureFleetController {
     private static final int MAX_BATCH = 100;
 
     private final AssessmentService service;
+    private final com.endpointposture.endpoint.EndpointRepository endpointRepository;
+    private final long fleetListMaxEndpoints;
 
-    public PostureFleetController(AssessmentService service) {
+    public PostureFleetController(AssessmentService service,
+                                  com.endpointposture.endpoint.EndpointRepository endpointRepository,
+                                  @org.springframework.beans.factory.annotation.Value("${app.api.fleet-list-max-endpoints:2000}") long fleetListMaxEndpoints) {
         this.service = service;
+        this.endpointRepository = endpointRepository;
+        this.fleetListMaxEndpoints = fleetListMaxEndpoints;
     }
 
     @Operation(summary = "Latest assessment for every endpoint (unbounded; small fleets only)")
     @GetMapping("/latest")
     public List<AssessmentResponse> latestForAll() {
+        long count = endpointRepository.count();
+        if (count > fleetListMaxEndpoints) {
+            throw new com.endpointposture.endpoint.FleetListLimitExceededException(count, fleetListMaxEndpoints);
+        }
         return service.getLatestForAllEndpoints();
     }
 
