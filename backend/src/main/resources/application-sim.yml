@@ -1,9 +1,13 @@
 # Scale simulator. Used only with the "sim" profile. Points at a SEPARATE database.
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5434/endpoint_posture_sim
+    url: jdbc:postgresql://localhost:5434/endpoint_posture_sim?tcpKeepAlive=true
     hikari:
       maximum-pool-size: 30   # 40 worker threads plus ingest need more than the default 10
+      connection-timeout: 15000
+      keepalive-time: 120000
+      idle-timeout: 300000
+      max-lifetime: 900000
 
 app:
   jobs:

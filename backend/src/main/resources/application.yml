@@ -3,10 +3,26 @@ spring:
     name: endpoint-posture-java
 
   datasource:
-    # Port 5434 maps to host port in docker-compose (5434:5432)
-    url: ${DB_URL:jdbc:postgresql://localhost:5434/endpoint_posture}
+    # Port 5434 maps to host port in docker-compose (5434:5432).
+    # tcpKeepAlive makes the OS notice a dead socket instead of handing a
+    # half-open connection to a worker (S12).
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/endpoint_posture?tcpKeepAlive=true}
     username: ${DB_USERNAME:ep_app}
     password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      connection-timeout: 15000   # fail in 15 s, not 52 s, so a stall is visible quickly
+      keepalive-time: 120000      # ping idle connections every 2 min
+      idle-timeout: 300000        # must stay below max-lifetime
+      max-lifetime: 900000        # retire connections after 15 min, before anything upstream does
+
+  # S12: this is the REAL key for the @Scheduled thread pool. The old
+  # app.task.scheduling.pool.size was ignored, so every scheduled task (ISE
+  # watcher, recheck sweep, rollup, stale sweep) ran on one thread.
+  task:
+    scheduling:
+      pool:
+        size: 4
 
   servlet:
     multipart:
@@ -48,6 +64,11 @@ app:
       max-attempts: 5
       lock-minutes: 5
 
+  api:
+    # S12: /posture/latest and /hardware-health/latest (whole fleet) refuse to run
+    # above this many endpoints; use /latest/batch and /hardware-health/page instead.
+    fleet-list-max-endpoints: 2000
+
   jobs:
     poll-interval-ms: 3000
     worker-threads: 4
@@ -62,6 +83,9 @@ app:
       hardware-hours: 24
       failure-backoff-hours: 6
       sweep-interval-ms: 300000
+      # S12: most jobs one sweep may queue PER JOB TYPE (oldest-checked first).
+      # 500 per 5 min = 6,000/h per type, above the steady-state need at 20k devices.
+      max-per-sweep: 500
 
   ise:
     base-url: ${ISE_BASE_URL:}
@@ -70,6 +94,8 @@ app:
     verify-tls: false
     session-poll-interval-ms: 15000
     disconnect-grace-polls: 2
+    # S12: last_seen_at is rewritten for a still-connected device only when older than this.
+    touch-min-minutes: 5
     enforcement-mode: ATTRIBUTE
     anc-policy-name: Quarantine
 
@@ -114,11 +140,6 @@ app:
     inventory-cron: "0 30 3 * * *"
     job-days: 30
     jobs-cron: "0 45 3 * * *"
-
-  task:
-    scheduling:
-      pool:
-      size: 4 # the default is 1, so one long task blocked the ISE watcher
 
 management:
   endpoints:
