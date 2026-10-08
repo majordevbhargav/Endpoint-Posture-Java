@@ -4,7 +4,7 @@ export function ConfirmDialog({
 }: { open: boolean; title: string; message: string; danger?: boolean; onConfirm: () => void; onCancel: () => void }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="w-full max-w-sm rounded-2xl border border-border bg-panel p-6 shadow-2xl">
         <h2 className="text-sm font-bold text-ink">{title}</h2>
         <p className="mt-2 text-xs text-muted leading-relaxed">{message}</p>
