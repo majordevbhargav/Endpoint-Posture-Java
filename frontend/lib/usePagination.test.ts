@@ -1,30 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { usePagination } from "./usePagination";
+import { computePagination } from "./usePagination";
 
-// usePagination is a React hook but its pure-computation logic can be
-// extracted and tested without a DOM. We inline the logic here.
-// For behavior tests we replicate what the hook computes.
-
-function computePagination<T>(items: T[], page: number, pageSize: number) {
-  const total = items.length;
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(page, pageCount);
-  const pageItems = items.slice((safePage - 1) * pageSize, safePage * pageSize);
-  return {
-    page: safePage,
-    pageSize,
-    pageCount,
-    total,
-    pageItems,
-    from: total === 0 ? 0 : (safePage - 1) * pageSize + 1,
-    to: Math.min(total, safePage * pageSize),
-  };
-}
-
-describe("usePagination logic", () => {
+describe("computePagination", () => {
   const items = Array.from({ length: 55 }, (_, i) => i + 1);
 
-  it("first page returns correct slice", () => {
+  it("first page returns the correct slice", () => {
     const { pageItems, from, to, pageCount } = computePagination(items, 1, 25);
     expect(pageItems).toEqual(Array.from({ length: 25 }, (_, i) => i + 1));
     expect(from).toBe(1);
@@ -32,25 +12,30 @@ describe("usePagination logic", () => {
     expect(pageCount).toBe(3);
   });
 
-  it("last page returns remaining items", () => {
+  it("last page returns the remaining items", () => {
     const { pageItems, from, to } = computePagination(items, 3, 25);
     expect(pageItems).toEqual([51, 52, 53, 54, 55]);
     expect(from).toBe(51);
     expect(to).toBe(55);
   });
 
-  it("page is clamped when list shrinks", () => {
-    // If we were on page 5 but list now only has 3 pages
-    const smallItems = Array.from({ length: 30 }, (_, i) => i + 1);
-    const { page, pageCount } = computePagination(smallItems, 5, 10);
+  it("clamps a page that is past the end after the list shrinks", () => {
+    const small = Array.from({ length: 30 }, (_, i) => i + 1);
+    const { page, pageCount } = computePagination(small, 5, 10);
     expect(pageCount).toBe(3);
-    expect(page).toBe(3); // clamped
+    expect(page).toBe(3);
+  });
+
+  it("clamps page 0 or a negative page up to 1", () => {
+    expect(computePagination(items, 0, 25).page).toBe(1);
+    expect(computePagination(items, -4, 25).page).toBe(1);
   });
 
   it("empty list returns safe defaults", () => {
-    const { total, pageCount, pageItems, from, to } = computePagination([], 1, 25);
+    const { total, pageCount, pageItems, from, to, page } = computePagination([], 1, 25);
     expect(total).toBe(0);
     expect(pageCount).toBe(1);
+    expect(page).toBe(1);
     expect(pageItems).toHaveLength(0);
     expect(from).toBe(0);
     expect(to).toBe(0);

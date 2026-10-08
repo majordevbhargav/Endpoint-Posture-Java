@@ -4,7 +4,7 @@
 
 Last updated: October 2026.
 
-Companion docs: `PROJECT_COMPLETE_GUIDE.md` (full reference, the authority when documents disagree), `DECISIONS.md`, `FEATURE_ROADMAP.md`, `ROADMAP.md`.
+Companion docs: `PROJECT_COMPLETE_GUIDE.md` (full reference, the authority when documents disagree), `DECISIONS.md`, `FEATURE_ROADMAP.md`, `ROADMAP.md`, `docs/PRODUCTION_CHECKLIST.md`, `docs/COMPLETION_REPORT.md`.
 
 ---
 
@@ -23,13 +23,13 @@ An agentless endpoint posture and compliance platform integrating with Cisco ISE
 ```
 endpoint-posture-java/
 ├── backend/   config security endpoint job posture hardware ise session audit
-│              inventory dashboard policy system warranty diagnostic indicator
-│              + resources: application.yml, db/migration V1..V17
-├── frontend/  app, components, lib, Dockerfile
+│              inventory dashboard policy system warranty diagnostic indicator sim
+│              + resources: application.yml, application-sim.yml, db/migration V1..V22
+├── frontend/  app, components, lib (with vitest tests), Dockerfile
 ├── scripts/   posture_agent, hardware_health_agent, diagnostic_agent,
-│              security_indicator_agent, Save-PostureCredential
+│              security_indicator_agent, Save-PostureCredential, sim/
 ├── docker-compose.yml   Postgres, Adminer, optional frontend
-├── docs/archive/        retired documents
+├── docs/                PRODUCTION_CHECKLIST, COMPLETION_REPORT, archive/
 └── .github/workflows/ci.yml
 ```
 
@@ -42,14 +42,14 @@ docker compose up -d
 .\scripts\Save-PostureCredential.ps1      # same Windows account that runs the backend
 
 cd backend
-.\start-dev.ps1                           # expect Flyway to apply V1..V17; API :8090
+.\start-dev.ps1                           # expect Flyway to apply V1..V22; API :8090
 
 cd ..\frontend
 npm install                               # first time
 npm run dev                               # http://localhost:3000
 ```
 
-**Secrets have no defaults.** Without the dev profile set `JWT_SECRET`, `SEED_ADMIN_PASSWORD`, `POSTURE_API_KEY`, `DB_PASSWORD` (plus `ISE_BASE_URL`, `ISE_USERNAME`, `ISE_PASSWORD` if ISE is used). Real values live in the git-ignored `application-dev.yml`. Confirm it is not tracked.
+**Secrets have no defaults.** Without the dev profile set `JWT_SECRET`, `SEED_ADMIN_PASSWORD`, `POSTURE_API_KEY`, `DB_PASSWORD` (plus `ISE_BASE_URL`, `ISE_USERNAME`, `ISE_PASSWORD` if ISE is used). Real values live in the git-ignored `application-dev.yml`, which also sets `app.docs.public: true` so Swagger works locally. Confirm it is not tracked.
 
 Manual agent run:
 ```powershell
@@ -58,7 +58,7 @@ cd scripts ; .\posture_agent.ps1 ; .\hardware_health_agent.ps1
 ```
 The diagnostic and security agents also need `-Mac` when targeting a remote host, and a workgroup target reached by IP needs the host's WinRM `TrustedHosts` entry.
 
-**Gotchas.** PowerShell variables do not persist across windows; an unexplained `403` or a double slash in a URL is almost always a stale variable, so log in again. After large frontend changes delete `frontend/.next`. Clear the `theme` cookie to reset the theme.
+**Gotchas.** PowerShell variables do not persist across windows; an unexplained `403` or a double slash in a URL is almost always a stale variable, so log in again. After large frontend changes delete `frontend/.next`. Clear the `theme` cookie to reset the theme. Swagger is admin-only unless `app.docs.public=true`. The login rate limit is 10 per minute per IP; behind the Next.js proxy all users share one IP unless `app.security.trust-forwarded-for=true` (see the production checklist).
 
 ---
 
@@ -66,11 +66,11 @@ The diagnostic and security agents also need `-Mac` when targeting a remote host
 
 Against a real Windows laptop and a real lab ISE: login and `401`; endpoint discovery and connect/disconnect with grace period; full posture check through `JobWorker` to PowerShell; hardware health with real scoring; ISE Share (`Posture shared with ISE as COMPLIANT`), Restrict (`REAUTH_APPLIED`) and Clear, all audited; worker pool, rechecks, stale recovery, policy versions, system health, inventory retention.
 
-Covered by automated tests (`mvn test`, several need Docker): see `PROJECT_COMPLETE_GUIDE.md` section 12.
+Measured on the simulator (pre-S12, 20,000 sessions): watcher tick 0.5 to 3 s upper bound, dashboard summary 20 to 60 ms, trend 20 to 60 ms, endpoints page 25 to 500 ms, throughput about 115 jobs/min (40 workers x about 3 jobs/min), two Hikari stalls at 11:42 and 13:00 (housekeeper delta 1m39s and 1m6s). The post-S12 re-run is **pending**.
 
-**Not recorded as verified live:** Endpoint 360 diagnostics, security indicators, warranty upload, login lockout in the browser, `/ise-actions` page, the frontend container. They have tests or code, but no live run is documented. After pulling, run `mvn test` and `npx tsc --noEmit`, click through every page, run one diagnostic and one security scan against a real endpoint, and record the result here.
+Covered by automated tests (`mvn test`, several need Docker; `npm test`): see `PROJECT_COMPLETE_GUIDE.md` section 12.
 
-**Never measured:** behaviour at scale (`FEATURE_ROADMAP.md` S6).
+**Not recorded as verified live:** Endpoint 360 diagnostics, security indicators, warranty upload, login lockout in the browser, `/ise-actions` page, the frontend container, the 429 login limit through the real proxy. After pulling, run the checklist in section 9 and record the result here.
 
 ---
 
@@ -81,7 +81,7 @@ Covered by automated tests (`mvn test`, several need Docker): see `PROJECT_COMPL
 | Read everything | yes | yes | yes | yes |
 | Enqueue checks, share posture | yes | yes | yes | no |
 | Restrict / clear | yes | yes | no | no |
-| Edit policy, upload warranty, manage users | yes | no | no | no |
+| Edit policy, upload warranty, manage users, Swagger, Prometheus | yes | no | no | no |
 
 Role is read from the database on every request. Users cannot demote, disable or delete themselves; the last enabled admin cannot be removed. Passwords need 12+ characters; five wrong passwords lock an account for five minutes. `backend/run.ps1` is a manual RBAC smoke test (fill in its placeholders; it skips Restrict on purpose).
 
@@ -100,6 +100,8 @@ Role is read from the database on every request. Users cannot demote, disable or
 | 7 | Empty ISE list treated as "nobody connected" | an outage marked every device disconnected | `SessionPoll` separates failure from empty; failure freezes state |
 | 8 | Two places normalized app names differently (Python era) | stale rows | one normalization function per concept |
 | 9 | `app.security.login.*` nested under `app.jobs` | lockout settings ignored | must sit directly under `app.security`; `ApplicationConfigBindingTest` guards it |
+| 10 | Scheduler pool configured under `app.task.scheduling.pool.size` | every scheduled task ran on one thread | the real key is `spring.task.scheduling.pool.size`; guarded by `ApplicationConfigBindingTest` |
+| 11 | Docker image tag built from the mixed-case repo name | GHCR rejected the tag (`repository name must be lowercase`) | CI lowercases `GITHUB_REPOSITORY` before tagging |
 
 If you see `415`, `PKIX`, or ISE calls doing nothing, check `application.yml`, `ErsIseTransport` and `IseSessionClient` first.
 
@@ -110,6 +112,7 @@ If you see `415`, `PKIX`, or ISE calls doing nothing, check `application.yml`, `
 - `batteryScore` is null on the test laptop (`BatteryStaticData` returns "Generic failure"). Null, not zero, is correct.
 - `enforcement-mode: ATTRIBUTE` is the default; Clear removes nothing in ISE. `ANC` needs the real policy name confirmed.
 - Hardware `/latest`, diagnostics `/latest` and indicators `/latest` return `204` when never run. Intended.
+- `/endpoints`, `/posture/latest`, `/hardware-health/latest`, `/applications` and `/ports` return `400` above `app.api.fleet-list-max-endpoints` (default 2000). Intended; use the paged endpoints. Paged inventory is S13.
 - Hardware bands (85/70/50) and indicator thresholds are illustrative.
 - `WINRM_UNAVAILABLE` is a non-failing result, not an error. `FAILED` is reserved for the worker; agents may not submit it.
 - The backend cannot run in a Linux container (PowerShell, CIM/DCOM, DPAPI). Deployment model: `DECISIONS.md` D2.
@@ -118,12 +121,12 @@ If you see `415`, `PKIX`, or ISE calls doing nothing, check `application.yml`, `
 
 ## 8. What to do next, in order
 
-1. **Confirm the open decisions** in `DECISIONS.md`: D2 (deployment), D3 (sharing option B and the rule amendment), D4 (scale approach).
-2. **Cheap fixes** (`FEATURE_ROADMAP.md` S1 to S4): bound the job list, remove the N+1 in `AssessmentService.toResponse`, stop `latestPostureOrNull` downloading history, add a minimum gap to reconnect rechecks.
-3. **`AgentRunner` extraction and `shard` column** (S5).
-4. **Scale simulator** (S6), then fix what it exposes (S7 to S11).
-5. **ISE feed** (X1) once D3 is confirmed and pxGrid Direct limits are checked.
-6. **Harden and deploy** with Option A (`FEATURE_ROADMAP.md` section 4).
+1. **Run the live checks** in section 9 and record results in section 4.
+2. **Confirm the open decisions** in `DECISIONS.md`: D2, D3, D5, D7.
+3. **Re-run the simulator** (`backend\start-sim.ps1`, 30 to 60 minutes, GC log on) and compare with the pre-S12 numbers in section 4. Send the SIM lines to find out whether the two stalls were GC or the pool.
+4. **S13** paged inventory (needs migration V23), then **S11** partitioning once the evidence-retention period is decided.
+5. **X1** ISE feed only after D3 is confirmed and pxGrid Direct limits are checked.
+6. **Harden and deploy** with Option A (`docs/PRODUCTION_CHECKLIST.md`).
 7. Redis, Kafka, Kubernetes and the observability stack wait for a measured trigger. Do not add them speculatively.
 
 ---
@@ -132,7 +135,7 @@ If you see `415`, `PKIX`, or ISE calls doing nothing, check `application.yml`, `
 
 ```powershell
 cd backend ; mvn test         # Docker needed for Testcontainers
-cd ..\frontend ; npx tsc --noEmit ; npm run build
+cd ..\frontend ; npx tsc --noEmit ; npm test ; npm run build
 ```
 
 Then with Postgres, backend and frontend running, log in as `admin` and check:
@@ -143,9 +146,10 @@ Then with Postgres, backend and frontend running, log in as `admin` and check:
 - Users page: short password blocked, own row locked, last admin cannot be removed.
 - Policies page: saving creates a new version and the next posture check records it.
 - Warranty page: CSV upload as admin works; as another role it is disabled and the API returns `403`.
-- Five wrong passwords lock the account; the response is identical to a wrong password.
+- Five wrong passwords lock the account; the response is identical to a wrong password. More than ten login attempts a minute from one IP returns `429`.
+- `/swagger-ui.html` returns `403`/`401` without an admin token when `app.docs.public=false`.
 
-Swagger UI (`/swagger-ui.html`, Authorize with a token) is easier than the CLI for one-off calls.
+Swagger UI (Authorize with a token) is easier than the CLI for one-off calls.
 
 ---
 

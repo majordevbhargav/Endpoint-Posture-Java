@@ -6,11 +6,11 @@ on:
   pull_request:
     branches: [ "main" ]
 
-# ─── Backend build + test ────────────────────────────────────────────────────
 jobs:
+  # ─── Backend build + test ──────────────────────────────────────────────────
   backend:
     name: Backend — Maven build & test
-    # Pin to 24.04 so the Oct-2026 ubuntu-latest→26 migration doesn't surprise us.
+    # Pinned so a future ubuntu-latest migration doesn't surprise us.
     runs-on: ubuntu-24.04
 
     services:
@@ -30,7 +30,7 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
@@ -40,32 +40,27 @@ jobs:
           cache: maven
 
       - name: Build and test (backend/)
-        # pom.xml lives in backend/ — must cd there before running Maven.
-        # application.properties reads DB_USERNAME / DB_PASSWORD via ${…} placeholders.
-        # SPRING_DATASOURCE_URL overrides the localhost:5434 JDBC URL explicitly so
-        # the test context connects to the service container on the correct mapped port.
         working-directory: backend
         env:
           DB_USERNAME: ep_app
           DB_PASSWORD: ci_test_password
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5434/endpoint_posture
-          # Provide a stable JWT secret so security auto-config doesn't error in tests.
           JWT_SECRET: ci-test-jwt-secret-at-least-256-bits-long-placeholder-value
           SEED_ADMIN_PASSWORD: ci-test-admin-password
           POSTURE_API_KEY: ci-test-agent-key
         run: mvn -B clean verify -Duser.timezone=UTC
 
-# ─── Frontend type-check & test ─────────────────────────────────────────────
+  # ─── Frontend type-check, test, build ──────────────────────────────────────
   frontend:
     name: Frontend — TypeScript type-check, test & build
     runs-on: ubuntu-24.04
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: 'npm'
@@ -87,12 +82,11 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-# ─── Docker image (frontend) — only on main branch ───────────────────────────
+  # ─── Frontend image: main branch only, after BOTH test jobs pass ───────────
   docker-frontend:
     name: Build & push frontend Docker image
     runs-on: ubuntu-24.04
-    needs: frontend
-    # Only publish when merging to main; PRs just skip this job.
+    needs: [backend, frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: read
@@ -100,7 +94,13 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      # GHCR rejects any uppercase character in the image name.
+      # GITHUB_REPOSITORY is "Owner/Repo-Name"; ${VAR,,} lowercases it in bash.
+      - name: Compute lowercase image name
+        id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}-frontend" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -113,12 +113,12 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: frontend
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-frontend:${{ github.sha }}
-            ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}-frontend:latest
+            ${{ steps.img.outputs.name }}:${{ github.sha }}
+            ${{ steps.img.outputs.name }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -12,14 +12,14 @@ Cisco ISE stays the network-enforcement authority. The platform never turns a co
 
 ## What it does
 
-* **Endpoint discovery**: polls ISE sessions, tracks MAC/IP and connect/disconnect (with a grace period against flapping), keeps a session history per device.
+* **Endpoint discovery**: polls ISE sessions as a set difference (appeared, still present, missing), tracks MAC/IP and connect/disconnect (with a grace period against flapping), keeps a session history per device.
 * **Posture**: Windows Firewall, listening ports with a reachability probe, installed applications judged against a versioned required/blocked policy, processes, resources, OS.
 * **Hardware health**: CPU, memory, storage, battery, BIOS, 7-day hardware events, recommendations, warranty (from an uploaded CSV), trend charts.
 * **Endpoint 360** (on demand): network diagnostics run on the endpoint (gateway, DNS, TCP 443, traceroute) with a transparent score, and connection-based security indicators (possible lateral movement, beaconing). Indicators are evidence for a person to review and never trigger enforcement.
 * **ISE actions**: Share Posture, Restrict, Clear, each a separate operator action with its own role requirement and its own audit row, success or failure. A fleet page shows the latest enforcement state per device.
-* **Automation**: worker pool, automatic rechecks (posture every 4 h, hardware every 24 h), stale-job recovery, inventory retention.
-* **Access control**: roles `ADMIN`, `OPERATOR`, `ANALYST`, `VIEWER` enforced on the server; user management; login lockout.
-* **Operations**: System Health page, Prometheus metrics (`/actuator/prometheus`, admin only), CI, frontend container image.
+* **Automation**: worker pool, automatic rechecks (posture every 4 h, hardware every 24 h, rate limited per sweep), stale-job recovery, job and inventory retention, daily compliance rollup.
+* **Access control**: roles `ADMIN`, `OPERATOR`, `ANALYST`, `VIEWER` enforced on the server; user management; account lockout; per-IP login rate limit.
+* **Operations**: System Health page, Prometheus metrics (`/actuator/prometheus`, admin only), security headers, CI with frontend image publishing, a scale simulator.
 
 ## Architecture
 
@@ -46,22 +46,22 @@ Observation (ingest) and enforcement (ISE actions) live in separate controllers 
 | Layer | Choice |
 |---|---|
 | Backend | Java 21, Spring Boot 3.5.16, Maven, Spring Security + JWT, Flyway |
-| Database | PostgreSQL 16 (migrations V1 to V17; V5 to V7 intentionally absent) |
+| Database | PostgreSQL 16 with `pg_trgm` (migrations V1 to V22; V5 to V7 intentionally absent) |
 | Collection | PowerShell 5+, Windows CIM / WinRM / DCOM |
 | Network | Cisco ISE MNT (sessions) and ERS (actions) |
-| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 3 |
-| Delivery | Docker Compose (Postgres, Adminer, frontend), GitHub Actions CI |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 3, Vitest |
+| Delivery | Docker Compose (Postgres, Adminer, frontend), GitHub Actions CI (tests, frontend image to GHCR) |
 
 ## Run it
 
 ```powershell
 docker compose up -d                       # Postgres + Adminer
 .\scripts\Save-PostureCredential.ps1       # one time, same Windows account that runs the backend
-cd backend ; .\start-dev.ps1               # API :8090, Swagger at /swagger-ui.html
+cd backend ; .\start-dev.ps1               # API :8090, Swagger at /swagger-ui.html (dev profile only)
 cd ..\frontend ; npm install ; npm run dev # http://localhost:3000
 ```
 
-Details, configuration and troubleshooting: `PROJECT_COMPLETE_GUIDE.md` and `HANDOFF.md`.
+Details, configuration and troubleshooting: `PROJECT_COMPLETE_GUIDE.md` and `HANDOFF.md`. Scale simulator: `scripts/sim/README.md`. Production steps: `docs/PRODUCTION_CHECKLIST.md`.
 
 ## Documentation map
 
@@ -70,11 +70,14 @@ Details, configuration and troubleshooting: `PROJECT_COMPLETE_GUIDE.md` and `HAN
 | `PROJECT_COMPLETE_GUIDE.md` | Full reference: flows, database, packages, API, config, agents, frontend, security. The authority when documents disagree. |
 | `DECISIONS.md` | Decisions taken and open: scope, deployment, ISE sharing, scale. |
 | `FEATURE_ROADMAP.md` | What is done and what is left, in order. |
-| `ROADMAP.md` | System at completion, scale analysis, infrastructure phases. |
+| `ROADMAP.md` | System at completion, scale analysis and measurements, infrastructure phases. |
 | `HANDOFF.md` | Start here when picking the project up: run, verify, known traps. |
+| `docs/PRODUCTION_CHECKLIST.md` | What to do before real deployment. |
+| `docs/COMPLETION_REPORT.md` | What the last completion pass did and what only a human can finish. |
+| `scripts/sim/README.md` | How to run and read the 20,000-session simulation. |
 
 ## Status
 
-Backend, agents and dashboard are built through Endpoint 360, warranty, lockout, metrics and the frontend image. Left: scale hardening and measurement, the ISE feed, production hardening and deployment. Application remediation is **out of scope**. See `FEATURE_ROADMAP.md`.
+Backend, agents and dashboard are built through Endpoint 360, warranty, lockout, metrics, scale fixes S1 to S12 and the first hardening pass. Left: live verification of the newer features, the post-S12 simulation re-run, paged inventory (S13), the ISE feed (X1, needs decision D3), partitioning (S11) and deployment. Application remediation is **out of scope**. See `FEATURE_ROADMAP.md`.
 
 **The platform provides visibility and intelligence. Cisco ISE remains the enforcement layer.**

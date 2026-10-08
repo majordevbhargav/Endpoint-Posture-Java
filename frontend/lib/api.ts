@@ -403,8 +403,6 @@ export const api = {
       }),
     }),
 
-  listEndpoints: () => request<EndpointResponse[]>("/api/v1/endpoints"),
-
   getEndpoint: (id: string) =>
     request<EndpointResponse>(`/api/v1/endpoints/${id}`),
 
@@ -413,8 +411,10 @@ export const api = {
       `/api/v1/endpoints/${id}/posture/latest`,
     ),
 
-  latestPostureAll: () =>
-    request<AssessmentResponse[]>("/api/v1/posture/latest"),
+  latestPostureOrNull: (id: string) =>
+    request<AssessmentResponse | null>(
+      `/api/v1/endpoints/${id}/posture/latest`,
+    ),
 
   postureHistory: (id: string) =>
     request<AssessmentResponse[]>(`/api/v1/endpoints/${id}/posture`),
@@ -423,14 +423,6 @@ export const api = {
     request<HardwareHealthResponse | null>(
       `/api/v1/endpoints/${id}/hardware-health/latest`,
     ),
-
-  latestHardware: (id: string) =>
-    request<HardwareHealthResponse | null>(
-      `/api/v1/endpoints/${id}/hardware-health/latest`,
-    ),
-
-  latestHardwareAll: () =>
-    request<HardwareHealthResponse[]>("/api/v1/hardware-health/latest"),
 
   hardwareHistory: (id: string) =>
     request<HardwareHealthResponse[]>(
@@ -495,11 +487,6 @@ export const api = {
 
   diagnosticHistory: (id: string) =>
     request<DiagnosticResponse[]>(`/api/v1/endpoints/${id}/diagnostics`),
-
-  latestPostureOrNull: (id: string) =>
-    request<AssessmentResponse | null>(
-      `/api/v1/endpoints/${id}/posture/latest`,
-    ),
 
   latestSecurityOrNull: (id: string) =>
     request<SecurityIndicatorResponse | null>(
@@ -624,9 +611,8 @@ export const api = {
     return request<IseActionAudit[]>(`/api/v1/audit/ise-actions?${qs}`);
   },
 
-
   iseActionsState: () =>
-  request<IseActionState[]>("/api/v1/ise/actions/state"),
+    request<IseActionState[]>("/api/v1/ise/actions/state"),
 
   iseStatus: () => request<IseStatus>("/api/v1/ise/status"),
 

@@ -2,9 +2,11 @@ package com.endpointposture.inventory;
 
 import com.endpointposture.endpoint.Endpoint;
 import com.endpointposture.endpoint.EndpointRepository;
+import com.endpointposture.endpoint.FleetListLimitExceededException;
 import com.endpointposture.policy.PolicyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,6 +25,11 @@ import java.util.UUID;
  * <p>Required and blocked application patterns come from the active
  * {@link PolicyService} policy, the same one handed to the posture agent,
  * so this page and the agent's verdict cannot drift apart.</p>
+ *
+ * <p>Both lists return one row per application or port for every endpoint, so they
+ * grow with fleet size. Above {@code app.api.fleet-list-max-endpoints} they refuse
+ * with a {@code 400} instead of loading everything into memory. Real server-side
+ * paging is roadmap item S13.</p>
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -32,12 +39,15 @@ public class InventoryController {
     private final EndpointInventoryRepository inventory;
     private final EndpointRepository endpoints;
     private final PolicyService policyService;
+    private final long fleetListMaxEndpoints;
 
     public InventoryController(EndpointInventoryRepository inventory, EndpointRepository endpoints,
-                               PolicyService policyService) {
+                               PolicyService policyService,
+                               @Value("${app.api.fleet-list-max-endpoints:2000}") long fleetListMaxEndpoints) {
         this.inventory = inventory;
         this.endpoints = endpoints;
         this.policyService = policyService;
+        this.fleetListMaxEndpoints = fleetListMaxEndpoints;
     }
 
     /** Shape matches frontend/lib/inventory.ts AppRow. */
@@ -48,9 +58,11 @@ public class InventoryController {
     public record PortRow(int port, String process, Integer pid, Boolean reachable,
                           String hostname, String macAddress, String status) {}
 
-    @Operation(summary = "Installed applications from each endpoint's latest posture run")
+    @Operation(summary = "Installed applications from each endpoint's latest posture run",
+            description = "Refused with 400 when the fleet exceeds app.api.fleet-list-max-endpoints.")
     @GetMapping("/applications")
     public List<AppRow> applications() {
+        checkFleetCap();
         PolicyService.PolicySnapshot policy = policyService.getActive();
         Map<UUID, Endpoint> byId = endpointsById();
         List<AppRow> rows = new ArrayList<>();
@@ -80,9 +92,11 @@ public class InventoryController {
         return rows;
     }
 
-    @Operation(summary = "Listening TCP ports (with probe reachability) from each endpoint's latest posture run")
+    @Operation(summary = "Listening TCP ports (with probe reachability) from each endpoint's latest posture run",
+            description = "Refused with 400 when the fleet exceeds app.api.fleet-list-max-endpoints.")
     @GetMapping("/ports")
     public List<PortRow> ports() {
+        checkFleetCap();
         Map<UUID, Endpoint> byId = endpointsById();
         List<PortRow> rows = new ArrayList<>();
 
@@ -104,6 +118,14 @@ public class InventoryController {
             }
         }
         return rows;
+    }
+
+    private void checkFleetCap() {
+        long count = endpoints.count();
+        if (count > fleetListMaxEndpoints) {
+            throw new FleetListLimitExceededException(count, fleetListMaxEndpoints,
+                    "this inventory list is not paged yet, so it is limited to smaller fleets");
+        }
     }
 
     private Map<UUID, Endpoint> endpointsById() {

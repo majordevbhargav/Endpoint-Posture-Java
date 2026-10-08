@@ -21,9 +21,9 @@ The backend launches `powershell.exe` and depends on CIM/DCOM, WinRM and a DPAPI
 | C. Split: API anywhere (Linux/containers) + small fleet of Windows runner VMs that claim jobs and run the agents | **Production target.** Build only when scale demands it. |
 | D. Rewrite collection off PowerShell | Rejected: loses CIM/DCOM, rewrites working code. |
 
-Option A specifics: Windows Server VM with JDK 21; jar as a service (WinSW or NSSM) under the same account that ran `Save-PostureCredential.ps1`; secrets as machine environment variables; firewall open to endpoint VLANs (WinRM/DCOM) and ISE (443); `TrustedHosts` set for workgroup targets; TLS reverse proxy in front of the frontend with the API port closed to everyone else.
+Option A specifics: Windows Server VM with JDK 21; jar as a service (WinSW or NSSM) under the same account that ran `Save-PostureCredential.ps1` (a normal dedicated service user; a gMSA cannot log on interactively to create the DPAPI file); secrets as machine environment variables; firewall open to endpoint VLANs (WinRM/DCOM) and ISE (443); `TrustedHosts` set for workgroup targets; TLS reverse proxy in front of the frontend with the API port closed to everyone else. Details: `docs/PRODUCTION_CHECKLIST.md`.
 
-Prep for C, to do now because it is cheap: extract process launching from `JobWorker` into an `AgentRunner` interface (`LocalProcessAgentRunner` is the only implementation), and add a `shard` column to `posture_job` (default `default`). A later remote runner claims jobs over HTTPS with its own credential, which requires TLS and a runner key.
+Prep for C is **done**: process launching lives behind the `AgentRunner` interface (`LocalProcessAgentRunner` is the only real implementation; `SimulatedAgentRunner` exists in the `sim` profile) and `posture_job` has a `shard` column (default `default`, claims do not filter by it yet). A later remote runner claims jobs over HTTPS with its own credential, which requires TLS and a runner key.
 
 ## D3. ISE sharing model at scale (Working default: option B, not built)
 
@@ -50,7 +50,20 @@ Prep for C, to do now because it is cheap: extract process launching from `JobWo
 
 ## D4. Scale target and approach (Working default)
 
-Personal project on one machine; hypothetical production target of 50,000 endpoints and about 20,000 live sessions each morning. The numbers behind this are estimates in `ROADMAP.md` section 4 and must be replaced with measurements. Approach: build a simulator on this machine first (fake ISE with 20k sessions, 50k seeded endpoints, fake runner), measure, then fix what bites. Kafka is not justified by job throughput (about 3 jobs per second at peak); site affinity can use a `shard` column in Postgres.
+Personal project on one machine; hypothetical production target of 50,000 endpoints and about 20,000 live sessions each morning. Approach: simulator on this machine first, measure, then fix what bites. Kafka is not justified by job throughput (about 3 jobs per second at peak); site affinity can use the `shard` column in Postgres.
+
+**Measured (pre-S12, 20,000 simulated sessions, 40 simulated workers):**
+
+| Metric | Result |
+|---|---|
+| Watcher tick | 0.5 to 3 s upper bound (budget is the 15 s poll interval) |
+| Dashboard summary | 20 to 60 ms |
+| Dashboard trend (7 days) | 20 to 60 ms |
+| Endpoints page (25 rows) | 25 to 500 ms |
+| Job throughput | about 115 jobs/min (40 workers x about 3 jobs/min) |
+| Hikari stalls | two, at 11:42 and 13:00 (housekeeper delta 1m39s and 1m6s) |
+
+**Post-S12 re-run: PENDING.** S12 added connection keep-alive and lifetime tuning, `touch-min-minutes`, a per-sweep recheck cap, the fleet-list cap and trigram search indexes. Targets: no Hikari stall, endpoint search under 150 ms at 50,000 endpoints. See `scripts/sim/README.md`.
 
 ## D5. Enforcement mode (Open)
 
@@ -70,3 +83,11 @@ One shared admin credential reaches every target. Decide on a least-privilege se
 - Browser-history collection (pending legal and HR sign-off).
 - pxGrid proper (session event subscription) until the pxGrid persona and client certificates exist. This is different from pxGrid Direct in D3.
 - Redis, Kafka, Kubernetes and the observability stack until a measured trigger appears (a second backend instance, real dispatch scale, a chosen deployment).
+
+## D9. Login rate limiting behind a proxy (Working default)
+
+The limiter is per client IP, in memory, one instance. The frontend proxies `/api/*` to the backend, so without help the backend sees one IP for everybody and all users share one bucket (default 10 logins a minute). `app.security.trust-forwarded-for` stays `false` by default. Set it to `true` only when the backend port is reachable solely through a proxy that overwrites `X-Forwarded-For`; never on a directly exposed backend, where clients could forge the header. Account lockout stays independent. Revisit if a second backend instance appears (the limiter would then need shared state, which is a measured trigger for Redis).
+
+## D10. Retention of evidence (Open)
+
+Assessments, check results, hardware, diagnostics, indicator rows and audit rows are kept forever by design. Finished jobs are pruned after 30 days and inventory payloads beyond the newest 10 runs per endpoint. Decide how long "evidence forever" really is before building partitioning (S11); at the target scale it is about 120k assessments a day.

@@ -104,9 +104,10 @@ export default function PortsPage() {
     try {
       const data = await listPorts();
       setRows(data.map((r, i) => ({ ...r, rowId: `${r.macAddress}-${r.port}-${i}` })));
-    } catch {
+    } catch (e) {
       setRows([]);
-      setError("Could not load inventory from the backend.");
+      // Show the server's reason (for example the fleet-size cap), not a generic message.
+      setError(e instanceof Error ? e.message : "Could not load inventory from the backend.");
     } finally {
       setLoading(false);
     }

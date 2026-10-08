@@ -2,6 +2,7 @@ package com.endpointposture.inventory;
 
 import com.endpointposture.endpoint.Endpoint;
 import com.endpointposture.endpoint.EndpointRepository;
+import com.endpointposture.endpoint.FleetListLimitExceededException;
 import com.endpointposture.inventory.InventoryController.AppRow;
 import com.endpointposture.inventory.InventoryController.PortRow;
 import com.endpointposture.policy.PolicyService;
@@ -21,6 +22,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,7 +40,8 @@ class InventoryControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new InventoryController(inventory, endpoints, policyService);
+        controller = new InventoryController(inventory, endpoints, policyService, 2000);
+        when(endpoints.count()).thenReturn(1L);
         when(endpoints.findAll()).thenReturn(List.of(ep));
         when(policyService.getActive()).thenReturn(new PolicySnapshot(UUID.randomUUID(), "p", 7,
                 List.of("Cisco Secure Client"), List.of("uTorrent", "TeamViewer"), "admin", Instant.now()));
@@ -136,5 +140,35 @@ class InventoryControllerTest {
 
         assertEquals(1, rows.size());
         assertEquals(22, rows.get(0).port());
+    }
+
+    // ---- fleet cap ----
+    @Test
+    void applicationsRefuseAboveTheFleetCapAndLoadNothing() {
+        when(endpoints.count()).thenReturn(2001L);
+
+        FleetListLimitExceededException e =
+                assertThrows(FleetListLimitExceededException.class, () -> controller.applications());
+
+        assertTrue(e.getMessage().contains("2001"));
+        assertTrue(e.getMessage().contains("(2000)"));
+        verify(inventory, never()).findLatestPerEndpoint();
+    }
+
+    @Test
+    void portsRefuseAboveTheFleetCapAndLoadNothing() {
+        when(endpoints.count()).thenReturn(5000L);
+
+        assertThrows(FleetListLimitExceededException.class, () -> controller.ports());
+        verify(inventory, never()).findLatestPerEndpoint();
+    }
+
+    @Test
+    void exactlyAtTheCapStillWorks() {
+        when(endpoints.count()).thenReturn(2000L);
+        when(inventory.findLatestPerEndpoint()).thenReturn(List.of());
+
+        assertTrue(controller.applications().isEmpty());
+        assertTrue(controller.ports().isEmpty());
     }
 }

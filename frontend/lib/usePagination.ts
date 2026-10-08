@@ -6,6 +6,25 @@ const sizeMemory = new Map<string, number>();
 const STORAGE_PREFIX = "pageSize:";
 
 /**
+ * Pure pagination math, kept separate from the hook so it can be unit tested.
+ * The requested page is clamped into 1..pageCount, so a list that shrinks
+ * never leaves you on an empty page.
+ */
+export function computePagination<T>(items: T[], page: number, pageSize: number) {
+  const total = items.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(1, page), pageCount);
+  return {
+    total,
+    pageCount,
+    page: safePage,
+    pageItems: items.slice((safePage - 1) * pageSize, safePage * pageSize),
+    from: total === 0 ? 0 : (safePage - 1) * pageSize + 1,
+    to: Math.min(total, safePage * pageSize),
+  };
+}
+
+/**
  * Client-side pagination over an already-filtered list.
  *
  * The current page is clamped whenever the list shrinks (a filter narrows the
@@ -35,18 +54,11 @@ export function usePagination<T>(items: T[], initialPageSize = 25, storageKey?: 
     }
   }, [storageKey]);
 
-  const total = items.length;
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(page, pageCount);
+  const view = useMemo(() => computePagination(items, page, pageSize), [items, page, pageSize]);
 
   useEffect(() => {
-    if (page > pageCount) setPageRaw(pageCount);
-  }, [page, pageCount]);
-
-  const pageItems = useMemo(
-    () => items.slice((safePage - 1) * pageSize, safePage * pageSize),
-    [items, safePage, pageSize]
-  );
+    if (page > view.pageCount) setPageRaw(view.pageCount);
+  }, [page, view.pageCount]);
 
   const setPage = useCallback((p: number) => setPageRaw(Math.max(1, p)), []);
 
@@ -69,13 +81,13 @@ export function usePagination<T>(items: T[], initialPageSize = 25, storageKey?: 
   const resetPage = useCallback(() => setPageRaw(1), []);
 
   return {
-    page: safePage,
+    page: view.page,
     pageSize,
-    pageCount,
-    pageItems,
-    total,
-    from: total === 0 ? 0 : (safePage - 1) * pageSize + 1,
-    to: Math.min(total, safePage * pageSize),
+    pageCount: view.pageCount,
+    pageItems: view.pageItems,
+    total: view.total,
+    from: view.from,
+    to: view.to,
     setPage,
     setPageSize,
     resetPage,
