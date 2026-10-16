@@ -18,6 +18,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
@@ -149,6 +150,7 @@ class InventoryQueryServiceTest {
     }
 
     @Test
+    @Transactional
     void ingestMovesThePointerForwardOnly() {
         UUID ep = jdbc.queryForObject("SELECT id FROM endpoint WHERE mac_address = 'FF:00:00:00:00:03'", UUID.class);
         UUID newer = jdbc.queryForObject("INSERT INTO endpoint_inventory (endpoint_id, installed_apps) VALUES (?, '[]') RETURNING id", UUID.class, ep);
