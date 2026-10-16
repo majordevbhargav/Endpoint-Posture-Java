@@ -73,6 +73,12 @@ app:
         refill-tokens: 10
         refill-duration-seconds: 60
 
+  # X1 (DECISIONS D3): the credential ISE pxGrid Direct uses to pull the feed
+  # (HTTP Basic). No default password: with it blank every Basic header is refused.
+  ise-feed:
+    username: ${ISE_FEED_USER:ise-feed}
+    password: ${ISE_FEED_PASSWORD:}
+
   api:
     # S12: /posture/latest and /hardware-health/latest (whole fleet) refuse to run
     # above this many endpoints; use /latest/batch and /hardware-health/page instead.
@@ -149,6 +155,14 @@ app:
     inventory-cron: "0 30 3 * * *"
     job-days: 30
     jobs-cron: "0 45 3 * * *"
+    # D10: evidence (assessments, checks, hardware, diagnostics, indicators, inventory rows,
+    # session log) is kept 90 days. Each endpoint's current pointers and newest rows are
+    # always kept. Audit rows have their own window; the newest RESTRICT/CLEAR per endpoint is kept.
+    evidence-days: 90
+    audit-days: 90
+    evidence-cron: "0 15 4 * * *"
+    evidence-batch-size: 5000
+    evidence-max-batches: 200   # at most 1,000,000 rows per table per night; the rest waits
 
 management:
   endpoints:

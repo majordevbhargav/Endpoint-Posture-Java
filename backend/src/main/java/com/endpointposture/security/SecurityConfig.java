@@ -21,16 +21,19 @@ public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
     private final PostureApiKeyFilter postureApiKeyFilter;
+    private final IseFeedAuthFilter iseFeedAuthFilter;
     private final SecurityHeadersFilter securityHeadersFilter;
     private final boolean docsPublic;
 
     public SecurityConfig(
             JwtAuthFilter jwtAuthFilter,
             PostureApiKeyFilter postureApiKeyFilter,
+            IseFeedAuthFilter iseFeedAuthFilter,
             SecurityHeadersFilter securityHeadersFilter,
             @Value("${app.docs.public:false}") boolean docsPublic) {
         this.jwtAuthFilter = jwtAuthFilter;
         this.postureApiKeyFilter = postureApiKeyFilter;
+        this.iseFeedAuthFilter = iseFeedAuthFilter;
         this.securityHeadersFilter = securityHeadersFilter;
         this.docsPublic = docsPublic;
     }
@@ -80,6 +83,9 @@ public class SecurityConfig {
                                 "/api/v1/diagnostics",
                                 "/api/v1/security-indicators"
                         ).hasAnyRole("AGENT", "ADMIN")
+                        // X1: the ISE feed is pulled by ISE (Basic auth, ROLE_ISE_FEED) or previewed by an admin.
+                        .requestMatchers(HttpMethod.GET, IseFeedAuthFilter.FEED_PATH).hasAnyRole("ISE_FEED", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/integrations/ise/sharing-rule").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/policy/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/warranty/upload").hasRole("ADMIN")
                         .requestMatchers("/api/v1/users/**").hasRole("ADMIN")
@@ -93,6 +99,9 @@ public class SecurityConfig {
                         UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(
                         postureApiKeyFilter,
+                        UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(
+                        iseFeedAuthFilter,
                         UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

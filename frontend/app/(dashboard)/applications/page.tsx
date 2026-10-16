@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Boxes,
@@ -10,158 +10,109 @@ import {
   AlertTriangle,
   Monitor,
   CheckCircle2,
-  ExternalLink,
   Lock,
 } from "lucide-react";
-import { AppRow, listApplications } from "@/lib/inventory";
-import { api, AppPolicy } from "@/lib/api";
+import { AppRow, api, AppPolicy } from "@/lib/api";
+import { apiExtra, AppSummary } from "@/lib/apiExtra";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { Column, DataTable } from "@/components/ui/DataTable";
+import { ExportCsvButton, PaginationBar } from "@/components/ui/PaginationBar";
+import { datedFilename, downloadCsv } from "@/lib/csv";
 
-// The API rows have no unique id, so one is added on load (DataTable needs a stable row key).
-type KeyedApp = AppRow & { rowId: string };
-
-const columns: Column<KeyedApp>[] = [
-  {
-    key: "name",
-    header: "Application",
-    className: "font-semibold text-ink",
-    csv: (r) => r.name,
-  },
-  {
-    key: "version",
-    header: "Version",
-    className: "font-mono text-muted",
-    render: (r) => r.version || "—",
-    csv: (r) => r.version,
-  },
-  {
-    key: "status",
-    header: "Status",
-    render: (r) =>
-      r.status ? (
-        <StatusBadge value={r.status} />
-      ) : (
-        <span className="text-[11px] text-muted">Installed</span>
-      ),
-    csv: (r) => r.status ?? "INSTALLED",
-  },
-  {
-    key: "publisher",
-    header: "Publisher / Source",
-    className: "text-muted",
-    render: (r) => r.publisher || "Windows Registry",
-    csv: (r) => r.publisher,
-  },
-  {
-    key: "hostname",
-    header: "Device Hostname",
-    className: "text-ink",
-    render: (r) => r.hostname || "Windows Host",
-    csv: (r) => r.hostname,
-  },
-  {
-    key: "macAddress",
-    header: "MAC Address",
-    className: "font-mono text-muted",
-  },
-  {
-    key: "summary",
-    header: "Evaluation Details",
-    className: "max-w-xs truncate text-muted",
-    render: (r) => r.summary || "—",
-    csv: (r) => r.summary,
-  },
-  {
-    key: "view",
-    header: "View",
-    headerClassName: "text-right",
-    className: "text-right",
-    exportable: false,
-    render: () => (
-      <Link
-        href="/endpoints"
-        className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
-      >
-        <span>Device</span>
-        <ExternalLink size={10} />
-      </Link>
-    ),
-  },
-];
-
+// Server-paged (S13): search, the status filter and paging all run in the database.
 export default function ApplicationsPage() {
-  const [rows, setRows] = useState<KeyedApp[] | null>(null);
+  const [rows, setRows] = useState<AppRow[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [summary, setSummary] = useState<AppSummary | null>(null);
   const [policy, setPolicy] = useState<AppPolicy | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [debounced, setDebounced] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
 
-  const loadData = async () => {
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebounced(q.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [data, activePolicy] = await Promise.all([
-        listApplications(),
-        api.policy().catch(() => null), // the banner is optional; the table is not
-      ]);
-      setRows(data.map((r, i) => ({ ...r, rowId: `${r.macAddress}-${i}` })));
-      setPolicy(activePolicy);
-    } catch {
-      setRows([]);
-      setError("Could not load inventory from the backend.");
+      const res = await apiExtra.applicationsPage({ page: page - 1, size: pageSize, q: debounced, status: statusFilter });
+      setRows(res.items);
+      setTotal(res.total);
+    } catch (e) {
+      setRows((prev) => prev ?? []);
+      setError(e instanceof Error ? e.message : "Could not load inventory from the backend.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize, debounced, statusFilter]);
 
-  useEffect(() => {
-    loadData();
+  const loadSide = useCallback(async () => {
+    const [s, p] = await Promise.all([
+      apiExtra.applicationsSummary().catch(() => null),
+      api.policy().catch(() => null), // the banner is optional; the table is not
+    ]);
+    setSummary(s);
+    setPolicy(p);
   }, []);
 
-  const stats = useMemo(() => {
-    const list = rows ?? [];
-    const total = list.length;
-    const compliant = list.filter((r) => r.status === "COMPLIANT").length;
-    const violations = list.filter((r) => r.status === "NON_COMPLIANT").length;
-    const uniqueDevices = new Set(list.map((r) => r.macAddress)).size;
-    return { total, compliant, violations, uniqueDevices };
-  }, [rows]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const shown = useMemo(() => {
-    if (!rows) return null;
-    return rows.filter((r) => {
-      if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
+  useEffect(() => {
+    loadSide();
+  }, [loadSide]);
 
-      if (q.trim()) {
-        const query = q.toLowerCase();
-        const matches =
-          r.name?.toLowerCase().includes(query) ||
-          r.publisher?.toLowerCase().includes(query) ||
-          r.hostname?.toLowerCase().includes(query) ||
-          r.macAddress?.toLowerCase().includes(query) ||
-          r.summary?.toLowerCase().includes(query);
-        if (!matches) return false;
+  async function exportCsv() {
+    // Every row matching the active filters, walked page by page.
+    try {
+      const size = 200;
+      const all: AppRow[] = [];
+      for (let p = 0; p < 2000; p++) {
+        const res = await apiExtra.applicationsPage({ page: p, size, q: debounced, status: statusFilter });
+        all.push(...res.items);
+        if (res.items.length < size) break;
       }
-      return true;
-    });
-  }, [rows, statusFilter, q]);
+      downloadCsv(
+        datedFilename("installed-software"),
+        ["Application", "Version", "Status", "Publisher", "Hostname", "MAC Address", "Evaluation Details"],
+        all.map((r) => [r.name, r.version, r.status ?? "INSTALLED", r.publisher, r.hostname, r.macAddress, r.summary]),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Export failed.");
+    }
+  }
+
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-ink">Application Control & Software</h1>
           <p className="mt-1 text-xs text-muted">
-            Installed endpoint software evaluated against enterprise allowed and blocked policy lists.
+            Installed endpoint software from each device&apos;s latest posture run, evaluated against the active
+            required and blocked policy. Search and filters run on the server.
           </p>
         </div>
-
         <div className="flex items-center gap-2.5">
+          <ExportCsvButton onClick={exportCsv} disabled={total === 0} />
           <button
-            onClick={loadData}
+            onClick={() => {
+              load();
+              loadSide();
+            }}
             disabled={loading}
             className="flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-ink transition hover:border-accent/40 disabled:opacity-50"
           >
@@ -171,11 +122,8 @@ export default function ApplicationsPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-xs text-bad">{error}</div>
-      )}
+      {error && <div className="rounded-lg border border-bad/30 bg-bad/10 p-3 text-xs text-bad">{error}</div>}
 
-      {/* Policy banner (live from the active policy) */}
       <div className="panel grid grid-cols-1 gap-4 bg-panel2/50 p-4 md:grid-cols-2">
         <div className="flex items-start gap-3">
           <div className="rounded-lg bg-good/15 p-2 text-good">
@@ -191,7 +139,6 @@ export default function ApplicationsPage() {
             </div>
           </div>
         </div>
-
         <div className="flex items-start gap-3">
           <div className="rounded-lg bg-bad/15 p-2 text-bad">
             <Lock size={18} />
@@ -206,7 +153,6 @@ export default function ApplicationsPage() {
             </div>
           </div>
         </div>
-
         {policy && (
           <div className="text-[11px] text-muted md:col-span-2">
             Policy version <span className="font-mono font-semibold text-ink">v{policy.version}</span>
@@ -219,46 +165,41 @@ export default function ApplicationsPage() {
         )}
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="panel p-4">
           <div className="flex items-center justify-between text-xs text-muted">
             <span>Evaluated Endpoints</span>
             <Monitor size={16} className="text-accent" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-ink">{stats.uniqueDevices}</div>
+          <div className="mt-2 text-2xl font-bold text-ink">{summary?.evaluatedEndpoints ?? "…"}</div>
           <div className="text-[11px] text-muted">With application inventory</div>
         </div>
-
         <div className="panel p-4">
           <div className="flex items-center justify-between text-xs text-muted">
             <span>Required Apps Present</span>
             <CheckCircle2 size={16} className="text-good" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-good">{stats.compliant}</div>
+          <div className="mt-2 text-2xl font-bold text-good">{summary?.compliant ?? "…"}</div>
           <div className="text-[11px] text-muted">Satisfies baseline policy</div>
         </div>
-
         <div className="panel p-4">
           <div className="flex items-center justify-between text-xs text-muted">
             <span>Blocked Apps Found</span>
             <AlertTriangle size={16} className="text-bad" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-bad">{stats.violations}</div>
+          <div className="mt-2 text-2xl font-bold text-bad">{summary?.nonCompliant ?? "…"}</div>
           <div className="text-[11px] text-muted">Policy violations</div>
         </div>
-
         <div className="panel p-4">
           <div className="flex items-center justify-between text-xs text-muted">
             <span>Total Installed Apps</span>
             <Boxes size={16} className="text-accent" />
           </div>
-          <div className="mt-2 text-2xl font-bold text-ink">{stats.total}</div>
+          <div className="mt-2 text-2xl font-bold text-ink">{summary?.totalApps ?? "…"}</div>
           <div className="text-[11px] text-muted">Across all endpoints</div>
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
       <div className="panel flex flex-col justify-between gap-3 p-3 sm:flex-row sm:items-center">
         <div className="relative max-w-md flex-1">
           <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
@@ -270,31 +211,83 @@ export default function ApplicationsPage() {
             className="w-full rounded-lg border border-border bg-base py-1.5 pl-9 pr-3 text-xs text-ink outline-none placeholder:text-muted focus:border-accent"
           />
         </div>
-
-        <div className="flex items-center gap-2">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-lg border border-border bg-panel px-2.5 py-1.5 text-xs text-ink outline-none focus:border-accent"
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="COMPLIANT">Required Present</option>
-            <option value="NON_COMPLIANT">Blocked Found</option>
-          </select>
-        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setPage(1);
+          }}
+          className="rounded-lg border border-border bg-panel px-2.5 py-1.5 text-xs text-ink outline-none focus:border-accent"
+        >
+          <option value="ALL">All Statuses</option>
+          <option value="COMPLIANT">Required Present</option>
+          <option value="NON_COMPLIANT">Blocked Found</option>
+        </select>
       </div>
 
-      {/* Applications table (paginated + CSV) */}
-      <DataTable<KeyedApp>
-        rows={shown}
-        columns={columns}
-        rowKey={(r) => r.rowId}
-        csvFilename="installed-software"
-        loadingMessage="Loading application inventory…"
-        emptyMessage="No matching software records found. Inventory appears once posture checks run."
-        minWidth={860}
-        toolbarLeft={shown ? `${shown.length} matching application${shown.length === 1 ? "" : "s"}` : undefined}
-      />
+      <div className="panel overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-border bg-panel2/40 text-[11px] font-semibold text-muted">
+                <th className="px-4 py-3">Application</th>
+                <th className="px-4 py-3">Version</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Publisher / Source</th>
+                <th className="px-4 py-3">Device Hostname</th>
+                <th className="px-4 py-3">MAC Address</th>
+                <th className="px-4 py-3">Evaluation Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/40">
+              {rows === null && (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-muted">
+                    Loading application inventory…
+                  </td>
+                </tr>
+              )}
+              {rows !== null && rows.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-muted">
+                    No matching software records found. Inventory appears once posture checks run.
+                  </td>
+                </tr>
+              )}
+              {(rows ?? []).map((r, i) => (
+                <tr key={`${r.macAddress}-${r.name}-${i}`} className="transition hover:bg-ink/[0.02]">
+                  <td className="px-4 py-3 font-semibold text-ink">{r.name}</td>
+                  <td className="px-4 py-3 font-mono text-muted">{r.version || "—"}</td>
+                  <td className="px-4 py-3">
+                    {r.status ? <StatusBadge value={r.status} /> : <span className="text-[11px] text-muted">Installed</span>}
+                  </td>
+                  <td className="px-4 py-3 text-muted">{r.publisher || "Windows Registry"}</td>
+                  <td className="px-4 py-3 text-ink">{r.hostname || "Windows Host"}</td>
+                  <td className="px-4 py-3 font-mono text-muted">{r.macAddress}</td>
+                  <td className="max-w-xs truncate px-4 py-3 text-muted" title={r.summary ?? ""}>
+                    {r.summary || "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {rows !== null && (
+          <PaginationBar
+            page={page}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            total={total}
+            from={from}
+            to={to}
+            setPage={(p) => setPage(Math.max(1, Math.min(p, pageCount)))}
+            setPageSize={(n) => {
+              setPageSize(n);
+              setPage(1);
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

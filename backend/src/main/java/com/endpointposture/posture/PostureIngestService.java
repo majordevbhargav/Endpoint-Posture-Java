@@ -21,7 +21,9 @@ import java.util.UUID;
  * One report becomes, in a single transaction: the endpoint found or
  * created by MAC (plus its hardware identity), one {@link Assessment}, one
  * {@link CheckResult} per check, and one inventory row (ports, apps,
- * processes). If any step fails, nothing is saved.
+ * processes) whose id is also stored on the endpoint as its latest-inventory
+ * pointer (V23, used by the paged inventory pages). If any step fails,
+ * nothing is saved.
  * </p>
  *
  * <p>
@@ -67,7 +69,7 @@ public class PostureIngestService {
                 checks);
 
         if (req.inventory() != null) {
-            inventoryRepository.save(EndpointInventory.builder()
+            EndpointInventory inventory = inventoryRepository.save(EndpointInventory.builder()
                     .endpointId(endpoint.getId())
                     .assessmentId(saved.id())
                     .listeningPorts(req.inventory().listeningPorts())
@@ -76,6 +78,7 @@ public class PostureIngestService {
                     .resourceUsage(req.inventory().resourceUsage())
                     .collectedAt(completedAt)
                     .build());
+            inventoryRepository.updateEndpointLatest(endpoint.getId(), inventory.getId(), completedAt);
         }
 
         return saved;

@@ -342,7 +342,7 @@ export interface EndpointBrief {
   ipAddress: string | null;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
 
   const res = await fetch(path, {

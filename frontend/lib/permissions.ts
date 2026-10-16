@@ -7,7 +7,8 @@ export type Action =
   | "restrict"
   | "editPolicy"
   | "manageUsers"
-  | "uploadWarranty";
+  | "uploadWarranty"
+  | "editSharingRule";
 
 // UI convenience only. The backend @PreAuthorize rules are the real control.
 const ALLOWED: Record<Action, Role[]> = {
@@ -17,6 +18,7 @@ const ALLOWED: Record<Action, Role[]> = {
   editPolicy: ["ADMIN"],
   manageUsers: ["ADMIN"],
   uploadWarranty: ["ADMIN"],
+  editSharingRule: ["ADMIN"],
 };
 
 export function can(action: Action): boolean {
