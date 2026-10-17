@@ -28,6 +28,25 @@ export interface SharingRule {
   createdAt: string;
 }
 
+export interface FeedEndpoint {
+  mac: string;
+  postureStatus: string;
+  failedChecks: string;
+  lastChecked: string | null;
+  connected: boolean;
+  hardwareBand: string | null;
+  securityRiskLevel: string | null;
+}
+
+export interface IseFeed {
+  ruleVersion: number;
+  scope: SharingScope;
+  generatedAt: string;
+  total: number;
+  page: number;
+  size: number;
+  endpoints: FeedEndpoint[];
+}
 function qs(p: Record<string, string | number | undefined>): string {
   const out = new URLSearchParams();
   for (const [k, v] of Object.entries(p)) {
@@ -41,6 +60,9 @@ export const apiExtra = {
     request<PageResponse<AppRow>>(
       `/api/v1/applications/page?${qs({ page: p.page ?? 0, size: p.size ?? 25, q: p.q?.trim(), status: p.status })}`,
     ),
+  // ADMIN only (the route accepts the ISE credential or an admin JWT). Every call writes a feed audit row.
+  iseFeedPreview: (p: { page?: number; size?: number } = {}) =>
+    request<IseFeed>(`/api/v1/integrations/ise/endpoints?${qs({ page: p.page ?? 0, size: p.size ?? 25 })}`),
 
   applicationsSummary: () => request<AppSummary>("/api/v1/applications/summary"),
 

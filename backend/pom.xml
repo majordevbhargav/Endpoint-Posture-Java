@@ -40,6 +40,7 @@
              cadence, independent of Spring Boot's. Check
              central.sonatype.com for anything newer before bumping. -->
         <testcontainers.version>1.20.4</testcontainers.version>
+    
     </properties>
 
     <dependencyManagement>

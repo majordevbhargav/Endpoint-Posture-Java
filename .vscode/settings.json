@@ -1,4 +1,13 @@
 {
-    "java.configuration.updateBuildConfiguration": "interactive",
-    "java.jdt.ls.java.home": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.101-hotspot"
+  "java.jdt.ls.java.home": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.101-hotspot",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-21",
+      "path": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.101-hotspot",
+      "default": true
+    }
+  ],
+  "java.jdt.ls.lombokSupport.enabled": true,
+  "java.configuration.updateBuildConfiguration": "interactive",
+  "java.compile.nullAnalysis.mode": "automatic"
 }

@@ -18,6 +18,7 @@ import {
   Activity,
   Users,
   LucideIcon,
+  Share2,
 } from "lucide-react";
 import { api, SystemHealth } from "@/lib/api";
 import { usePolling } from "@/lib/usePolling";
@@ -50,6 +51,7 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { href: "/policies", label: "Application Policy", icon: SlidersHorizontal },
       { href: "/audit", label: "ISE Action Audit", icon: History },
       { href: "/ise-actions", label: "ISE Actions State", icon: ShieldCheck },
+      { href: "/ise-feed", label: "ISE Sharing Feed", icon: Share2 },
       { href: "/system", label: "System Health", icon: Activity },
       { href: "/users", label: "Users & Roles", icon: Users, requires: "manageUsers" },
     ],
