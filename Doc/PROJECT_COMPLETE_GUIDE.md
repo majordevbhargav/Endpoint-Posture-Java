@@ -2,7 +2,7 @@
 
 **Scope:** the whole system, front to back, the runtime flow, and every package.
 **Written from:** the source code, October 2026. Where an older document disagrees with the code, the code wins.
-**Status:** backend, agents and dashboard are built, including RBAC, application policy, automatic rechecks, system health, login lockout and rate limiting, warranty, on-demand diagnostics, security indicators, metrics, scale work S1 to S12, a scale simulator, the first hardening pass and a frontend image. The core path was verified against a real Windows laptop and a real lab Cisco ISE. Scale numbers come from the simulator (see `ROADMAP.md` section 4); the post-S12 re-run is pending.
+**Status:** backend, agents and dashboard are built, including RBAC, application policy, automatic rechecks, system health, login lockout and rate limiting, warranty, on-demand diagnostics, security indicators, metrics, scale work S1 to S12, paged inventory (S13), standing ISE sharing feed (X1, DECISIONS D3 option B; built, awaiting live verification against real ISE; pxGrid Direct limits not yet checked), 90-day evidence retention (D10; S11 partitioning not needed at this window), a scale simulator, the first hardening pass and a frontend image. The core path was verified against a real Windows laptop and a real lab Cisco ISE. Scale numbers come from the simulator (see `ROADMAP.md` section 4); the post-S12 re-run is pending.
 
 ## Contents
 
@@ -84,12 +84,13 @@ flowchart TD
 
 A modular monolith: one Spring Boot application, no broker, no Redis. The job queue is a PostgreSQL table.
 
-**Two ways to authenticate**
+**Three ways to authenticate**
 
 | Caller | Credential | Allowed to |
 |---|---|---|
 | Dashboard user | `Authorization: Bearer <JWT>` | depends on role (section 14) |
-| PowerShell agent | header `X-Posture-Api-Key` | only `POST` to the four ingestion routes: `/posture`, `/hardware-health`, `/diagnostics`, `/security-indicators` |
+| PowerShell agent | header `X-Posture-Api-Key` | only `POST` to the four ingestion routes: `/posture`, `/hardware-health`, `/diagnostics`, `/security-indicators` (`ROLE_AGENT`) |
+| ISE pxGrid Direct | `Authorization: Basic <base64>` | only `GET /api/v1/integrations/ise/endpoints` under active sharing rule (`ROLE_ISE_FEED`) |
 
 ---
 
@@ -126,16 +127,16 @@ endpoint-posture-java/
 ├── backend/
 │   ├── pom.xml, run.ps1 (RBAC smoke test), start-dev.ps1, start-sim.ps1
 │   └── src/
-│       ├── main/resources/  application.yml, application-sim.yml, application-dev.yml (git-ignored), db/migration V1..V22
+│       ├── main/resources/  application.yml, application-sim.yml, application-dev.yml (git-ignored), db/migration V1..V24 (V5..V7 absent)
 │       ├── main/java/com/endpointposture/
-│       │   config/ security/ endpoint/ job/ posture/ hardware/ ise/ session/
-│       │   audit/ inventory/ dashboard/ policy/ system/ warranty/ diagnostic/ indicator/ sim/
+│       │   config/ security/ endpoint/ job/ posture/ hardware/ ise/ isefeed/ session/
+│       │   audit/ inventory/ retention/ dashboard/ policy/ system/ warranty/ diagnostic/ indicator/ sim/
 │       └── test/java/...
 └── frontend/
     ├── package.json, vitest.config.mjs, Dockerfile, next.config.mjs, tailwind.config.ts
-    ├── app/         layout, globals.css, login, (dashboard)/...
+    ├── app/         layout, globals.css, login, (dashboard)/... (including ise-feed)
     ├── components/  layout, ui, dashboard, endpoints
-    └── lib/         api, auth, permissions, session, csv, inventory, usePagination, hooks, contexts (+ *.test.ts)
+    └── lib/         api, apiExtra, auth, permissions, session, csv, inventory, usePagination, hooks, contexts (+ *.test.ts)
 ```
 
 `posture_common_cred.xml` is created at runtime by `Save-PostureCredential.ps1`. It is DPAPI-encrypted, tied to one Windows account, and git-ignored.
@@ -179,7 +180,13 @@ Endpoint page -> `ConfirmDialog` -> `IseActionController` (`/share`, `/restrict`
 ### 5.6 Retention and rollups
 - `InventoryRetentionScheduler` (nightly 03:30) keeps full inventory payloads for the newest N runs per endpoint (default 10) and nulls the JSONB columns on older rows.
 - `JobRetentionScheduler` (nightly 03:45) deletes finished jobs (`COMPLETE`, `FAILED`) older than `app.retention.job-days` (default 30). Evidence rows keep existing; their `job_id` becomes null.
-- Assessments, check results, hardware, diagnostics, indicator, session-log and audit rows are never pruned (evidence).
+- `EvidenceRetentionScheduler` (nightly 04:15, `app.retention.evidence-cron`: `0 15 4 * * *`) runs `EvidenceRetentionService` with batched deletes (default 5000 rows per statement, up to 200 batches = 1,000,000 rows/table/run, each in its own transaction) enforcing the 90-day evidence retention window (`app.retention.evidence-days: 90`, `audit-days: 90`, DECISIONS D10).
+  - Prunes `assessment`, `hardware_health`, `endpoint_diagnostic`, `endpoint_security_indicator`, `endpoint_inventory`, `endpoint_session_log`, `ise_action_audit`, and `ise_feed_audit`.
+  - Always protects each endpoint's active pointers: an assessment referenced by `endpoint.latest_assessment_id` is kept, and hardware rows referenced by `latest_hw_id` or `good_hw_id` are kept.
+  - Always keeps the newest diagnostic, security indicator, and inventory row per endpoint.
+  - Keeps the newest `RESTRICT` or `CLEAR_RESTRICTION` audit row per endpoint, because `/ise/actions/state` derives current enforcement from it.
+  - Deleting an assessment cascades to its check results; deleting a hardware row cascades to its recommendations.
+  - S11 (partitioning) was deliberately NOT built: at a 90-day window (~11M assessment rows at the 20k target), batched deletes handle volume cleanly without forcing composite foreign keys.
 - `TrendRollupScheduler` writes today's compliance point into `compliance_daily` every 15 minutes; past days of the trend come from that table, today is computed live.
 
 ### 5.7 Login lockout and rate limit
@@ -189,7 +196,7 @@ Endpoint page -> `ConfirmDialog` -> `IseActionController` (`/share`, `/restrict`
 
 ## 6. Database
 
-Schema is owned by Flyway (`backend/src/main/resources/db/migration`). Versions run V1 to V22; **V5 to V7 do not exist** (harmless gap). UUID primary keys and real foreign keys throughout.
+Schema is owned by Flyway (`backend/src/main/resources/db/migration`). Versions run V1 to V24; **V5 to V7 do not exist** (harmless gap). UUID primary keys and real foreign keys throughout.
 
 | Migration | Table(s) | Purpose |
 |---|---|---|
@@ -212,23 +219,25 @@ Schema is owned by Flyway (`backend/src/main/resources/db/migration`). Versions 
 | V20 | alters `endpoint`; `compliance_daily` | `latest_assessment_id`, `latest_status`, `latest_assessed_at` (backfilled) and indexes; one row per UTC day for the trend |
 | V21 | alters `endpoint`; index | `latest_hw_*` (newest attempt) and `good_hw_*` (newest success) pointers, backfilled; recheck index on `posture_job(endpoint_id, job_type, created_at DESC)` |
 | V22 | `pg_trgm` and GIN indexes | trigram indexes on `endpoint` hostname, MAC, IP, OS and `hardware_health.model` for fast search |
+| V23 | alters `endpoint`; indexes | `latest_inventory_id`, `latest_inventory_at` pointers (S13); retention indexes on `created_at`/`collected_at` and `ON DELETE SET NULL` foreign keys (S11/D10) |
+| V24 | `ise_sharing_rule`, `ise_feed_audit` | X1: standing ISE sharing rule (version, scope `NONE`/`CONNECTED`/`CONNECTED_NON_COMPLIANT`, active, v1 seeded `NONE`) and feed audit log |
 
-**Foreign keys.** `ON DELETE CASCADE` where a child is meaningless without its parent. `ON DELETE SET NULL` for `job_id` and `assessment_id` links, so evidence outlives a purged job.
+**Foreign keys.** `ON DELETE CASCADE` where a child is meaningless without its parent. `ON DELETE SET NULL` for `job_id` and `assessment_id` links, so evidence outlives a purged job. Referencing columns have indexes (V23) so parent deletion never triggers full table scans.
 
-**Users are not foreign keys.** `ise_action_audit.operator`, `app_policy.created_by` and `warranty_record.uploaded_by` store the username as text, so deleting a user keeps history.
+**Users are not foreign keys.** `ise_action_audit.operator`, `app_policy.created_by`, `ise_sharing_rule.created_by` and `warranty_record.uploaded_by` store the username as text, so deleting a user keeps history.
 
-**Append-only.** Assessments, check results, hardware, diagnostics, indicators, inventory, session log, warranty rows and audit rows are inserted, never updated (inventory payloads are only nulled by retention). Only `endpoint` (including its pointer columns), `posture_job`, `app_user` and `app_policy.active` change in place; the pointers only ever move forward.
+**Append-only with 90-day evidence retention.** Assessments, check results, hardware, diagnostics, indicators, inventory, session log, warranty rows, feed audit and ISE action audit rows are inserted, never updated in place (inventory payloads are nulled after 10 runs; rows older than 90 days are pruned nightly by `EvidenceRetentionService` while protecting active pointers and newest rows per device). Only `endpoint` (including its pointer columns), `posture_job`, `app_user`, `app_policy.active` and `ise_sharing_rule.active` change in place; the pointers only ever move forward.
 
 **"Nothing measured" is null, never zero.** Battery, hardware failure rows, diagnostic `WINRM_UNAVAILABLE` and indicator failures all store null scores or risk, so an unmeasured device cannot look critically unhealthy or falsely clean.
 
-**Latest-per-endpoint** is now read from the pointer columns on `endpoint`. `DISTINCT ON (endpoint_id) ... ORDER BY endpoint_id, <time> DESC` remains for inventory and the fleet-wide hardware reads.
+**Latest-per-endpoint** is read from the pointer columns on `endpoint` (`latest_assessment_id`, `latest_hw_id`, `good_hw_id`, `latest_inventory_id`). The paged Installed Software and Listening Ports queries (S13) use `latest_inventory_id` instead of scanning inventory history. `DISTINCT ON (endpoint_id) ... ORDER BY endpoint_id, <time> DESC` remains only for unpaged inventory and legacy queries.
 
 ---
 
 ## 7. Backend packages
 
 ### `security/`
-`SecurityConfig` (stateless chain, method security, Swagger admin-only unless `app.docs.public`, seeds one admin on an empty `app_user`), `JwtService`, `JwtAuthFilter` (looks the user up on every request, so **role and `enabled` come from the database, not the token**), `PostureApiKeyFilter` (constant-time key check, only on `POST` to the four ingest paths, fails closed if no key is configured, grants only `ROLE_AGENT`), `SecurityHeadersFilter`, `StartupSecurityLogger` (WARN for `verify-tls=false` and public docs), `AuthController`, `LoginAttemptService`, `LoginRateLimiter`, `UserController`/`UserService` (passwords 12+ chars; no self-demote, self-disable or self-delete; the last enabled admin cannot be removed), `User`, `UserRepository`, `Role`.
+`SecurityConfig` (stateless chain, method security, Swagger admin-only unless `app.docs.public`, seeds one admin on an empty `app_user`), `JwtService`, `JwtAuthFilter` (looks the user up on every request, so **role and `enabled` come from the database, not the token**), `PostureApiKeyFilter` (constant-time key check, only on `POST` to the four ingest paths, fails closed if no key is configured, grants only `ROLE_AGENT`), `IseFeedAuthFilter` (HTTP Basic auth, runs ONLY on `GET /api/v1/integrations/ise/endpoints`, grants `ROLE_ISE_FEED` for that request; fails closed when `app.ise-feed.password` is blank), `SecurityHeadersFilter`, `StartupSecurityLogger` (WARN for `verify-tls=false` and public docs), `AuthController`, `LoginAttemptService`, `LoginRateLimiter`, `UserController`/`UserService` (passwords 12+ chars; no self-demote, self-disable or self-delete; the last enabled admin cannot be removed), `User`, `UserRepository`, `Role`.
 
 ### `endpoint/`
 `Endpoint`, `EndpointRepository`, `EndpointService` (`normalizeMac`, `upsertByMac`, `updateHardware`, `markConnected`, `markDisconnected`), `EndpointController` (read-only: list, `/page`, `/names`, `/briefs`, `/{id}`), `EndpointQueryService` (server-side search and paging, escaped wildcards, status filter), `FleetListLimitExceededException` and its handler (`400` with `{"message": ...}`), `EndpointNotFoundException`. `normalizeMac` makes `aa-bb-...` and `AA:BB:...` the same row.
@@ -248,15 +257,17 @@ Diagnostics: `EndpointDiagnostic`, `DiagnosticScorer` (gateway down 40, DNS fail
 ### `warranty/`
 `WarrantyRecord`, repository, `WarrantyService` (CSV parsing with BOM and quoted-field handling, serial normalization in one place, status `COVERED` / `EXPIRING_SOON` (30 days or fewer) / `EXPIRED`), `WarrantyController` (`GET` any user, `POST /upload` ADMIN), `WarrantyParseException`, `WarrantyUploadResult`.
 
-### `ise/`
-`IseTransport`, `ErsIseTransport` (ERS REST; trust-all TLS only when `verify-tls=false`), `IseActionService`, `IseActionController`, `IseActionStateService`/`Controller`, `IseStatusController`, `EnforcementAction`, `IseResult`, `IseProperties` (`ATTRIBUTE` or `ANC`). Under `ATTRIBUTE`, Clear removes nothing; it tells the operator to re-share posture.
+### `ise/`, `isefeed/`
+- `ise/`: `IseTransport`, `ErsIseTransport` (ERS REST; trust-all TLS only when `verify-tls=false`), `IseActionService`, `IseActionController`, `IseActionStateService`/`Controller`, `IseStatusController`, `EnforcementAction`, `IseResult`, `IseProperties` (`ATTRIBUTE` or `ANC`). Under `ATTRIBUTE`, Clear removes nothing; it tells the operator to re-share posture.
+- `isefeed/` (X1, DECISIONS D3 option B): `SharingRuleService`, `IseFeedService`, `IseFeedController`. Manages standing sharing rules versioned like `app_policy` (`NONE`, `CONNECTED`, `CONNECTED_NON_COMPLIANT`; v1 seeded `NONE`), serves `GET /api/v1/integrations/ise/endpoints` for ISE pxGrid Direct feed polling, and logs fetch audits into `ise_feed_audit`.
 
 ### `session/`
 `IseSessionClient` (`parseActiveList` is package-private and tested), `IseSessionWatcher` (set diff, timer), `SessionBatchWriter` (bulk SQL), `IseLinkHealth` (down after 2 consecutive failures), `EndpointSessionLog`, repository, `SessionEventType`, `SessionQueryController`.
 
-### `audit/`, `inventory/`, `dashboard/`, `policy/`, `system/`, `config/`, `sim/`
+### `audit/`, `inventory/`, `retention/`, `dashboard/`, `policy/`, `system/`, `config/`, `sim/`
 - `audit/`: `IseActionAudit`, repository, `AuditQueryController`. No update or delete path.
-- `inventory/`: `EndpointInventory`, repository, `InventoryController` (`/applications`, `/ports`, labelled against the active policy, capped by the fleet limit), retention service and scheduler.
+- `inventory/`: `EndpointInventory`, repository, `InventoryController` (unpaged `/applications`, `/ports`, labelled against the active policy, capped by the fleet limit), `InventoryQueryService` and `InventoryPageController` (S13: paged `/applications/page`, `/ports/page`, and summaries `/applications/summary`, `/ports/summary` using `endpoint.latest_inventory_id`), retention service and scheduler.
+- `retention/`: `EvidenceRetentionService`, `EvidenceRetentionScheduler` (D10: nightly 04:15 batched prune enforcing 90-day retention across assessments, hardware, diagnostics, indicators, inventory, session logs, and audit rows; protects pointers and newest rows).
 - `dashboard/`: `DashboardService`, `DashboardRepository` (reads the `endpoint` pointers and `compliance_daily`), `TrendRollupScheduler`, DTOs. Posture counts cover connected endpoints only; `stale` = latest assessment older than 2x the posture interval.
 - `policy/`: `AppPolicy`, `AppPolicyRule`, `PolicyService` (patterns trimmed, de-duplicated, no `|` or `"`; an app cannot be both required and blocked), `PolicyController` (`PUT` ADMIN). Editing inserts version N+1 and deactivates the old one; the version is stored in each `APPLICATIONS` check.
 - `system/`: `SystemHealthService` (`UP`/`DEGRADED`/`DOWN` from database, ISE poll, worker pool, oldest queued age), controller, DTOs.
@@ -287,6 +298,8 @@ Base path `/api/v1`. All routes need a bearer token unless noted.
 | GET | `/hardware-health/page`, `/hardware-health/summary` | paged list (worst first, `q`, `band`) / KPI numbers | any user |
 | POST | `/posture`, `/hardware-health`, `/diagnostics`, `/security-indicators` | agent ingestion | agent key or `ADMIN` |
 | GET | `/applications`, `/ports` | fleet inventory from latest runs; `400` above the fleet cap | any user |
+| GET | `/applications/page`, `/ports/page` | paged applications / ports from latest runs (`page`, `size` 1..200, `q`, `status`/`reach`) (S13) | any user |
+| GET | `/applications/summary`, `/ports/summary` | fleet KPI summary numbers for installed software / listening ports (S13) | any user |
 | GET | `/jobs`, `/jobs/endpoint/{id}` | newest jobs (`limit` default 200 / 100, max 1000) | any user |
 | POST | `/jobs` | enqueue any of the four job types (default priority 10) | `ADMIN`, `OPERATOR`, `ANALYST` |
 | POST | `/jobs/bulk` | enqueue one job type for every connected endpoint with a target and nothing pending | `ADMIN`, `OPERATOR`, `ANALYST` |
@@ -295,6 +308,9 @@ Base path `/api/v1`. All routes need a bearer token unless noted.
 | GET | `/ise/status` | poll health, poll interval, enforcement mode | any user |
 | GET | `/ise/actions/state` | latest RESTRICT/CLEAR per endpoint | any user |
 | GET | `/audit/ise-actions?endpointId=&limit=` | audit trail (limit 1..2000, default 500) | any user |
+| GET | `/integrations/ise/endpoints` | ISE feed: endpoints matching active sharing rule (X1) | `ROLE_ISE_FEED` (Basic auth) or `ADMIN` (JWT) |
+| GET | `/sharing-rule`, `/sharing-rule/history` | active sharing rule / version history (X1) | any user |
+| PUT | `/sharing-rule` | approve new sharing rule version (`NONE`, `CONNECTED`, `CONNECTED_NON_COMPLIANT`) (X1) | `ADMIN` |
 | GET | `/dashboard/summary`, `/trend?days=1..90`, `/categories` | dashboard numbers | any user |
 | GET | `/policy/apps`, `/policy/apps/history` | active policy / versions | any user |
 | PUT | `/policy/apps` | new policy version | `ADMIN` |
@@ -330,6 +346,7 @@ Errors: `400` validation or fleet cap (JSON `{"message": ...}`), `401` bad or mi
 | `app.security.trust-forwarded-for` | false | honor `X-Forwarded-For` for the rate limiter; only behind a trusted proxy |
 | `app.security.login.max-attempts` / `lock-minutes` | 5 / 5 | sits directly under `app.security`, not under `app.jobs` |
 | `app.security.login.rate-limit.enabled/capacity/refill-tokens/refill-duration-seconds` | true / 10 / 10 / 60 | per-IP token bucket |
+| `app.ise-feed.username` / `password` | `ise-feed` / blank | `ISE_FEED_USER`, `ISE_FEED_PASSWORD` (HTTP Basic auth for ISE pxGrid Direct feed; fails closed if blank) |
 | `app.api.fleet-list-max-endpoints` | 2000 | unpaged fleet lists return `400` above this many endpoints |
 | `app.jobs.poll-interval-ms` | 3000 | idle sleep per worker thread |
 | `app.jobs.worker-threads` | 4 | each job starts a `powershell.exe` |
@@ -354,6 +371,9 @@ Errors: `400` validation or fleet cap (JSON `{"message": ...}`), `401` bad or mi
 | `app.retention.enabled` | true | |
 | `app.retention.inventory-keep-runs` / `inventory-cron` | 10 / `0 30 3 * * *` | |
 | `app.retention.job-days` / `jobs-cron` | 30 / `0 45 3 * * *` | |
+| `app.retention.evidence-days` / `audit-days` | 90 / 90 | D10: 90-day evidence and audit retention window |
+| `app.retention.evidence-cron` | `0 15 4 * * *` | nightly evidence prune schedule |
+| `app.retention.evidence-batch-size` / `evidence-max-batches` | 5000 / 200 | batched delete size / maximum batches per table per run |
 | `app.dashboard.rollup.enabled` / `interval-ms` / `initial-delay-ms` | true / 900000 / 60000 | trend rollup (defaults live in code) |
 | `app.sim.*` (sim profile) | sessions 20000, ramp-ticks 20, job-seconds 20, failure-percent 2, report-interval-ms 60000 | scale simulator |
 
@@ -385,7 +405,8 @@ Next.js App Router. `next.config.mjs` proxies `/api/*` to `BACKEND_URL` (default
 | `/endpoints/[id]` | tabs: Security Posture, Hardware Health (with trend), Diagnostics, Security Indicators, Sessions, Job Queue, ISE Audit; Share/Restrict/Clear behind `ConfirmDialog`; buttons disabled by role |
 | `/compliance` | matrix and pass rates, server-paged |
 | `/hardware` | hardware telemetry table, server-paged and filtered |
-| `/applications`, `/ports`, `/warranty` | inventory tables (capped by the fleet limit until S13); warranty has admin CSV upload |
+| `/applications`, `/ports`, `/warranty` | inventory tables (unpaged lists capped by fleet limit; paged reads available via S13); warranty has admin CSV upload |
+| `/ise-feed` | ISE Feed & Sharing Rule: view active rule, history, audit log, change rule scope (`ADMIN`) (X1) |
 | `/jobs` | assessment queue (latest 500, 4 s sync), enqueue modal (four job types), totals from system health |
 | `/policies` | view and edit the application policy, version history |
 | `/audit` | ISE action audit |
@@ -393,7 +414,7 @@ Next.js App Router. `next.config.mjs` proxies `/api/*` to `BACKEND_URL` (default
 | `/system` | platform health, 10 s poll |
 | `/users` | user management (admin) |
 
-`lib/permissions.ts` maps actions (`enqueue`, `sharePosture`, `restrict`, `editPolicy`, `manageUsers`, `uploadWarranty`) to roles. That is UI convenience only; the backend rules are the control. Shared pieces: `DataTable` (pagination + CSV; cells starting with `= + - @` are neutralised), `usePagination` (with the pure `computePagination`), `StatusBadge`, `ConnectionDot`, `IseBanner`, `TrendChart`, `useCachedFetch`, `usePolling`, `IseStatusContext`. The theme is a `theme` cookie read on the server. The dashboard layout validates the token before rendering any page.
+`lib/permissions.ts` maps actions (`enqueue`, `sharePosture`, `restrict`, `editPolicy`, `manageUsers`, `uploadWarranty`, `editSharingRule`) to roles. That is UI convenience only; the backend rules are the control. `lib/apiExtra.ts` provides API client bindings for S13 paged inventory and X1 ISE feed operations. Shared pieces: `DataTable` (pagination + CSV; cells starting with `= + - @` are neutralised), `usePagination` (with the pure `computePagination`), `StatusBadge`, `ConnectionDot`, `IseBanner`, `TrendChart`, `useCachedFetch`, `usePolling`, `IseStatusContext`. The theme is a `theme` cookie read on the server. The dashboard layout validates the token before rendering any page.
 
 ---
 
@@ -435,9 +456,10 @@ Without the dev profile set `JWT_SECRET`, `SEED_ADMIN_PASSWORD`, `POSTURE_API_KE
 | Edit application policy | yes | no | no | no |
 | Upload warranty CSV | yes | no | no | no |
 | Manage users | yes | no | no | no |
+| Edit sharing rule (`PUT /sharing-rule`) | yes | no | no | no |
 | `/actuator/prometheus`, Swagger and API docs | yes | no | no | no |
 
-The agent key (`ROLE_AGENT`) can only `POST` to the four ingestion routes.
+The agent key (`ROLE_AGENT`) can only `POST` to the four ingestion routes. The ISE feed credential (`ROLE_ISE_FEED`) authenticates via HTTP Basic auth and is strictly scoped to `GET /api/v1/integrations/ise/endpoints`; on any other route the Basic header is ignored.
 
 Other controls: role and enabled flag are read from the database on every request; self-lockout is prevented; BCrypt, 12+ character passwords; identical `401` for every login failure; per-account lockout and per-IP rate limit; security headers on the backend and the frontend; ISE actions are explicit, confirmed in the UI and audited with the JWT subject; JWTs are signed, not encrypted.
 
@@ -449,10 +471,12 @@ Other controls: role and enabled flag are read from the database on every reques
 
 | Item | Detail |
 |---|---|
-| Inventory lists unpaged | `/applications` and `/ports` return one row per app or port for the whole fleet; capped by `app.api.fleet-list-max-endpoints` (400 above it). Real paging is S13. |
+| Paged inventory built (S13) | Server-side paged reads (`/applications/page`, `/ports/page`) and summaries are implemented and use `endpoint.latest_inventory_id`. Unpaged `/applications` and `/ports` remain for small fleets capped by `app.api.fleet-list-max-endpoints`. |
+| ISE feed live verification pending (X1) | Standing feed and admin sharing rule (DECISIONS D3 option B) are built; live verification against real Cisco ISE pxGrid Direct and testing pxGrid Direct ingestion limits remain UNVERIFIED. |
+| Evidence retention & partitioning (D10 / S11) | D10 is Decided and implemented as 90-day batched retention (`EvidenceRetentionService`). S11 partitioning was deliberately not built as it is not needed at this window. |
 | Jobs page filters in the browser | the page shows the newest 500 jobs and filters them client side; queue totals come from system health |
 | Post-S12 measurements pending | two Hikari stalls in the pre-S12 simulator run; S12 settings target them but the re-run has not happened |
-| Live verification pending | diagnostics, security scan, warranty upload, lockout in the browser, `/ise-actions`, frontend container |
+| Live verification pending | diagnostics, security scan, warranty upload, lockout in the browser, `/ise-actions`, `/ise-feed`, frontend container |
 | Battery score empty on test laptop | `BatteryStaticData` returns "Generic failure" (WMI/driver). Null is correct. |
 | Attribute-mode Clear | informational; no UI may imply "unrestricted". |
 | Hardware bands, indicator thresholds | 85/70/50 and the analyzer thresholds are illustrative. |
@@ -470,6 +494,7 @@ These are superseded; if they exist, keep them only under `docs/archive/`:
 
 | Document | Why retired |
 |---|---|
+| `Endpoint_Posture_Platform_Project_Plan_v1.1.md` ("Endpoint Posture and Compliance Platform Project Definition and Build Plan v1.1") | Python/Flask/SQLite-era reference and pre-build plan; superseded by `PROJECT_COMPLETE_GUIDE.md` and `FEATURE_ROADMAP.md`. |
 | `VE_Compliance_Engine_HLD_LLD_Complete.md` | Pre-build design. Table names, `initiated_by` FK, and `min()` hardware scoring differ from what was built. |
 | `VE_Compliance_Engine_Full_Documentation.md` | Python-era reference. |
 | `VE_Backend_Complete_Explainer.md` | Teaching walkthrough written before V12 to V17; its useful reasoning is in section 17. |

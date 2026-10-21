@@ -15,11 +15,13 @@ Supply at runtime through environment variables or a secret store (Windows machi
 | `POSTURE_API_KEY` | Shared key for the PowerShell agents (`X-Posture-Api-Key`) |
 | `DB_PASSWORD` | PostgreSQL password (also `DB_URL`, `DB_USERNAME`) |
 | `ISE_BASE_URL`, `ISE_USERNAME`, `ISE_PASSWORD` | Cisco ISE (ERS + MNT) |
+| `ISE_FEED_USER`, `ISE_FEED_PASSWORD` | Cisco ISE pxGrid Direct feed HTTP Basic auth (`ROLE_ISE_FEED`). No default password; feed fails closed if omitted. |
 
 - Any value that appeared in an older handoff or chat (lab admin password, agent key, DB password, ISE user) is compromised. Rotate it.
 - `application-dev.yml` is git-ignored. Confirm with `git ls-files | findstr application-dev`.
 - JWT rotation: issuing a new secret invalidates all sessions. Plan a maintenance window.
 - Agent key rotation: there is a single shared key. Change backend and agents together.
+- ISE feed credentials: used exclusively by Cisco ISE pxGrid Direct to pull `/api/v1/integrations/ise/endpoints`.
 
 ---
 
@@ -28,12 +30,14 @@ Supply at runtime through environment variables or a secret store (Windows machi
 - `app.ise.verify-tls` MUST be `true`. A startup WARN is logged when it is `false`. Import the ISE CA into the JVM truststore (`-Djavax.net.ssl.trustStore=...`).
 - Use dedicated least-privilege ISE accounts: an ERS operator for endpoint/ANC calls, a Monitoring account for MNT sessions.
 - Confirm the real ANC policy name before `app.ise.enforcement-mode: ANC` (the default `Quarantine` is a guess, DECISIONS D5).
+- If using the standing pxGrid Direct feed (X1), verify ISE version is 3.1+ and has the pxGrid Direct feature enabled.
 
 ---
 
 ## 3. Network, TLS and proxying
 
 - Terminate TLS 1.2+ at a reverse proxy (nginx, Caddy, IIS ARR). Close port 8090 to everyone except the proxy and the agents.
+- **Feed endpoint exposure:** The pxGrid Direct route `GET /api/v1/integrations/ise/endpoints` must be exposed over HTTPS so Cisco ISE can pull it on schedule. Ensure the reverse proxy passes the `Authorization` header (HTTP Basic) through without alteration. On all other routes, Basic credentials do nothing.
 - The frontend proxies `/api/*` to the backend, so the backend sees the proxy's IP, not the user's. The login rate limiter (`app.security.login.rate-limit.*`, default 10 per minute per IP) therefore shares one bucket across all users. Set `app.security.trust-forwarded-for: true` ONLY when the backend is reachable solely through a proxy that overwrites `X-Forwarded-For`. Never set it on a directly exposed backend; clients could forge the header and dodge the limit.
 - Backend headers: `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Cache-Control: no-store` on `/api/**`. The frontend sets the same plus a CSP. The CSP currently allows `'unsafe-inline'` and `'unsafe-eval'` for Next.js; tighten with nonces later.
 
@@ -82,11 +86,11 @@ Supply at runtime through environment variables or a secret store (Windows machi
 
 - PostgreSQL 16 with the `pg_trgm` extension (created by migration V22, so the DB user needs permission to create it, or an admin must create it first).
 - Pool defaults (`application.yml`): `maximum-pool-size` 10 (`DB_POOL_SIZE`), `connection-timeout` 15 s, `keepalive-time` 2 min, `max-lifetime` 15 min, `tcpKeepAlive=true`. Raise the pool when running many worker threads (the simulator uses 30 for 40 threads).
-- Daily backups (pg_dump or pgBackRest) and a tested restore. Assessments, check results and audit rows are evidence and are never pruned; plan disk for them.
-- Retention that exists: finished jobs after 30 days, inventory payloads beyond the newest 10 runs per endpoint.
+- Daily backups (pg_dump or pgBackRest) and a tested restore. Evidence retention (DECISIONS D10, `EvidenceRetentionService`) prunes rows older than 90 days nightly at 04:15, keeping current pointers, newest diagnostic/indicator/inventory per endpoint, and newest RESTRICT/CLEAR audit rows. At 20,000 devices, assessment history stabilizes at ~11M rows (~33M check results). Plan database disk and backup storage for this 90-day steady-state window rather than compounding indefinitely.
+- Retention that exists: 90-day evidence retention (`app.retention.evidence-days: 90`, `audit-days: 90`), finished jobs after 30 days (`app.retention.job-days: 30`), and full inventory payload nulling beyond the newest 10 runs per endpoint (`app.retention.inventory-keep-runs: 10`).
 
 ---
 
 ## 8. Before go-live, verify by hand (an agent cannot do these)
 
-Diagnostics, security scan, warranty upload, account lockout, the `/ise-actions` page, and the frontend container, each against a real endpoint and ISE.
+Diagnostics, security scan, warranty upload, account lockout, the `/ise-actions` page, the `/ise-feed` page and feed polling, and the frontend container, each against a real endpoint and ISE.

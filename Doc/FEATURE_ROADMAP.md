@@ -1,6 +1,6 @@
 # VE Compliance Engine: Feature Roadmap
 
-Version 3.0, October 2026. Companion to `PROJECT_COMPLETE_GUIDE.md`, `DECISIONS.md` and `ROADMAP.md` (infrastructure).
+Version 3.1, October 2026. Companion to `PROJECT_COMPLETE_GUIDE.md`, `DECISIONS.md` and `ROADMAP.md` (infrastructure).
 
 Scope: application features and hardening. Application remediation is **out of scope** (`DECISIONS.md` D1).
 
@@ -47,6 +47,9 @@ Effort: XS under half a day, S about 1 day, M 2 to 4 days, L 1 to 2 weeks, XL mo
 | S9 | Trend rollup | `compliance_daily`, `TrendRollupScheduler` |
 | S10 | Server-side paging and search | `/endpoints/page`, `/hardware-health/page`, `/summary`, `/latest/batch` |
 | S12 | Stall and read-path hardening | pool and keep-alive tuning, `touch-min-minutes`, `max-per-sweep`, fleet-list cap, V22 trigram indexes, `spring.task.scheduling.pool.size` |
+| S13 | Paged inventory | V23 `latest_inventory_id`, `InventoryQueryService`, `InventoryPageController` (`/applications/page`, `/ports/page`, summaries), `InventoryQueryServiceTest` |
+| D10 / S11 | Evidence retention (90 days) | V23 retention indexes, `retention/EvidenceRetentionService` + scheduler (`app.retention.evidence-days: 90`), `EvidenceRetentionServiceTest`; S11 partitioning not needed at this window |
+| X1 | ISE pxGrid Direct feed & sharing rule | V24 `ise_sharing_rule` + `ise_feed_audit`, `isefeed/`, `IseFeedAuthFilter` (Basic auth, `ROLE_ISE_FEED`), frontend `/ise-feed`, `IseFeedServiceTest`, `IseFeedRbacTest` (UNVERIFIED live against real ISE; pxGrid Direct limits not yet checked) |
 | B1 | Swagger admin-only unless `app.docs.public` | `SecurityConfig`, `RbacAccessTest` |
 | B2 | Per-IP login rate limit (429), idle buckets evicted | `LoginRateLimiter`, tests |
 | B3 | Security headers (backend filter and `next.config.mjs`) | `SecurityHeadersFilter` |
@@ -64,11 +67,9 @@ Removed: R1, R2, R3 (remediation).
 
 | ID | Item | Needs | Effort |
 |---|---|---|---|
-| L1 | Live runs: diagnostics, security scan, warranty upload, lockout, `/ise-actions`, frontend container, 429 through the proxy | you, a real endpoint and ISE | S |
+| L1 | Live runs: diagnostics, security scan, warranty upload, lockout, `/ise-actions`, `/ise-feed` against real ISE (verify pxGrid Direct limits), frontend container, 429 through proxy | you, a real endpoint and ISE | S |
 | L2 | Post-S12 simulation re-run (30 to 60 min, `-Xlog:gc*`), compare with `ROADMAP.md` section 4 | you; send the SIM lines | S |
-| S13 | Paged inventory: `/applications` and `/ports` return one row per app or port for the whole fleet and are capped by F1. Add a latest-inventory pointer on `endpoint` (migration V23) and server-side paging, search and filters | L2 first, to see whether it bites | M |
-| S11 | Monthly partitioning of `assessment`, `check_result`, `endpoint_session_log`, `posture_job`; drop old partitions | decision D10 (evidence retention) | L |
-| X1 | ISE feed: `ise_sharing_rule`, `GET /api/v1/integrations/ise/endpoints`, `PosturePublisher` | decision D3 and pxGrid Direct limits check | L |
+| Decisions | Confirm open architectural decisions: D2 (service vs container), D5 (reporting DB), D7 (observability trigger) | project owner | XS |
 | Deploy | Option A deployment with the production checklist | decisions D2, D7 | M |
 
 ---
@@ -84,13 +85,14 @@ Scale numbers are measured on the simulator, not on real hardware. Pre-S12 resul
 | Item | Detail |
 |---|---|
 | Secrets | Real values only in environment or a secrets store; rotate the single shared `POSTURE_API_KEY`; rotate any lab value that appeared in an old handoff |
+| ISE Feed Secret | `ISE_FEED_USER` / `ISE_FEED_PASSWORD` configured for pxGrid Direct Basic auth; fail closed if absent |
 | ISE TLS | `verify-tls: true` once a trusted certificate exists (startup WARN until then) |
-| TLS | HTTPS for the API as soon as anything crosses a machine boundary (also required for a remote runner) |
+| TLS | HTTPS for the API as soon as anything crosses a machine boundary (also required for a remote runner and ISE feed) |
 | Rate limiting | Done per IP; behind a proxy set `trust-forwarded-for` correctly (D9) |
 | Browser security | CSP still allows `'unsafe-inline'` and `'unsafe-eval'` for Next.js; tighten with nonces. The JWT lives in `sessionStorage` |
 | Agent credential | Least-privilege service account (`DECISIONS.md` D7) |
-| Logging and backups | Structured logging, log shipping, Postgres backup and restore test |
-| CI | Backend image is not built (D2); frontend image is pushed on `main` |
+| Logging and backups | Structured logging, log shipping, Postgres backup and restore test (accounting for 90-day retention disk profile) |
+| CI | Backend container is pending (`DECISIONS.md` D2); frontend image is pushed on `main` |
 | Tests | No end-to-end test of the frontend against a running backend |
 
 ---
@@ -101,16 +103,14 @@ Scale numbers are measured on the simulator, not on real hardware. Pre-S12 resul
 |---|---|---|---|
 | L1 | none | none | yes |
 | L2 | none | none | no |
-| S13 | L2 | V23 | no |
-| S11 | D10 | partitioning migration | no |
-| X1 | D3 confirmed, ISE limits checked | one table | ISE |
+| Decisions (D2, D5, D7) | owner alignment | none | no |
 | Deploy | D2, D7 | none | yes |
 
 ---
 
 ## 6. Deliberately not planned
 
-Application remediation; automatic enforcement of any kind; pxGrid proper until certificates exist; browser-history collection; Redis, Kafka, Kubernetes and the observability stack until a measured trigger appears (`ROADMAP.md`).
+Application remediation; automatic enforcement of any kind; pxGrid proper until certificates exist; browser-history collection; S11 table partitioning (not needed at the 90-day evidence retention window); Redis, Kafka, Kubernetes and the observability stack until a measured trigger appears (`ROADMAP.md`).
 
 ---
 

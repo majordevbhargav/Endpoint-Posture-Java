@@ -16,8 +16,8 @@ Cisco ISE stays the network-enforcement authority. The platform never turns a co
 * **Posture**: Windows Firewall, listening ports with a reachability probe, installed applications judged against a versioned required/blocked policy, processes, resources, OS.
 * **Hardware health**: CPU, memory, storage, battery, BIOS, 7-day hardware events, recommendations, warranty (from an uploaded CSV), trend charts.
 * **Endpoint 360** (on demand): network diagnostics run on the endpoint (gateway, DNS, TCP 443, traceroute) with a transparent score, and connection-based security indicators (possible lateral movement, beaconing). Indicators are evidence for a person to review and never trigger enforcement.
-* **ISE actions**: Share Posture, Restrict, Clear, each a separate operator action with its own role requirement and its own audit row, success or failure. A fleet page shows the latest enforcement state per device.
-* **Automation**: worker pool, automatic rechecks (posture every 4 h, hardware every 24 h, rate limited per sweep), stale-job recovery, job and inventory retention, daily compliance rollup.
+* **ISE actions**: Share Posture, Restrict, Clear, each a separate operator action with its own role requirement and its own audit row, success or failure. A fleet page shows the latest enforcement state per device. A standing ISE pxGrid Direct feed (X1) allows scheduled polling under an admin-approved sharing rule.
+* **Automation**: worker pool, automatic rechecks (posture every 4 h, hardware every 24 h, rate limited per sweep), stale-job recovery, job, inventory and 90-day evidence retention, daily compliance rollup.
 * **Access control**: roles `ADMIN`, `OPERATOR`, `ANALYST`, `VIEWER` enforced on the server; user management; account lockout; per-IP login rate limit.
 * **Operations**: System Health page, Prometheus metrics (`/actuator/prometheus`, admin only), security headers, CI with frontend image publishing, a scale simulator.
 
@@ -46,7 +46,7 @@ Observation (ingest) and enforcement (ISE actions) live in separate controllers 
 | Layer | Choice |
 |---|---|
 | Backend | Java 21, Spring Boot 3.5.16, Maven, Spring Security + JWT, Flyway |
-| Database | PostgreSQL 16 with `pg_trgm` (migrations V1 to V22; V5 to V7 intentionally absent) |
+| Database | PostgreSQL 16 with `pg_trgm` (migrations V1 to V24; V5 to V7 intentionally absent) |
 | Collection | PowerShell 5+, Windows CIM / WinRM / DCOM |
 | Network | Cisco ISE MNT (sessions) and ERS (actions) |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 3, Vitest |
@@ -78,6 +78,6 @@ Details, configuration and troubleshooting: `PROJECT_COMPLETE_GUIDE.md` and `HAN
 
 ## Status
 
-Backend, agents and dashboard are built through Endpoint 360, warranty, lockout, metrics, scale fixes S1 to S12 and the first hardening pass. Left: live verification of the newer features, the post-S12 simulation re-run, paged inventory (S13), the ISE feed (X1, needs decision D3), partitioning (S11) and deployment. Application remediation is **out of scope**. See `FEATURE_ROADMAP.md`.
+Backend, agents and dashboard are built through Endpoint 360, warranty, lockout, metrics, scale fixes S1 to S12, paged inventory (S13), 90-day evidence retention (D10; S11 partitioning not needed at this window), standing ISE sharing feed (X1, DECISIONS D3 option B; still UNVERIFIED live against real ISE; pxGrid Direct limits not yet checked) and the first hardening pass. Left: live verification (L1), the post-S12 simulation re-run (L2), decisions D2/D5/D7, deployment and backend container. Application remediation is **out of scope**. See `FEATURE_ROADMAP.md`.
 
 **The platform provides visibility and intelligence. Cisco ISE remains the enforcement layer.**

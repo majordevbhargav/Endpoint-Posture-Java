@@ -11,7 +11,7 @@ Create a dedicated Postgres database so the development/test database is preserv
 ```sql
 CREATE DATABASE endpoint_posture_sim WITH OWNER ep_app;
 ```
-Ensure Flyway migrations `V1` through `V22` are applied to `endpoint_posture_sim` (either by starting the application once with `DB_URL=jdbc:postgresql://localhost:5434/endpoint_posture_sim?tcpKeepAlive=true` or via Flyway CLI).
+Ensure Flyway migrations `V1` through `V24` are applied to `endpoint_posture_sim` (either by starting the application once with `DB_URL=jdbc:postgresql://localhost:5434/endpoint_posture_sim?tcpKeepAlive=true` or via Flyway CLI).
 
 ### 1.2 Seed 50,000 Endpoints
 Run the seed script against the simulation database:

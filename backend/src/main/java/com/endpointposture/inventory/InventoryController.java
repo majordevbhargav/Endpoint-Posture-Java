@@ -28,8 +28,8 @@ import java.util.UUID;
  *
  * <p>Both lists return one row per application or port for every endpoint, so they
  * grow with fleet size. Above {@code app.api.fleet-list-max-endpoints} they refuse
- * with a {@code 400} instead of loading everything into memory. Real server-side
- * paging is roadmap item S13.</p>
+ * with a {@code 400} instead of loading everything into memory. Server-side
+ * paging is available via {@link InventoryPageController}.</p>
  */
 @RestController
 @RequestMapping("/api/v1")

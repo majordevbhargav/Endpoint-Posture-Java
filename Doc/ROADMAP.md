@@ -16,7 +16,7 @@ ISE is the only enforcement authority. Share, Restrict and Clear are separate, a
 
 ## 2. Where things stand
 
-Built and in use: backend, four PowerShell agents, dashboard, Postgres (V1 to V22), CI (tests, frontend image to GHCR), frontend image, scale simulator, first hardening pass. Not built: backend container, Redis, Kafka, Kubernetes, observability stack, remote runners, paged inventory.
+Built and in use: backend, four PowerShell agents, dashboard, Postgres (migrations V1 to V24; V5..V7 absent), CI (tests, frontend image to GHCR), frontend image, scale simulator, S1 to S12 scale hardening, paged inventory (S13), 90-day evidence retention (D10), standing ISE sharing feed (X1, DECISIONS D3 option B; still UNVERIFIED live against real ISE; pxGrid Direct limits not yet checked). Not built: backend container (pending D2), Redis, Kafka, Kubernetes, observability stack, remote runners. S11 partitioning was deliberately not built (not needed at 90 days).
 
 ## 3. System at the production target
 
@@ -71,9 +71,9 @@ A job rate near 3 per second is trivial for Postgres with `SKIP LOCKED`. The bot
 
 **Post-S12 re-run: PENDING.** Compare against: zero Hikari stalls; endpoint search under 150 ms (trigram indexes); fewer `last_seen_at` writes per tick (`touch-min-minutes`); bounded recheck sweeps (`max-per-sweep`). Run `backend\start-sim.ps1` for 30 to 60 minutes; the GC log is `gc-sim.log`. If a stall lines up with a long GC pause, tune the heap; if not, look at the pool and the database.
 
-Data growth, rough: `assessment` about 120k rows/day (about 44M/year), `check_result` about 130M/year, `posture_job` about 160k/day (30 day retention), `endpoint_session_log` about 40k/day, inventory payloads a few GB/day before the nightly prune.
+Data growth is bounded by 90-day evidence retention (DECISIONS D10, `retention/EvidenceRetentionService`): at 20,000 devices, assessment history peaks at ~11M rows (~33M check results), `posture_job` at ~4.8M rows (30-day retention), session logs at ~3.6M rows, and full inventory payloads are nulled after 10 runs per endpoint. Disk growth is bounded rather than compounding indefinitely.
 
-Known read-path limit: `/applications` and `/ports` return one row per app or port for the whole fleet. They are capped (`app.api.fleet-list-max-endpoints`) until S13 pages them.
+Read-path limits: `/applications` and `/ports` unpaged lists remain capped (`app.api.fleet-list-max-endpoints`) for small fleets, while server-side paged reads (`/applications/page`, `/ports/page`) and summaries are implemented (S13) using the `latest_inventory_id` pointer.
 
 Structural risk: an agentless central pull means one shared admin credential reaching up to 20k machines across many subnets. Runners placed per site reduce latency and firewall problems. A push model (a GPO-deployed task that POSTs with a per-device identity) would remove dispatch entirely, but it is a different product trade-off.
 
@@ -86,7 +86,7 @@ Each phase is independently testable. Do not start the next until the one before
 | 0 to 2 | Database, auth, endpoints, queue, posture, hardware, session watcher, ISE actions, audit, frontend | Done |
 | 3 | Containerize | Frontend done (image pushed to GHCR from `main`). **Backend deferred** until the deployment model is applied (`DECISIONS.md` D2) |
 | 3.5 | `AgentRunner`, `shard`, simulator, fixes from measurements (S5 to S10, S12) | **Done**; post-S12 re-run pending |
-| 3.6 | Paged inventory (S13), partitioning (S11) | Next, after the re-run and decision D10 |
+| 3.6 | Paged inventory (S13), 90-day evidence retention (D10) | **Done** (S13 done; D10 90-day retention done; S11 partitioning not needed at 90 days) |
 | 4 | Redis | Only for a second backend instance or cross-instance rate limiting |
 | 5 | Dispatcher fleet (remote runners) | Postgres claims by `shard` first; Kafka only if measurement demands it |
 | 6 | Local Kubernetes | After the deployment model is chosen |

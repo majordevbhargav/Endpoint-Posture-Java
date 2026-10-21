@@ -1,6 +1,4 @@
-// New API calls for S13 (paged inventory) and X1 (ISE sharing rule).
-// Needs ONE edit in lib/api.ts: change `async function request<T>` to `export async function request<T>`
-// so these calls share its token handling and error messages.
+// API client calls for S13 (paged inventory) and X1 (ISE sharing rule).
 import { request, AppRow, PortRow, PageResponse } from "@/lib/api";
 
 export interface AppSummary {

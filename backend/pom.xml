@@ -40,7 +40,8 @@
              cadence, independent of Spring Boot's. Check
              central.sonatype.com for anything newer before bumping. -->
         <testcontainers.version>1.20.4</testcontainers.version>
-    
+        <!-- Lombok - pinned to a known good LTS version that IDEs still fully support -->
+        <lombok.version>1.18.32</lombok.version>
     </properties>
 
     <dependencyManagement>

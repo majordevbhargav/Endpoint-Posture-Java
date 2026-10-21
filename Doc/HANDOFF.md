@@ -12,7 +12,7 @@ Companion docs: `PROJECT_COMPLETE_GUIDE.md` (full reference, the authority when 
 
 An agentless endpoint posture and compliance platform integrating with Cisco ISE. Backend Spring Boot 3.5 (Java 21, Maven). Frontend Next.js 16, React 19, TypeScript, Tailwind. Runs on a Windows machine with WinRM/CIM line-of-sight to endpoints and access to a lab ISE.
 
-**Non-negotiable rule, enforced in code:** posture ingestion never calls ISE. Share, Restrict and Clear are separate, explicit, audited actions (success or failure). Do not collapse them. Standing sharing rules are a proposed, unbuilt extension (`DECISIONS.md` D3); Restrict and Clear stay per-device actions.
+**Non-negotiable rule, enforced in code:** posture ingestion never calls ISE. Share, Restrict and Clear are separate, explicit, audited actions (success or failure). Do not collapse them. Standing sharing rules (X1, DECISIONS D3 option B) are built in package `isefeed/` with an admin-approved rule (v1 seeded `NONE`) and an HTTP Basic auth feed (`ROLE_ISE_FEED`); Restrict and Clear stay per-device actions.
 
 **Out of scope:** application remediation, automatic enforcement.
 
@@ -22,10 +22,10 @@ An agentless endpoint posture and compliance platform integrating with Cisco ISE
 
 ```
 endpoint-posture-java/
-├── backend/   config security endpoint job posture hardware ise session audit
-│              inventory dashboard policy system warranty diagnostic indicator sim
-│              + resources: application.yml, application-sim.yml, db/migration V1..V22
-├── frontend/  app, components, lib (with vitest tests), Dockerfile
+├── backend/   config security endpoint job posture hardware ise isefeed session audit
+│              inventory retention dashboard policy system warranty diagnostic indicator sim
+│              + resources: application.yml, application-sim.yml, db/migration V1..V24 (V5..V7 absent)
+├── frontend/  app (including (dashboard)/ise-feed), components, lib (with apiExtra, vitest tests), Dockerfile
 ├── scripts/   posture_agent, hardware_health_agent, diagnostic_agent,
 │              security_indicator_agent, Save-PostureCredential, sim/
 ├── docker-compose.yml   Postgres, Adminer, optional frontend
@@ -42,14 +42,14 @@ docker compose up -d
 .\scripts\Save-PostureCredential.ps1      # same Windows account that runs the backend
 
 cd backend
-.\start-dev.ps1                           # expect Flyway to apply V1..V22; API :8090
+.\start-dev.ps1                           # expect Flyway to apply V1..V24; API :8090
 
 cd ..\frontend
 npm install                               # first time
 npm run dev                               # http://localhost:3000
 ```
 
-**Secrets have no defaults.** Without the dev profile set `JWT_SECRET`, `SEED_ADMIN_PASSWORD`, `POSTURE_API_KEY`, `DB_PASSWORD` (plus `ISE_BASE_URL`, `ISE_USERNAME`, `ISE_PASSWORD` if ISE is used). Real values live in the git-ignored `application-dev.yml`, which also sets `app.docs.public: true` so Swagger works locally. Confirm it is not tracked.
+**Secrets have no defaults.** Without the dev profile set `JWT_SECRET`, `SEED_ADMIN_PASSWORD`, `POSTURE_API_KEY`, `DB_PASSWORD` (plus `ISE_BASE_URL`, `ISE_USERNAME`, `ISE_PASSWORD` if ISE is used, and `ISE_FEED_USER`, `ISE_FEED_PASSWORD` for the ISE feed). Real values live in the git-ignored `application-dev.yml`, which also sets `app.docs.public: true` so Swagger works locally. Confirm it is not tracked.
 
 Manual agent run:
 ```powershell
@@ -66,11 +66,11 @@ The diagnostic and security agents also need `-Mac` when targeting a remote host
 
 Against a real Windows laptop and a real lab ISE: login and `401`; endpoint discovery and connect/disconnect with grace period; full posture check through `JobWorker` to PowerShell; hardware health with real scoring; ISE Share (`Posture shared with ISE as COMPLIANT`), Restrict (`REAUTH_APPLIED`) and Clear, all audited; worker pool, rechecks, stale recovery, policy versions, system health, inventory retention.
 
-Measured on the simulator (pre-S12, 20,000 sessions): watcher tick 0.5 to 3 s upper bound, dashboard summary 20 to 60 ms, trend 20 to 60 ms, endpoints page 25 to 500 ms, throughput about 115 jobs/min (40 workers x about 3 jobs/min), two Hikari stalls at 11:42 and 13:00 (housekeeper delta 1m39s and 1m6s). The post-S12 re-run is **pending**.
+Measured on the simulator (pre-S12, 20,000 sessions): watcher tick 0.5 to 3 s upper bound, dashboard summary 20 to 60 ms, trend 20 to 60 ms, endpoints page 25 to 500 ms, throughput about 115 jobs/min (40 workers x about 3 jobs/min), two Hikari stalls at 11:42 and 13:00 (housekeeper delta 1m39s and 1m6s). The post-S12 re-run (L2) is **pending**.
 
-Covered by automated tests (`mvn test`, several need Docker; `npm test`): see `PROJECT_COMPLETE_GUIDE.md` section 12.
+Covered by automated tests (`mvn test`, several need Docker; `npm test`): see `PROJECT_COMPLETE_GUIDE.md` section 12. Paged inventory (S13), standing ISE feed (X1, DECISIONS D3 option B), and 90-day evidence retention (D10) are built and covered by automated tests.
 
-**Not recorded as verified live:** Endpoint 360 diagnostics, security indicators, warranty upload, login lockout in the browser, `/ise-actions` page, the frontend container, the 429 login limit through the real proxy. After pulling, run the checklist in section 9 and record the result here.
+**Not recorded as verified live (L1 pending):** Endpoint 360 diagnostics, security indicators, warranty upload, login lockout in the browser, `/ise-actions` page, `/ise-feed` page (standing rule change, audit log, feed endpoint against real ISE; pxGrid Direct limits not yet checked), the frontend container, the 429 login limit through the real proxy. After pulling, run the checklist in section 9 and record the result here.
 
 ---
 
@@ -81,7 +81,7 @@ Covered by automated tests (`mvn test`, several need Docker; `npm test`): see `P
 | Read everything | yes | yes | yes | yes |
 | Enqueue checks, share posture | yes | yes | yes | no |
 | Restrict / clear | yes | yes | no | no |
-| Edit policy, upload warranty, manage users, Swagger, Prometheus | yes | no | no | no |
+| Edit policy, upload warranty, manage users, edit sharing rule, Swagger, Prometheus | yes | no | no | no |
 
 Role is read from the database on every request. Users cannot demote, disable or delete themselves; the last enabled admin cannot be removed. Passwords need 12+ characters; five wrong passwords lock an account for five minutes. `backend/run.ps1` is a manual RBAC smoke test (fill in its placeholders; it skips Restrict on purpose).
 
@@ -112,7 +112,7 @@ If you see `415`, `PKIX`, or ISE calls doing nothing, check `application.yml`, `
 - `batteryScore` is null on the test laptop (`BatteryStaticData` returns "Generic failure"). Null, not zero, is correct.
 - `enforcement-mode: ATTRIBUTE` is the default; Clear removes nothing in ISE. `ANC` needs the real policy name confirmed.
 - Hardware `/latest`, diagnostics `/latest` and indicators `/latest` return `204` when never run. Intended.
-- `/endpoints`, `/posture/latest`, `/hardware-health/latest`, `/applications` and `/ports` return `400` above `app.api.fleet-list-max-endpoints` (default 2000). Intended; use the paged endpoints. Paged inventory is S13.
+- `/endpoints`, `/posture/latest`, `/hardware-health/latest`, `/applications` and `/ports` return `400` above `app.api.fleet-list-max-endpoints` (default 2000). Intended; use the paged endpoints. Server-side paged inventory is S13 (`/applications/page`, `/ports/page`).
 - Hardware bands (85/70/50) and indicator thresholds are illustrative.
 - `WINRM_UNAVAILABLE` is a non-failing result, not an error. `FAILED` is reserved for the worker; agents may not submit it.
 - The backend cannot run in a Linux container (PowerShell, CIM/DCOM, DPAPI). Deployment model: `DECISIONS.md` D2.
@@ -121,13 +121,11 @@ If you see `415`, `PKIX`, or ISE calls doing nothing, check `application.yml`, `
 
 ## 8. What to do next, in order
 
-1. **Run the live checks** in section 9 and record results in section 4.
-2. **Confirm the open decisions** in `DECISIONS.md`: D2, D3, D5, D7.
-3. **Re-run the simulator** (`backend\start-sim.ps1`, 30 to 60 minutes, GC log on) and compare with the pre-S12 numbers in section 4. Send the SIM lines to find out whether the two stalls were GC or the pool.
-4. **S13** paged inventory (needs migration V23), then **S11** partitioning once the evidence-retention period is decided.
-5. **X1** ISE feed only after D3 is confirmed and pxGrid Direct limits are checked.
-6. **Harden and deploy** with Option A (`docs/PRODUCTION_CHECKLIST.md`).
-7. Redis, Kafka, Kubernetes and the observability stack wait for a measured trigger. Do not add them speculatively.
+1. **L1: Run the live checks** in section 9 and record results in section 4 (including `/ise-feed` live against real ISE; pxGrid Direct limits not yet checked).
+2. **L2: Re-run the simulator** (`backend\start-sim.ps1`, 30 to 60 minutes, GC log on) and compare with the pre-S12 numbers in section 4. Send the SIM lines to find out whether the two stalls were GC or the pool.
+3. **Confirm the remaining open decisions** in `DECISIONS.md`: D2 (Windows service vs container), D5 (reporting database vs replica), D7 (observability stack trigger). (D3 option B is built awaiting live verification; D10 is Decided as 90 days; S11 partitioning is not needed at this window).
+4. **Harden and deploy** with Option A (`docs/PRODUCTION_CHECKLIST.md`).
+5. Redis, Kafka, Kubernetes and the observability stack wait for a measured trigger. Do not add them speculatively.
 
 ---
 
@@ -148,6 +146,8 @@ Then with Postgres, backend and frontend running, log in as `admin` and check:
 - Warranty page: CSV upload as admin works; as another role it is disabled and the API returns `403`.
 - Five wrong passwords lock the account; the response is identical to a wrong password. More than ten login attempts a minute from one IP returns `429`.
 - `/swagger-ui.html` returns `403`/`401` without an admin token when `app.docs.public=false`.
+- `/ise-feed` page: active sharing rule displays (seeded v1 `NONE`); changing rule scope to `CONNECTED` or `CONNECTED_NON_COMPLIANT` creates version N+1 and is audited; as a non-ADMIN the rule edit is disabled; `GET /api/v1/integrations/ise/endpoints` returns matching endpoints with HTTP Basic auth (`ROLE_ISE_FEED`) or `ADMIN` JWT, records an entry in `ise_feed_audit`, and refuses invalid Basic credentials with `401`.
+- Installed software and Listening ports paged queries: `/api/v1/applications/page` and `/api/v1/ports/page` return paginated results with KPI summaries (`/applications/summary`, `/ports/summary`) using the `latest_inventory_id` pointer.
 
 Swagger UI (Authorize with a token) is easier than the CLI for one-off calls.
 
