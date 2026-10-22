@@ -1,5 +1,7 @@
 # Endpoint Posture & Compliance Platform
 
+![ENDPOINT POSTURE project banner](./assets/endpoint-posture-banner.svg)
+
 An **agentless endpoint visibility, posture and compliance platform** that works alongside **Cisco ISE**.
 
 It discovers active endpoints through Cisco ISE, remotely collects Windows posture, hardware, network-experience and connection-indicator data, stores the history in PostgreSQL, and gives an operator a dashboard to investigate and take controlled ISE actions.
