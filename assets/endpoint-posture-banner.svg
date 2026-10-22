@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+<title id="title">ENDPOINT POSTURE</title><desc id="desc">DEVICE VISIBILITY  /  COMPLIANCE  /  CISCO ISE</desc>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#071426"/><stop offset="1" stop-color="#102D4B"/></linearGradient><linearGradient id="glow" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#59B8FF"/><stop offset="1" stop-color="#8B9BFF"/></linearGradient><pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#9CC4E8" stroke-opacity=".09" stroke-width="1"/></pattern></defs>
+<rect width="1200" height="320" rx="22" fill="url(#bg)"/><rect width="1200" height="320" rx="22" fill="url(#grid)"/>
+<circle cx="1040" cy="145" r="170" fill="#59B8FF" opacity=".055"/><circle cx="1040" cy="145" r="112" fill="none" stroke="#8B9BFF" stroke-opacity=".3"/><circle cx="1040" cy="145" r="74" fill="none" stroke="#59B8FF" stroke-opacity=".5"/>
+<path d="M0 272 C260 230 360 345 620 278 S1000 240 1200 270" fill="none" stroke="url(#glow)" stroke-width="2" stroke-opacity=".55"/>
+<rect x="64" y="55" width="7" height="210" rx="3.5" fill="url(#glow)"/>
+<text x="100" y="139" fill="#F4F8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="43" font-weight="750" letter-spacing="1.4">ENDPOINT POSTURE</text>
+<text x="102" y="184" fill="#B8CBE0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="17" font-weight="500" letter-spacing="1.7">DEVICE VISIBILITY  /  COMPLIANCE  /  CISCO ISE</text>
+<text x="102" y="235" fill="#59B8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="3">DEV BHARGAV  /  ENGINEERING PROJECT</text><path d="M1040 64L1112 91V144C1112 190 1080 221 1040 241C1000 221 968 190 968 144V91Z" fill="none" stroke="url(#glow)" stroke-width="5"/><path d="M1006 148L1030 171L1077 119" fill="none" stroke="#59B8FF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/></svg>
