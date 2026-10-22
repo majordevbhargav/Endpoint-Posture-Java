@@ -1,0 +1,20 @@
+<!-- WinSW service definition. Save next to WinSW.exe renamed to EndpointPostureEngine.exe.
+     Secrets are NOT here: they are machine environment variables (see Set-PostureSecrets.ps1). -->
+<service>
+  <id>EndpointPostureEngine</id>
+  <name>VE Endpoint Posture Engine</name>
+  <description>Endpoint posture, telemetry collection and ISE bridge</description>
+  <executable>java</executable>
+  <!-- Working dir must be ...\backend so ../scripts/*.ps1 resolves. -->
+  <workingdirectory>C:\PostureEngine\backend</workingdirectory>
+  <arguments>-Xms1g -Xmx2g -Duser.timezone=UTC -jar C:\PostureEngine\backend\endpoint-posture-java-0.1.0-SNAPSHOT.jar --app.ise.verify-tls=true --app.docs.public=false</arguments>
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="none"/>
+  <stoptimeout>30 sec</stoptimeout>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>10</keepFiles>
+  </log>
+</service>

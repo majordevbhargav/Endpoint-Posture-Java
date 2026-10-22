@@ -1,0 +1,20 @@
+# TLS reverse proxy (Caddy). Replace the hostname. Port 8090 (API) must be firewalled to localhost only.
+posture.corp.example {
+    # Use your internal CA, or: tls internal
+    encode gzip
+
+    # Hide docs and metrics from the network entirely
+    @blocked path /swagger-ui* /v3/api-docs* /actuator/prometheus*
+    respond @blocked 404
+
+    # Frontend (Next.js) proxies /api/* to the backend itself.
+    reverse_proxy localhost:3000 {
+        header_up X-Forwarded-For {remote_host}   # overwrite, never append client-supplied values
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        -Server
+    }
+}
+# After this is in place AND 8090/3000 are firewalled to the proxy only, you may set
+# app.security.trust-forwarded-for=true (DECISIONS D9). Not before.

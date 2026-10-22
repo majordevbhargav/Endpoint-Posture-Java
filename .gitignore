@@ -93,3 +93,9 @@ application-dev.yml
 #exclude modernize folder
 .github/modernize
 **/modernize
+
+# Deployment: binaries and backups never go in git
+*.dump
+EndpointPostureEngine.exe
+WinSW*.exe
+caddy.exe
