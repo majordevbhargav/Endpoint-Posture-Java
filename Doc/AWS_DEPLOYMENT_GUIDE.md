@@ -80,20 +80,20 @@ Use the **default VPC** (fine for learning). Note its ID.
 
 EC2 → Security Groups → create **four empty groups first** (so they can reference each other):
 
-`sg-backend`, `sg-frontend`, `sg-db`, `sg-target`
+`lab-backend`, `lab-frontend`, `lab-db`, `lab-target`
 
 Then add inbound rules:
 
 | Group | Type | Port | Source |
 |---|---|---|---|
-| sg-backend | RDP | 3389 | My IP |
-| sg-backend | Custom TCP | 8090 | sg-frontend |
-| sg-frontend | SSH | 22 | My IP |
-| sg-frontend | Custom TCP | 3000 | My IP |
-| sg-db | PostgreSQL | 5432 | sg-backend |
-| sg-db | PostgreSQL | 5432 | sg-frontend (admin access, see Stage 3) |
-| sg-target | RDP | 3389 | My IP |
-| sg-target | All TCP | 0-65535 | sg-backend (lab shortcut so WinRM/DCOM both work) |
+| lab-backend | RDP | 3389 | My IP |
+| lab-backend | Custom TCP | 8090 | lab-frontend |
+| lab-frontend | SSH | 22 | My IP |
+| lab-frontend | Custom TCP | 3000 | My IP |
+| lab-db | PostgreSQL | 5432 | lab-backend |
+| lab-db | PostgreSQL | 5432 | lab-frontend (admin access, see Stage 3) |
+| lab-target | RDP | 3389 | My IP |
+| lab-target | All TCP | 0-65535 | lab-backend (lab shortcut so WinRM/DCOM both work) |
 
 "My IP" changes when your ISP changes it. If RDP or SSH stops working, update the rule.
 
@@ -107,7 +107,7 @@ Then add inbound rules:
 2. Template: **Free tier** if offered, otherwise Dev/Test. Single-AZ.
 3. DB instance identifier `ep-db`. Master username `postgres`, auto-generate or set a password. **Save it in a password manager.**
 4. Instance class: `db.t4g.micro`. Storage: 20 GB gp3, turn off storage autoscaling.
-5. Connectivity: default VPC, **Public access: No**, VPC security group: `sg-db` (remove default).
+5. Connectivity: default VPC, **Public access: No**, VPC security group: `lab-db` (remove default).
 6. Additional configuration → Initial database name: leave blank (we create it next). Backup retention 1 day.
 7. Create. Wait about 10 minutes. Copy the **endpoint** (like `ep-db.xxxx.ap-south-1.rds.amazonaws.com`).
 
@@ -166,7 +166,7 @@ Never upload `application-dev.yml` or `posture_common_cred.xml`.
 
 ## Stage 5: Linux EC2 (frontend + admin box) (1 hour)
 
-1. EC2 → Launch instance: name `ep-frontend`, **Amazon Linux 2023**, `t3.small`, key pair `ep-key`, security group `sg-frontend`, 20 GB gp3, Advanced → IAM instance profile `ep-server-role`.
+1. EC2 → Launch instance: name `ep-frontend`, **Amazon Linux 2023**, `t3.small`, key pair `ep-key`, security group `lab-frontend`, 20 GB gp3, Advanced → IAM instance profile `ep-server-role`.
 2. Allocate and associate an **Elastic IP** (EC2 → Elastic IPs).
 3. SSH in:
    ```bash
@@ -189,7 +189,7 @@ Never upload `application-dev.yml` or `posture_common_cred.xml`.
 ## Stage 6: Windows backend EC2 (half a day, the hard part)
 
 ### 6.1 Launch
-EC2 → Launch instance: name `ep-backend`, **Microsoft Windows Server 2022 Base**, `t3.large`, key pair `ep-key`, `sg-backend`, 50 GB gp3, IAM instance profile `ep-server-role`. Allocate and attach an Elastic IP. Note its **private IP** too.
+EC2 → Launch instance: name `ep-backend`, **Microsoft Windows Server 2022 Base**, `t3.large`, key pair `ep-key`, `lab-backend`, 50 GB gp3, IAM instance profile `ep-server-role`. Allocate and attach an Elastic IP. Note its **private IP** too.
 
 ### 6.2 Connect (RDP)
 Select instance → Connect → RDP client → Get password → upload `ep-key.pem` → copy the Administrator password. Open Remote Desktop on your PC, use the Elastic IP, user `Administrator`.
@@ -248,7 +248,7 @@ Open a **new** PowerShell window afterwards. Check the network path:
 ```powershell
 Test-NetConnection <rds-endpoint> -Port 5432     # TcpTestSucceeded : True
 ```
-If False: check sg-db allows 5432 from sg-backend.
+If False: check lab-db allows 5432 from lab-backend.
 
 ### 6.7 Save the credential for remote checks (as epsvc)
 Sign out of RDP, reconnect as `epsvc`. In PowerShell:
@@ -333,7 +333,7 @@ Check: Command Center loads, System Health page says DEGRADED because ISE is unr
 
 ## Stage 8: A real device to check (half a day)
 
-1. Launch `ep-target`: Windows Server 2022, `t3.medium`, key pair `ep-key`, security group `sg-target`. Note its **private IP** and decrypted Administrator password.
+1. Launch `ep-target`: Windows Server 2022, `t3.medium`, key pair `ep-key`, security group `lab-target`. Note its **private IP** and decrypted Administrator password.
 2. RDP to it, PowerShell as Administrator:
    ```powershell
    Enable-PSRemoting -Force
@@ -383,7 +383,7 @@ Run the seed script after the first start (Flyway has created the tables), then 
 
 - **CloudWatch alarms:** EC2 → each instance → Alarms: CPU above 80% for 10 minutes, status check failed, with email via SNS.
 - **Secrets in SSM:** put the six secrets in Parameter Store (SecureString) and read them with the instance role instead of typing them. (Needs `ssm:GetParameter` on a policy added to `ep-server-role`.)
-- **HTTPS:** get a free DuckDNS name pointing at the frontend Elastic IP, open 80 and 443 on `sg-frontend`, and run Caddy in Docker in front of port 3000. Close 3000. Then you may leave it up for demos.
+- **HTTPS:** get a free DuckDNS name pointing at the frontend Elastic IP, open 80 and 443 on `lab-frontend`, and run Caddy in Docker in front of port 3000. Close 3000. Then you may leave it up for demos.
 - **Deploy automation:** GitHub Actions builds the jar, uploads it to S3, then Systems Manager Run Command stops the service, downloads the jar and restarts it.
 - **Terraform (stretch goal):** recreate the VPC rules, RDS and EC2s as code. This is a strong resume line.
 - **Backups:** RDS automated backup is already on (1 day). Take a manual snapshot before you tear things down if you want to keep the data.
