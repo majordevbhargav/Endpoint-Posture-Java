@@ -470,7 +470,7 @@ The agent key (`ROLE_AGENT`) can only `POST` to the four ingestion routes. The I
 
 Other controls: role and enabled flag are read from the database on every request; self-lockout is prevented; BCrypt, 12+ character passwords; identical `401` for every login failure; per-account lockout and per-IP rate limit; security headers on the backend and the frontend; ISE actions are explicit, confirmed in the UI and audited with the JWT subject; JWTs are signed, not encrypted.
 
-**Still open:** `verify-tls: false` disables ISE certificate validation (startup WARN); the API is plain HTTP; the CSP still allows `'unsafe-inline'` and `'unsafe-eval'`; the JWT is in `sessionStorage`; the shared agent key and the shared admin credential are single high-value secrets; the rate limiter is per instance and needs `trust-forwarded-for` set correctly behind a proxy (`DECISIONS.md` D9). See `docs/PRODUCTION_CHECKLIST.md`.
+**Still open:** `verify-tls: false` disables ISE certificate validation (startup WARN); the API is plain HTTP; the CSP still allows `'unsafe-inline'` and `'unsafe-eval'`; the JWT is in `sessionStorage`; the shared agent key and the shared admin credential are single high-value secrets; the rate limiter is per instance and needs `trust-forwarded-for` set correctly behind a proxy (`Doc/DECISIONS.md` D9). See `Doc/PRODUCTION_CHECKLIST.md`.
 
 ---
 
@@ -497,7 +497,7 @@ Everything still to do is in `FEATURE_ROADMAP.md` section 2. Application remedia
 
 ## 16. Retired documents
 
-These are superseded; if they exist, keep them only under `docs/archive/`:
+These are superseded; if they exist, keep them only under `Doc/archive/`:
 
 | Document | Why retired |
 |---|---|

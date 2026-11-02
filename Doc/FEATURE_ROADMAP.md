@@ -54,7 +54,7 @@ Effort: XS under half a day, S about 1 day, M 2 to 4 days, L 1 to 2 weeks, XL mo
 | B2 | Per-IP login rate limit (429), idle buckets evicted | `LoginRateLimiter`, tests |
 | B3 | Security headers (backend filter and `next.config.mjs`) | `SecurityHeadersFilter` |
 | B4 | Startup warnings for `verify-tls=false` and public docs | `StartupSecurityLogger` |
-| B5 | Production checklist | `docs/PRODUCTION_CHECKLIST.md` |
+| B5 | Production checklist | `Doc/PRODUCTION_CHECKLIST.md` |
 | T1 | Tests for ISE session XML parsing and `ErsIseTransport` | `IseSessionClientXmlTest`, `ErsIseTransportTest` |
 | T2 | Frontend tests | vitest: csv, session, permissions, usePagination |
 | F1 | Fleet-list cap on every unbounded list | `/endpoints`, `/posture/latest`, `/hardware-health/latest`, `/applications`, `/ports` |
