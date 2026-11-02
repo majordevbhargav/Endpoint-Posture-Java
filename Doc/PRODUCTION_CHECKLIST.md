@@ -59,10 +59,10 @@ Supply at runtime through environment variables or a secret store (Windows machi
 
 ## 6. Windows service deployment (DECISIONS D2, Option A)
 
-- Run the jar on a managed Windows Server with JDK 21 as a service (WinSW or NSSM).
+- Run the jar on a managed Windows Server with JDK 21 as a service (WinSW or NSSM). Ready-made deployment scripts are in `deploy/`: `New-PostureServiceAccount.ps1`, `Set-PostureSecrets.ps1`, `Install-PostureService.ps1`, `Backup-Postgres.ps1`, `Test-Deployment.ps1`, and `proxy/Caddyfile`. The WinSW service descriptor is `deploy/endpoint-posture.xml`.
 - The DPAPI credential file can only be decrypted by the account that saved it. Run `Save-PostureCredential.ps1` while logged on as the service account, then run the service as that same account. A gMSA cannot log on interactively, so use a normal dedicated service user, or create the file through a one-time scheduled task running as that account.
 - Required inside the service environment: the secrets from section 1, and `-Duser.timezone=UTC`.
-- WinSW sketch (`endpoint-posture.xml`):
+- WinSW sketch (`deploy/endpoint-posture.xml`):
 
 ```xml
 <service>

@@ -1,6 +1,6 @@
 # VE Compliance Engine: Feature Roadmap
 
-Version 3.1, October 2026. Companion to `PROJECT_COMPLETE_GUIDE.md`, `DECISIONS.md` and `ROADMAP.md` (infrastructure).
+Version 3.1, 2026-11-02. Companion to `Doc/PROJECT_COMPLETE_GUIDE.md`, `Doc/DECISIONS.md` and `Doc/ROADMAP.md` (infrastructure).
 
 Scope: application features and hardening. Application remediation is **out of scope** (`DECISIONS.md` D1).
 
@@ -92,8 +92,9 @@ Scale numbers are measured on the simulator, not on real hardware. Pre-S12 resul
 | Browser security | CSP still allows `'unsafe-inline'` and `'unsafe-eval'` for Next.js; tighten with nonces. The JWT lives in `sessionStorage` |
 | Agent credential | Least-privilege service account (`DECISIONS.md` D7) |
 | Logging and backups | Structured logging, log shipping, Postgres backup and restore test (accounting for 90-day retention disk profile) |
-| CI | Backend container is pending (`DECISIONS.md` D2); frontend image is pushed on `main` |
+| CI | Backend container is pending (`Doc/DECISIONS.md` D2); frontend image is pushed on `main` |
 | Tests | No end-to-end test of the frontend against a running backend |
+| Deploy kit | `deploy/` contains WinSW xml, service account, secrets, install, Caddy proxy and smoke test scripts for Option A (`Doc/PRODUCTION_CHECKLIST.md`) |
 
 ---
 

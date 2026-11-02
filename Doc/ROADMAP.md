@@ -1,6 +1,6 @@
 # VE Compliance Engine: System at Completion, Scale and Infrastructure Roadmap
 
-Application features are in `FEATURE_ROADMAP.md`; decisions are in `DECISIONS.md`.
+Application features are in `Doc/FEATURE_ROADMAP.md`; decisions are in `Doc/DECISIONS.md`. Last updated: 2026-11-02.
 
 Personal project, built solo, on one machine, with free tools.
 

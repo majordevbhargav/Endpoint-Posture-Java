@@ -1,7 +1,7 @@
 # VE Compliance Engine (Endpoint Posture): Complete Project Guide
 
 **Scope:** the whole system, front to back, the runtime flow, and every package.
-**Written from:** the source code, October 2026. Where an older document disagrees with the code, the code wins.
+**Written from:** the source code, 2026-11-02. Where an older document disagrees with the code, the code wins.
 **Status:** backend, agents and dashboard are built, including RBAC, application policy, automatic rechecks, system health, login lockout and rate limiting, warranty, on-demand diagnostics, security indicators, metrics, scale work S1 to S12, paged inventory (S13), standing ISE sharing feed (X1, DECISIONS D3 option B; built, awaiting live verification against real ISE; pxGrid Direct limits not yet checked), 90-day evidence retention (D10; S11 partitioning not needed at this window), a scale simulator, the first hardening pass and a frontend image. The core path was verified against a real Windows laptop and a real lab Cisco ISE. Scale numbers come from the simulator (see `ROADMAP.md` section 4); the post-S12 re-run is pending.
 
 ## Contents
@@ -116,10 +116,16 @@ A modular monolith: one Spring Boot application, no broker, no Redis. The job qu
 
 ```
 endpoint-posture-java/
-├── README.md, DECISIONS.md, FEATURE_ROADMAP.md, ROADMAP.md,
-│   PROJECT_COMPLETE_GUIDE.md, HANDOFF.md
-├── docker-compose.yml, .gitignore, .github/workflows/ci.yml
-├── docs/                         PRODUCTION_CHECKLIST.md, COMPLETION_REPORT.md, archive/
+├── README.md, docker-compose.yml, .gitignore, .github/workflows/ci.yml
+├── Doc/                          DECISIONS.md, FEATURE_ROADMAP.md, HANDOFF.md,
+│                                 PRODUCTION_CHECKLIST.md, PROJECT_COMPLETE_GUIDE.md,
+│                                 ROADMAP.md, AWS_DEPLOYMENT_GUIDE.md, archive/
+├── assets/                       project banner SVG
+├── deploy/                       Windows service kit:
+│   ├── endpoint-posture.xml      WinSW service descriptor
+│   ├── Install-PostureService.ps1, New-PostureServiceAccount.ps1,
+│   │   Set-PostureSecrets.ps1, Backup-Postgres.ps1, Test-Deployment.ps1
+│   └── proxy/Caddyfile
 ├── scripts/                      PowerShell agents run by the backend
 │   ├── posture_agent.ps1, hardware_health_agent.ps1,
 │   │   diagnostic_agent.ps1, security_indicator_agent.ps1, Save-PostureCredential.ps1
@@ -309,8 +315,9 @@ Base path `/api/v1`. All routes need a bearer token unless noted.
 | GET | `/ise/actions/state` | latest RESTRICT/CLEAR per endpoint | any user |
 | GET | `/audit/ise-actions?endpointId=&limit=` | audit trail (limit 1..2000, default 500) | any user |
 | GET | `/integrations/ise/endpoints` | ISE feed: endpoints matching active sharing rule (X1) | `ROLE_ISE_FEED` (Basic auth) or `ADMIN` (JWT) |
-| GET | `/sharing-rule`, `/sharing-rule/history` | active sharing rule / version history (X1) | any user |
-| PUT | `/sharing-rule` | approve new sharing rule version (`NONE`, `CONNECTED`, `CONNECTED_NON_COMPLIANT`) (X1) | `ADMIN` |
+| GET | `/integrations/ise/sharing-rule` | active sharing rule (X1) | any user |
+| GET | `/integrations/ise/sharing-rule/history` | version history (X1) | any user |
+| PUT | `/integrations/ise/sharing-rule` | approve new sharing rule version (`NONE`, `CONNECTED`, `CONNECTED_NON_COMPLIANT`) (X1) | `ADMIN` |
 | GET | `/dashboard/summary`, `/trend?days=1..90`, `/categories` | dashboard numbers | any user |
 | GET | `/policy/apps`, `/policy/apps/history` | active policy / versions | any user |
 | PUT | `/policy/apps` | new policy version | `ADMIN` |

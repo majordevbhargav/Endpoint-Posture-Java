@@ -1,5 +1,7 @@
 # Deployment kit (DECISIONS D2 Option A, D7)
 
+> See `Doc/DECISIONS.md` D2 and `Doc/PRODUCTION_CHECKLIST.md` for background.
+
 Target: one Windows Server VM running JDK 21, Docker (Postgres), the backend as a service, Caddy in front. UNTESTED until run on your VM.
 
 Order:
@@ -12,3 +14,5 @@ Order:
 7. `Test-Deployment.ps1 -Base https://your-host`.
 8. Schedule `Backup-Postgres.ps1` daily; do one restore test.
 9. Point ISE pxGrid Direct at `/api/v1/integrations/ise/endpoints` with the feed credential (limits still unchecked).
+
+> **Known issue in `Test-Deployment.ps1` (script bug, not doc-only):** line 5 uses `"$Base/api/../actuator/health"`. The path traversal resolves to `$Base/actuator/health`, which is NOT routed through Caddy (Caddy only proxies `/api/*` and the frontend). The actuator health endpoint is at `http://localhost:8090/actuator/health` on the backend directly, or through the proxy as `$Base/api/actuator/health` if Caddy is configured to pass that prefix. Fix the script before using it in production.

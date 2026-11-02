@@ -21,7 +21,7 @@ The backend launches `powershell.exe` and depends on CIM/DCOM, WinRM and a DPAPI
 | C. Split: API anywhere (Linux/containers) + small fleet of Windows runner VMs that claim jobs and run the agents | **Production target.** Build only when scale demands it. |
 | D. Rewrite collection off PowerShell | Rejected: loses CIM/DCOM, rewrites working code. |
 
-Option A specifics: Windows Server VM with JDK 21; jar as a service (WinSW or NSSM) under the same account that ran `Save-PostureCredential.ps1` (a normal dedicated service user; a gMSA cannot log on interactively to create the DPAPI file); secrets as machine environment variables; firewall open to endpoint VLANs (WinRM/DCOM) and ISE (443); `TrustedHosts` set for workgroup targets; TLS reverse proxy in front of the frontend with the API port closed to everyone else. Details: `docs/PRODUCTION_CHECKLIST.md`.
+Option A specifics: Windows Server VM with JDK 21; jar as a service (WinSW or NSSM) under the same account that ran `Save-PostureCredential.ps1` (a normal dedicated service user; a gMSA cannot log on interactively to create the DPAPI file); secrets as machine environment variables; firewall open to endpoint VLANs (WinRM/DCOM) and ISE (443); `TrustedHosts` set for workgroup targets; TLS reverse proxy in front of the frontend with the API port closed to everyone else. Details: `Doc/PRODUCTION_CHECKLIST.md`. Deployment scripts (WinSW xml, service account setup, secrets, install, smoke test, Caddy proxy, Postgres backup): `deploy/`.
 
 Prep for C is **done**: process launching lives behind the `AgentRunner` interface (`LocalProcessAgentRunner` is the only real implementation; `SimulatedAgentRunner` exists in the `sim` profile) and `posture_job` has a `shard` column (default `default`, claims do not filter by it yet). A later remote runner claims jobs over HTTPS with its own credential, which requires TLS and a runner key.
 
@@ -38,7 +38,7 @@ Prep for C is **done**: process launching lives behind the `AgentRunner` interfa
 **Amendment to the core rule.** "Operator-triggered" is widened to mean: a person triggers an action directly, or a person approves a standing sharing rule that is versioned, attributed and audited. Collecting a result still never shares it by itself. **Restrict and Clear stay per-device operator actions** and are never covered by a rule.
 
 **What was built (feature X1):**
-- `ise_sharing_rule` table (V24): versioned, one active at a time (`NONE`, `CONNECTED`, `CONNECTED_NON_COMPLIANT`), seeded with version 1 scope `NONE`. Changes are audited like policy edits. ADMIN only (`PUT /api/v1/sharing-rule`).
+- `ise_sharing_rule` table (V24): versioned, one active at a time (`NONE`, `CONNECTED`, `CONNECTED_NON_COMPLIANT`), seeded with version 1 scope `NONE`. Changes are audited like policy edits. ADMIN only (`PUT /api/v1/integrations/ise/sharing-rule`).
 - `GET /api/v1/integrations/ise/endpoints`: read-only, flat JSON, scoped credential via `IseFeedAuthFilter` (HTTP Basic auth, `ROLE_ISE_FEED`, configurable via `app.ise-feed.username`/`password`, `ISE_FEED_USER`/`ISE_FEED_PASSWORD`, fails closed if blank) or `ADMIN` JWT. Serves only endpoints matching the active rule scope.
 - Audit table `ise_feed_audit` (V24): logs timestamp, caller, rule version, and endpoint count on each fetch (payload itself is not stored).
 - Services in package `com.endpointposture.isefeed`: `SharingRuleService`, `IseFeedService`, `IseFeedController`.

@@ -2,9 +2,9 @@
 
 **Read this first.** It says what state things are in, what is verified versus assumed, which mistakes were already fixed (do not repeat them), and what to do next.
 
-Last updated: October 2026.
+Last updated: 2026-11-02.
 
-Companion docs: `PROJECT_COMPLETE_GUIDE.md` (full reference, the authority when documents disagree), `DECISIONS.md`, `FEATURE_ROADMAP.md`, `ROADMAP.md`, `docs/PRODUCTION_CHECKLIST.md`, `docs/COMPLETION_REPORT.md`.
+Companion docs: `Doc/PROJECT_COMPLETE_GUIDE.md` (full reference, the authority when documents disagree), `Doc/DECISIONS.md`, `Doc/FEATURE_ROADMAP.md`, `Doc/ROADMAP.md`, `Doc/PRODUCTION_CHECKLIST.md`.
 
 ---
 
@@ -29,7 +29,13 @@ endpoint-posture-java/
 ├── scripts/   posture_agent, hardware_health_agent, diagnostic_agent,
 │              security_indicator_agent, Save-PostureCredential, sim/
 ├── docker-compose.yml   Postgres, Adminer, optional frontend
-├── docs/                PRODUCTION_CHECKLIST, COMPLETION_REPORT, archive/
+├── Doc/                  DECISIONS.md, FEATURE_ROADMAP.md, HANDOFF.md, PRODUCTION_CHECKLIST.md,
+│                         PROJECT_COMPLETE_GUIDE.md, ROADMAP.md, AWS_DEPLOYMENT_GUIDE.md, archive/
+├── deploy/               Windows service kit: endpoint-posture.xml (WinSW), Install-PostureService.ps1,
+│                         New-PostureServiceAccount.ps1, Set-PostureSecrets.ps1, Backup-Postgres.ps1,
+│                         Test-Deployment.ps1, proxy/Caddyfile
+├── assets/               project banner SVG
+├── docker-compose.yml    Postgres, Adminer, optional frontend
 └── .github/workflows/ci.yml
 ```
 
@@ -124,7 +130,7 @@ If you see `415`, `PKIX`, or ISE calls doing nothing, check `application.yml`, `
 1. **L1: Run the live checks** in section 9 and record results in section 4 (including `/ise-feed` live against real ISE; pxGrid Direct limits not yet checked).
 2. **L2: Re-run the simulator** (`backend\start-sim.ps1`, 30 to 60 minutes, GC log on) and compare with the pre-S12 numbers in section 4. Send the SIM lines to find out whether the two stalls were GC or the pool.
 3. **Confirm the remaining open decisions** in `DECISIONS.md`: D2 (Windows service vs container), D5 (reporting database vs replica), D7 (observability stack trigger). (D3 option B is built awaiting live verification; D10 is Decided as 90 days; S11 partitioning is not needed at this window).
-4. **Harden and deploy** with Option A (`docs/PRODUCTION_CHECKLIST.md`).
+4. **Harden and deploy** with Option A (`Doc/PRODUCTION_CHECKLIST.md`) and the `deploy/` kit.
 5. Redis, Kafka, Kubernetes and the observability stack wait for a measured trigger. Do not add them speculatively.
 
 ---

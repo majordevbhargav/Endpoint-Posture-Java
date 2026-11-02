@@ -63,19 +63,19 @@ cd backend ; .\start-dev.ps1               # API :8090, Swagger at /swagger-ui.h
 cd ..\frontend ; npm install ; npm run dev # http://localhost:3000
 ```
 
-Details, configuration and troubleshooting: `PROJECT_COMPLETE_GUIDE.md` and `HANDOFF.md`. Scale simulator: `scripts/sim/README.md`. Production steps: `docs/PRODUCTION_CHECKLIST.md`.
+Details, configuration and troubleshooting: `Doc/PROJECT_COMPLETE_GUIDE.md` and `Doc/HANDOFF.md`. Scale simulator: `scripts/sim/README.md`. Production steps: `Doc/PRODUCTION_CHECKLIST.md`.
 
 ## Documentation map
 
 | File | Purpose |
 |---|---|
-| `PROJECT_COMPLETE_GUIDE.md` | Full reference: flows, database, packages, API, config, agents, frontend, security. The authority when documents disagree. |
-| `DECISIONS.md` | Decisions taken and open: scope, deployment, ISE sharing, scale. |
-| `FEATURE_ROADMAP.md` | What is done and what is left, in order. |
-| `ROADMAP.md` | System at completion, scale analysis and measurements, infrastructure phases. |
-| `HANDOFF.md` | Start here when picking the project up: run, verify, known traps. |
-| `docs/PRODUCTION_CHECKLIST.md` | What to do before real deployment. |
-| `docs/COMPLETION_REPORT.md` | What the last completion pass did and what only a human can finish. |
+| `Doc/PROJECT_COMPLETE_GUIDE.md` | Full reference: flows, database, packages, API, config, agents, frontend, security. The authority when documents disagree. |
+| `Doc/DECISIONS.md` | Decisions taken and open: scope, deployment, ISE sharing, scale. |
+| `Doc/FEATURE_ROADMAP.md` | What is done and what is left, in order. |
+| `Doc/ROADMAP.md` | System at completion, scale analysis and measurements, infrastructure phases. |
+| `Doc/HANDOFF.md` | Start here when picking the project up: run, verify, known traps. |
+| `Doc/PRODUCTION_CHECKLIST.md` | What to do before real deployment. |
+| `deploy/README.md` | Windows service deployment kit (WinSW xml, scripts, Caddy proxy). |
 | `scripts/sim/README.md` | How to run and read the 20,000-session simulation. |
 
 ## Status
