@@ -46,7 +46,7 @@ Observation (ingest) and enforcement (ISE actions) live in separate controllers 
 ## Technology
 
 | Layer | Choice |
-|---|---|
+| --- | --- |
 | Backend | Java 21, Spring Boot 3.5.16, Maven, Spring Security + JWT, Flyway |
 | Database | PostgreSQL 16 with `pg_trgm` (migrations V1 to V24; V5 to V7 intentionally absent) |
 | Collection | PowerShell 5+, Windows CIM / WinRM / DCOM |
@@ -68,7 +68,7 @@ Details, configuration and troubleshooting: `Doc/PROJECT_COMPLETE_GUIDE.md` and 
 ## Documentation map
 
 | File | Purpose |
-|---|---|
+| --- | --- |
 | `Doc/PROJECT_COMPLETE_GUIDE.md` | Full reference: flows, database, packages, API, config, agents, frontend, security. The authority when documents disagree. |
 | `Doc/DECISIONS.md` | Decisions taken and open: scope, deployment, ISE sharing, scale. |
 | `Doc/FEATURE_ROADMAP.md` | What is done and what is left, in order. |

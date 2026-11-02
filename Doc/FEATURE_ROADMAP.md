@@ -13,7 +13,7 @@ Effort: XS under half a day, S about 1 day, M 2 to 4 days, L 1 to 2 weeks, XL mo
 ## 1. Done (verified by reading the code and tests)
 
 | ID | Item | Evidence |
-|---|---|---|
+| --- | --- | --- |
 | H1 | Fail fast on default secrets | `application.yml` secrets have no defaults; dev values in git-ignored `application-dev.yml` |
 | H2 | Stale `RUNNING` job recovery | `StaleJobRecoveryScheduler`, covers all four job types |
 | H3 | Test baseline | broad unit and Testcontainers suite plus 4 frontend vitest files |
@@ -66,7 +66,7 @@ Removed: R1, R2, R3 (remediation).
 ## 2. Left, in order
 
 | ID | Item | Needs | Effort |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | L1 | Live runs: diagnostics, security scan, warranty upload, lockout, `/ise-actions`, `/ise-feed` against real ISE (verify pxGrid Direct limits), frontend container, 429 through proxy | you, a real endpoint and ISE | S |
 | L2 | Post-S12 simulation re-run (30 to 60 min, `-Xlog:gc*`), compare with `ROADMAP.md` section 4 | you; send the SIM lines | S |
 | Decisions | Confirm open architectural decisions: D2 (service vs container), D5 (reporting DB), D7 (observability trigger) | project owner | XS |
@@ -83,7 +83,7 @@ Scale numbers are measured on the simulator, not on real hardware. Pre-S12 resul
 ## 4. Production hardening checklist (what is still open)
 
 | Item | Detail |
-|---|---|
+| --- | --- |
 | Secrets | Real values only in environment or a secrets store; rotate the single shared `POSTURE_API_KEY`; rotate any lab value that appeared in an old handoff |
 | ISE Feed Secret | `ISE_FEED_USER` / `ISE_FEED_PASSWORD` configured for pxGrid Direct Basic auth; fail closed if absent |
 | ISE TLS | `verify-tls: true` once a trusted certificate exists (startup WARN until then) |
@@ -101,7 +101,7 @@ Scale numbers are measured on the simulator, not on real hardware. Pre-S12 resul
 ## 5. Requirement matrix for what is left
 
 | Item | Needs first | Migration | Needs live ISE / endpoint to test |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | L1 | none | none | yes |
 | L2 | none | none | no |
 | Decisions (D2, D5, D7) | owner alignment | none | no |

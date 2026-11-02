@@ -15,7 +15,7 @@ R1 (classification), R2 (dry-run uninstall) and R3 (real uninstall) are removed 
 The backend launches `powershell.exe` and depends on CIM/DCOM, WinRM and a DPAPI-encrypted credential, so it cannot run in a Linux container as built.
 
 | Option | Verdict |
-|---|---|
+| --- | --- |
 | A. Windows host or VM, jar as a service, Postgres and frontend elsewhere | **Now.** It is what has been verified. |
 | B. Windows containers | Rejected: DPAPI and credential handling get awkward, little gain. |
 | C. Split: API anywhere (Linux/containers) + small fleet of Windows runner VMs that claim jobs and run the agents | **Production target.** Build only when scale demands it. |
@@ -30,7 +30,7 @@ Prep for C is **done**: process launching lives behind the `AgentRunner` interfa
 **Problem.** `Share Posture` is one operator click per device and two ERS calls per device. At 50,000 endpoints that is neither usable nor kind to ISE. ISE pxGrid Direct can instead pull one flat JSON feed from an HTTPS URL with Basic auth (no pxGrid certificates needed), but it re-reads on a schedule, which looks automatic.
 
 | Option | Description | Verdict |
-|---|---|---|
+| --- | --- | --- |
 | A | Feed contains only endpoints an operator explicitly shared | Keeps the rule, does not scale to 50k clicks |
 | **B** | An admin approves a **sharing rule** (for example "share the status of all connected endpoints"). The rule is the human decision and is audited like any action | **Built (Option B)** |
 | C | Publish everything automatically | Rejected: breaks the core rule |
@@ -38,6 +38,7 @@ Prep for C is **done**: process launching lives behind the `AgentRunner` interfa
 **Amendment to the core rule.** "Operator-triggered" is widened to mean: a person triggers an action directly, or a person approves a standing sharing rule that is versioned, attributed and audited. Collecting a result still never shares it by itself. **Restrict and Clear stay per-device operator actions** and are never covered by a rule.
 
 **What was built (feature X1):**
+
 - `ise_sharing_rule` table (V24): versioned, one active at a time (`NONE`, `CONNECTED`, `CONNECTED_NON_COMPLIANT`), seeded with version 1 scope `NONE`. Changes are audited like policy edits. ADMIN only (`PUT /api/v1/integrations/ise/sharing-rule`).
 - `GET /api/v1/integrations/ise/endpoints`: read-only, flat JSON, scoped credential via `IseFeedAuthFilter` (HTTP Basic auth, `ROLE_ISE_FEED`, configurable via `app.ise-feed.username`/`password`, `ISE_FEED_USER`/`ISE_FEED_PASSWORD`, fails closed if blank) or `ADMIN` JWT. Serves only endpoints matching the active rule scope.
 - Audit table `ise_feed_audit` (V24): logs timestamp, caller, rule version, and endpoint count on each fetch (payload itself is not stored).
@@ -45,6 +46,7 @@ Prep for C is **done**: process launching lives behind the `AgentRunner` interfa
 - Frontend `/ise-feed` page, `lib/apiExtra.ts`, and permission `editSharingRule` (`ADMIN`).
 
 **Awaiting live verification:**
+
 - Live test against real Cisco ISE pxGrid Direct remains UNVERIFIED.
 - ISE pxGrid Direct ingestion limits (payload size, record count, pagination or incremental sync at 20k-50k devices) are not yet checked against real ISE. Also confirm the ISE version supports pxGrid Direct (3.1 or higher) and the license.
 
@@ -57,7 +59,7 @@ Personal project on one machine; hypothetical production target of 50,000 endpoi
 **Measured (pre-S12, 20,000 simulated sessions, 40 simulated workers):**
 
 | Metric | Result |
-|---|---|
+| --- | --- |
 | Watcher tick | 0.5 to 3 s upper bound (budget is the 15 s poll interval) |
 | Dashboard summary | 20 to 60 ms |
 | Dashboard trend (7 days) | 20 to 60 ms |
