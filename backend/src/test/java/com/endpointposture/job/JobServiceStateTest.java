@@ -20,6 +20,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -169,8 +170,8 @@ class JobServiceStateTest {
         assertThrows(IllegalArgumentException.class, () -> service.completeFenced(jobId, "worker", 0));
         assertThrows(IllegalArgumentException.class, () -> service.failFenced(jobId, null, 1, "failure"));
 
-        verify(jobs, never()).completeFenced(any(), any(), any());
-        verify(jobs, never()).failFenced(any(), any(), any(), any());
+        verify(jobs, never()).completeFenced(any(), any(), anyInt());
+        verify(jobs, never()).failFenced(any(), any(), anyInt(), any());
     }
 
     // ---- complete / fail ----
