@@ -82,7 +82,7 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
                                next_attempt_at = CASE
                                    WHEN attempt_count < max_attempts
                                    THEN now() + (LEAST(attempt_count, 15) * INTERVAL '1 minute')
-                                   ELSE next_attempt_at
+                                   ELSE NULL
                                END,
                                completed_at = CASE
                                    WHEN attempt_count >= max_attempts THEN now()
