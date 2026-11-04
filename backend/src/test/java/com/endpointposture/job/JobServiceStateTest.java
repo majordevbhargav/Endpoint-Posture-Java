@@ -131,6 +131,48 @@ class JobServiceStateTest {
         verify(jobs, never()).findNextClaimable();
     }
 
+    // ---- remote worker fencing ----
+    @Test
+    void completeFencedReturnsTrueOnlyWhenRepositoryAcceptsTheCurrentAttempt() {
+        UUID jobId = UUID.randomUUID();
+        when(jobs.completeFenced(jobId, "worker-1", 2)).thenReturn(1);
+
+        assertTrue(service.completeFenced(jobId, "worker-1", 2));
+
+        verify(jobs).completeFenced(jobId, "worker-1", 2);
+    }
+
+    @Test
+    void completeFencedReturnsFalseWhenRepositoryRejectsAStaleAttempt() {
+        UUID jobId = UUID.randomUUID();
+        when(jobs.completeFenced(jobId, "worker-1", 1)).thenReturn(0);
+
+        assertFalse(service.completeFenced(jobId, "worker-1", 1));
+    }
+
+    @Test
+    void failFencedMapsAcceptedAndRejectedUpdatesToBoolean() {
+        UUID jobId = UUID.randomUUID();
+        when(jobs.failFenced(jobId, "worker-2", 3, "agent failed")).thenReturn(1);
+        when(jobs.failFenced(jobId, "worker-2", 2, "stale failure")).thenReturn(0);
+
+        assertTrue(service.failFenced(jobId, "worker-2", 3, "agent failed"));
+        assertFalse(service.failFenced(jobId, "worker-2", 2, "stale failure"));
+    }
+
+    @Test
+    void fencedUpdatesRejectMissingIdentityOrInvalidAttemptBeforeDatabaseAccess() {
+        UUID jobId = UUID.randomUUID();
+
+        assertThrows(IllegalArgumentException.class, () -> service.completeFenced(null, "worker", 1));
+        assertThrows(IllegalArgumentException.class, () -> service.completeFenced(jobId, " ", 1));
+        assertThrows(IllegalArgumentException.class, () -> service.completeFenced(jobId, "worker", 0));
+        assertThrows(IllegalArgumentException.class, () -> service.failFenced(jobId, null, 1, "failure"));
+
+        verify(jobs, never()).completeFenced(any(), any(), any());
+        verify(jobs, never()).failFenced(any(), any(), any(), any());
+    }
+
     // ---- complete / fail ----
     @Test
     void markCompleteClearsTheErrorAndStampsCompletion() {
