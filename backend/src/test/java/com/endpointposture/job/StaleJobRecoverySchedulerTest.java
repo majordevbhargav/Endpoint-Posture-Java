@@ -100,10 +100,10 @@ class StaleJobRecoverySchedulerTest {
         scheduler.sweep();
 
         verify(jobService, never()).failAttempt(any(), anyInt(), anyString());
-        verify(assessmentService, never()).recordFailure(any(), any(), anyInt(), anyString());
-        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyInt(), anyString());
-        verify(diagnosticService, never()).recordFailure(any(), any(), anyInt(), anyString());
-        verify(securityIndicatorService, never()).recordFailure(any(), any(), anyInt(), anyString());
+        verify(assessmentService, never()).recordFailure(any(), any(), anyString());
+        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
+        verify(securityIndicatorService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
