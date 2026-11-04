@@ -104,23 +104,53 @@ public class JobService {
     }
 
     /**
-     * Claims and locks the next eligible job in one transaction (SELECT ... FOR
-     * UPDATE SKIP LOCKED, then flip to RUNNING).
+     * Claims the next eligible job for the local in-process worker pool.
+     * Local jobs do not hold a remote-worker lease.
      *
      * @return the job now marked RUNNING, or empty if nothing is eligible
      */
     @Transactional
     public Optional<PostureJob> claimNextJob() {
+        return claim(null, null);
+    }
+
+    /**
+     * Claims the next eligible job for a remote worker and records its lease.
+     * The row lock acquired by {@code findNextClaimable()} is held until this
+     * transaction commits, making the status change and lease assignment atomic.
+     * The incremented {@code attemptCount} is the fencing token for this attempt;
+     * completion/failure fencing is implemented in a later stage.
+     *
+     * @param workerId stable identity of the claiming worker; must not be blank
+     * @param lease    how long the lease lasts from now; must be positive
+     * @return the leased job, or empty if no job is eligible
+     * @throws IllegalArgumentException if the worker ID is blank or the lease is not positive
+     */
+    @Transactional
+    public Optional<PostureJob> claimNextJob(String workerId, Duration lease) {
+        if (workerId == null || workerId.isBlank()) {
+            throw new IllegalArgumentException("workerId is required");
+        }
+        if (lease == null || lease.isZero() || lease.isNegative()) {
+            throw new IllegalArgumentException("lease must be positive");
+        }
+        return claim(workerId.trim(), lease);
+    }
+
+    private Optional<PostureJob> claim(String workerId, Duration lease) {
         Optional<PostureJob> claimed = jobRepository.findNextClaimable();
 
         claimed.ifPresent(job -> {
+            Instant now = Instant.now();
             job.setStatus(JobStatus.RUNNING);
-            job.setStartedAt(Instant.now());
+            job.setStartedAt(now);
             job.setAttemptCount(job.getAttemptCount() + 1);
+            job.setClaimedBy(workerId);
+            job.setLeaseExpiresAt(lease == null ? null : now.plus(lease));
             jobRepository.save(job);
 
-            // Force the lazy Endpoint proxy to resolve NOW, while the transaction is
-            // open; JobWorker reads job.getEndpoint() after this method returns.
+            // Resolve the lazy Endpoint while the transaction is open. JobWorker
+            // reads the endpoint after this method returns.
             job.getEndpoint().getMacAddress();
         });
 
