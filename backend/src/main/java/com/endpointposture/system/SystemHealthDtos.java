@@ -35,8 +35,10 @@ public final class SystemHealthDtos {
     /**
      * @param enabled whether the worker pool bean exists ({@code app.jobs.workers.enabled})
      * @param threads configured worker threads; 0 when the pool is disabled
+     * @param mode    {@code LOCAL} when this backend runs agents itself; {@code REMOTE_PENDING} when
+     *                the local pool is off (Linux profile) and remote workers are not yet implemented
      */
-    public record Workers(boolean enabled, int threads) {}
+    public record Workers(boolean enabled, int threads, String mode) {}
 
     /**
      * @param status    {@code UP}, {@code DEGRADED} or {@code DOWN}

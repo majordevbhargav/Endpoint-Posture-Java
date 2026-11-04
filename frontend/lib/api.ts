@@ -198,6 +198,7 @@ export interface SystemHealth {
   workers: {
     enabled: boolean;
     threads: number;
+    mode?: "LOCAL" | "REMOTE_PENDING";
   };
   warnings: string[];
 }

@@ -55,13 +55,14 @@ public class SystemHealthService {
         Ise ise = new Ise(iseStatus.reachable(), iseStatus.lastSuccessAt(), iseStatus.lastError());
 
         JobWorkerPool pool = workerPool.getIfAvailable();
-        Workers workers = new Workers(pool != null, pool != null ? pool.getThreads() : 0);
+        Workers workers = new Workers(pool != null, pool != null ? pool.getThreads() : 0,
+                pool != null ? "LOCAL" : "REMOTE_PENDING");
 
         // Without a database there is no queue to inspect.
         Queue queue = db.reachable() ? readQueue(now) : new Queue(0, 0, 0, 0, null, 0);
 
         List<String> warnings = warnings(db.reachable(), ise.reachable(),
-                queue.oldestQueuedAgeSeconds(), workers.enabled());
+                queue.oldestQueuedAgeSeconds(), workers.enabled(), queue.queued());
         return new SystemHealth(overallStatus(db.reachable(), warnings), now, db, ise, queue, workers, warnings);
     }
 
@@ -95,11 +96,17 @@ public class SystemHealthService {
     }
 
     static List<String> warnings(boolean dbReachable, boolean iseReachable,
-                                 Long oldestQueuedAgeSeconds, boolean workersEnabled) {
+                                 Long oldestQueuedAgeSeconds, boolean workersEnabled,
+                                 long queuedJobs) {
         List<String> out = new ArrayList<>();
         if (!dbReachable) out.add("Database is unreachable.");
         if (!iseReachable) out.add("Cisco ISE is unreachable; session state is frozen at its last known values.");
-        if (!workersEnabled) out.add("The job worker pool is disabled; queued jobs will not run.");
+        // A disabled local pool is intentional on Linux, so it is only a problem once work is
+        // waiting that nothing can run. Never report UP while queued jobs cannot execute.
+        if (!workersEnabled && queuedJobs > 0) {
+            out.add("No job worker is available (local pool disabled, remote workers not connected); "
+                    + queuedJobs + " queued job(s) will not run.");
+        }
         if (oldestQueuedAgeSeconds != null && oldestQueuedAgeSeconds > STUCK_QUEUE_AFTER.getSeconds()) {
             out.add("The oldest queued job has waited over " + STUCK_QUEUE_AFTER.toMinutes()
                     + " minutes; workers may be stuck or overloaded.");

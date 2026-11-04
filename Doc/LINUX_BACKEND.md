@@ -27,5 +27,6 @@ Windows dev (default profile) and `sim` are unchanged.
 ## Known/intentional
 
 - `LocalProcessAgentRunner` and `JobWorker` stay in the code but are only reachable via `JobWorkerPool`, which is disabled here.
-- `SystemHealthService` reports DEGRADED while workers are disabled (Stage 3 will make this profile-aware).
+- `SystemHealthService` reports `workers.mode=REMOTE_PENDING` when the local pool is off. It stays UP with an empty queue and goes DEGRADED once jobs are queued that nothing can run.
 - `StaleJobRecoveryScheduler` still runs; harmless with no local workers. Revisit with remote workers (PR3).
+- ISE reconnect job creation is intentionally kept; jobs queue until workers exist (PR3-PR5), visible in the queue tile and health warning.
