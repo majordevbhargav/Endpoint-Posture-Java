@@ -228,6 +228,8 @@ public class JobService {
             job.setStatus(JobStatus.COMPLETE);
             job.setCompletedAt(Instant.now());
             job.setErrorMessage(null);
+            job.setClaimedBy(null);
+            job.setLeaseExpiresAt(null);
             jobRepository.save(job);
         });
     }
@@ -245,29 +247,17 @@ public class JobService {
                 job.setStatus(JobStatus.QUEUED);
                 long backoffMinutes = Math.min(job.getAttemptCount(), 15);
                 job.setNextAttemptAt(Instant.now().plus(backoffMinutes, ChronoUnit.MINUTES));
+                job.setCompletedAt(null);
             } else {
                 job.setStatus(JobStatus.FAILED);
+                job.setNextAttemptAt(null);
                 job.setCompletedAt(Instant.now());
             }
 
+            job.setClaimedBy(null);
+            job.setLeaseExpiresAt(null);
             jobRepository.save(job);
         });
-    }
-
-    /**
-     * Like {@link #markFailed} but only acts if the job is still RUNNING, so a
-     * job that finished in the meantime is never flipped back to QUEUED.
-     *
-     * @return true if the job was still RUNNING and has now been failed/requeued
-     */
-    @Transactional
-    public boolean markFailedIfRunning(UUID jobId, String errorMessage) {
-        boolean running = jobRepository.findById(jobId)
-                .map(j -> j.getStatus() == JobStatus.RUNNING).orElse(false);
-        if (!running)
-            return false;
-        markFailed(jobId, errorMessage);
-        return true;
     }
 
     /**
