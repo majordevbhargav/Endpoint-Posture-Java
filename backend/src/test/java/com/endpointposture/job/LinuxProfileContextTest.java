@@ -64,10 +64,14 @@ class LinuxProfileContextTest {
     }
 
     @Test
-    void healthReportsWorkersDisabledButNotDownWithAnEmptyQueue() {
+    void healthReportsRemotePendingWithNoQueuedJobs() {
         var snapshot = health.snapshot();
+
         assertNotNull(snapshot);
         assertEquals(false, snapshot.workers().enabled());
-        assertTrue(snapshot.status().equals("UP") || snapshot.status().equals("DEGRADED"));
+        assertEquals("REMOTE_PENDING", snapshot.workers().mode());
+        assertEquals(0, snapshot.queue().queued());
+        assertTrue(snapshot.warnings().stream()
+                .noneMatch(w -> w.contains("No job worker is available")));
     }
 }
