@@ -313,6 +313,86 @@ class PostureJobRepositoryConcurrencyTest {
         }
     }
 
+    @Test
+    void attemptOnlyRecoveryRequeuesWithBackoffAndClearsLease() {
+        jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob running = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
+
+        assertTrue(jobService.failAttempt(running.getId(), 1, "stale worker recovered"));
+
+        PostureJob stored = jobRepository.findById(running.getId()).orElseThrow();
+        assertEquals(JobStatus.QUEUED, stored.getStatus());
+        assertEquals("stale worker recovered", stored.getErrorMessage());
+        assertTrue(stored.getNextAttemptAt().isAfter(java.time.Instant.now().plusSeconds(50)));
+        assertTrue(stored.getNextAttemptAt().isBefore(java.time.Instant.now().plusSeconds(70)));
+        assertNull(stored.getCompletedAt());
+        assertNull(stored.getClaimedBy());
+        assertNull(stored.getLeaseExpiresAt());
+    }
+
+    @Test
+    void attemptOnlyRecoveryCapsBackoffAtFifteenMinutes() {
+        PostureJob queued = jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        jdbcTemplate.update("UPDATE posture_job SET max_attempts = 30, attempt_count = 19 WHERE id = ?", queued.getId());
+        PostureJob running = jobService.claimNextJob().orElseThrow();
+
+        assertEquals(20, running.getAttemptCount());
+        assertTrue(jobService.failAttempt(running.getId(), 20, "retry"));
+
+        PostureJob stored = jobRepository.findById(running.getId()).orElseThrow();
+        assertTrue(stored.getNextAttemptAt().isAfter(java.time.Instant.now().plus(Duration.ofMinutes(14))));
+        assertTrue(stored.getNextAttemptAt().isBefore(java.time.Instant.now().plus(Duration.ofMinutes(16))));
+        assertNull(stored.getCompletedAt());
+    }
+
+    @Test
+    void attemptOnlyRecoveryMarksLastAttemptFailedAndClearsLease() {
+        PostureJob queued = jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        jdbcTemplate.update("UPDATE posture_job SET attempt_count = 2 WHERE id = ?", queued.getId());
+        PostureJob running = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
+
+        assertTrue(jobService.failAttempt(running.getId(), 3, "final stale attempt"));
+
+        PostureJob stored = jobRepository.findById(running.getId()).orElseThrow();
+        assertEquals(JobStatus.FAILED, stored.getStatus());
+        assertNotNull(stored.getCompletedAt());
+        assertNull(stored.getNextAttemptAt());
+        assertNull(stored.getClaimedBy());
+        assertNull(stored.getLeaseExpiresAt());
+    }
+
+    @Test
+    void attemptOnlyCompletionClearsLeaseAndRejectsSubsequentRecovery() {
+        jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob running = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
+
+        assertTrue(jobService.completeAttempt(running.getId(), 1));
+        assertFalse(jobService.failAttempt(running.getId(), 1, "late recovery"));
+
+        PostureJob stored = jobRepository.findById(running.getId()).orElseThrow();
+        assertEquals(JobStatus.COMPLETE, stored.getStatus());
+        assertNotNull(stored.getCompletedAt());
+        assertNull(stored.getClaimedBy());
+        assertNull(stored.getLeaseExpiresAt());
+    }
+
+    @Test
+    void oldAttemptCannotCompleteOrFailANewerRunningAttempt() {
+        jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob first = jobService.claimNextJob().orElseThrow();
+        assertTrue(jobService.failAttempt(first.getId(), 1, "requeue first attempt"));
+
+        PostureJob second = jobService.claimNextJob().orElseThrow();
+        assertEquals(2, second.getAttemptCount());
+
+        assertFalse(jobService.completeAttempt(second.getId(), 1));
+        assertFalse(jobService.failAttempt(second.getId(), 1, "late first attempt"));
+
+        PostureJob stored = jobRepository.findById(second.getId()).orElseThrow();
+        assertEquals(JobStatus.RUNNING, stored.getStatus());
+        assertEquals(2, stored.getAttemptCount());
+    }
+
     private String randomMac() {
         byte[] bytes = new byte[6];
         new Random().nextBytes(bytes);
