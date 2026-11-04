@@ -1,0 +1,16 @@
+# Linux backend profile (PR2). Activate with: --spring.profiles.active=linux
+#
+# The backend on Linux is API + auth + database + scheduling only. It must NOT
+# launch powershell.exe (agents stay on Windows workers, wired up in a later PR),
+# so everything that produces or runs agent jobs locally is switched off here.
+# Windows dev (default profile) and the sim profile are unchanged.
+app:
+  jobs:
+    workers:
+      enabled: false      # no JobWorkerPool: nothing starts powershell.exe
+    recheck:
+      enabled: false      # do not queue jobs that no local worker will ever claim
+
+# Agent callback URLs (app.posture.server-url, app.*.server-base-url) are already
+# environment-driven in application.yml via POSTURE_SERVER_URL / APP_SERVER_BASE_URL.
+# Set them to the address the WORKERS use to reach this backend, not localhost.
