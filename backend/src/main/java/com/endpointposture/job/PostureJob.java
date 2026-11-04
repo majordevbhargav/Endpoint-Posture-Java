@@ -93,6 +93,21 @@ public class PostureJob {
     @Column(nullable = false)
     private String shard;
 
+    /**
+     * Identity of the remote worker that owns this job. {@code null} for queued
+     * jobs and for jobs run by the local in-process pool
+     * ({@code V25__add_worker_lease_fields.sql}).
+     */
+    @Column(name = "claimed_by")
+    private String claimedBy;
+
+    /**
+     * When the current worker's lease lapses (UTC). {@code null} when no lease is
+     * held. {@code attemptCount} is the fencing token for the lease.
+     */
+    @Column(name = "lease_expires_at")
+    private Instant leaseExpiresAt;
+
     /** Applies defaults just before the first insert. */
     @PrePersist
     void onCreate() {
