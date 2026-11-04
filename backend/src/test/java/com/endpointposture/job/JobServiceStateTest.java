@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -172,6 +173,35 @@ class JobServiceStateTest {
 
         verify(jobs, never()).completeFenced(any(), any(), anyInt());
         verify(jobs, never()).failFenced(any(), any(), anyInt(), any());
+    }
+
+    // ---- embedded attempt fencing ----
+    @Test
+    void completeAttemptMapsAcceptedAndRejectedRepositoryUpdates() {
+        UUID id = UUID.randomUUID();
+        when(jobs.completeRunningAttempt(id, 2)).thenReturn(1).thenReturn(0);
+        assertTrue(service.completeAttempt(id, 2));
+        assertFalse(service.completeAttempt(id, 2));
+        verify(jobs, times(2)).completeRunningAttempt(id, 2);
+    }
+
+    @Test
+    void failAttemptMapsAcceptedAndRejectedRepositoryUpdates() {
+        UUID id = UUID.randomUUID();
+        when(jobs.failRunningAttempt(id, 2, "failed")).thenReturn(1).thenReturn(0);
+        assertTrue(service.failAttempt(id, 2, "failed"));
+        assertFalse(service.failAttempt(id, 2, "failed"));
+        verify(jobs, times(2)).failRunningAttempt(id, 2, "failed");
+    }
+
+    @Test
+    void embeddedAttemptUpdatesRejectNullIdsAndNonPositiveAttempts() {
+        assertThrows(IllegalArgumentException.class, () -> service.completeAttempt(null, 1));
+        assertThrows(IllegalArgumentException.class, () -> service.completeAttempt(UUID.randomUUID(), 0));
+        assertThrows(IllegalArgumentException.class, () -> service.failAttempt(null, 1, "x"));
+        assertThrows(IllegalArgumentException.class, () -> service.failAttempt(UUID.randomUUID(), 0, "x"));
+        verify(jobs, never()).completeRunningAttempt(any(), anyInt());
+        verify(jobs, never()).failRunningAttempt(any(), anyInt(), any());
     }
 
     // ---- complete / fail ----
