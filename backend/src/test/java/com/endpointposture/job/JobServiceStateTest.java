@@ -90,6 +90,47 @@ class JobServiceStateTest {
         verify(jobs, never()).save(any());
     }
 
+    @Test
+    void leasedClaimRecordsOwnerLeaseAndFencingToken() {
+        PostureJob j = job(JobStatus.QUEUED, 0, 3);
+        j.setEndpoint(Endpoint.builder().id(endpointId).macAddress("AA:BB:CC:DD:EE:FF").build());
+        when(jobs.findNextClaimable()).thenReturn(Optional.of(j));
+        Instant before = Instant.now();
+
+        PostureJob claimed = service.claimNextJob("worker-1", Duration.ofMinutes(2)).orElseThrow();
+
+        assertEquals(JobStatus.RUNNING, claimed.getStatus());
+        assertEquals("worker-1", claimed.getClaimedBy());
+        assertEquals(1, claimed.getAttemptCount());
+        assertTrue(claimed.getLeaseExpiresAt().isAfter(before.plusSeconds(119)));
+        assertTrue(claimed.getLeaseExpiresAt().isBefore(Instant.now().plusSeconds(121)));
+    }
+
+    @Test
+    void localClaimClearsAStaleLease() {
+        PostureJob j = job(JobStatus.QUEUED, 1, 3);
+        j.setEndpoint(Endpoint.builder().id(endpointId).macAddress("AA:BB:CC:DD:EE:FF").build());
+        j.setClaimedBy("old-worker");
+        j.setLeaseExpiresAt(Instant.now().minusSeconds(60));
+        when(jobs.findNextClaimable()).thenReturn(Optional.of(j));
+
+        PostureJob claimed = service.claimNextJob().orElseThrow();
+
+        assertNull(claimed.getClaimedBy());
+        assertNull(claimed.getLeaseExpiresAt());
+        assertEquals(2, claimed.getAttemptCount());
+    }
+
+    @Test
+    void leasedClaimRejectsABlankWorkerOrNonPositiveLeaseWithoutTouchingTheQueue() {
+        assertThrows(IllegalArgumentException.class, () -> service.claimNextJob(" ", Duration.ofMinutes(1)));
+        assertThrows(IllegalArgumentException.class, () -> service.claimNextJob(null, Duration.ofMinutes(1)));
+        assertThrows(IllegalArgumentException.class, () -> service.claimNextJob("w", null));
+        assertThrows(IllegalArgumentException.class, () -> service.claimNextJob("w", Duration.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> service.claimNextJob("w", Duration.ofSeconds(-1)));
+        verify(jobs, never()).findNextClaimable();
+    }
+
     // ---- complete / fail ----
     @Test
     void markCompleteClearsTheErrorAndStampsCompletion() {
