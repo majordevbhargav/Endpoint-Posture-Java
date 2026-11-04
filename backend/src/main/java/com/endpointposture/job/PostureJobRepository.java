@@ -102,6 +102,53 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
                        @Param("error") String error);
 
         /**
+         * Atomically completes an embedded-worker attempt. Unlike completeFenced,
+         * this deliberately does not require claimed_by or a remote lease because
+         * local claims have neither. attempt_count still prevents a late execution
+         * from completing a newer retry.
+         */
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query(value = """
+                        UPDATE posture_job
+                           SET status = 'COMPLETE',
+                               completed_at = now(),
+                               error_message = NULL,
+                               claimed_by = NULL,
+                               lease_expires_at = NULL
+                         WHERE id = :id
+                           AND status = 'RUNNING'
+                           AND attempt_count = :attempt
+                        """, nativeQuery = true)
+        int completeRunningAttempt(@Param("id") UUID id, @Param("attempt") int attempt);
+
+        /**
+         * Atomically fails an embedded-worker or stale-sweep attempt by its
+         * attempt token. Remote workers must use failFenced, which also validates
+         * worker identity and lease expiry.
+         */
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query(value = """
+                        UPDATE posture_job
+                           SET status = CASE WHEN attempt_count < max_attempts THEN 'QUEUED' ELSE 'FAILED' END,
+                               error_message = :msg,
+                               next_attempt_at = CASE
+                                   WHEN attempt_count < max_attempts
+                                   THEN now() + (LEAST(attempt_count, 15) * INTERVAL '1 minute')
+                                   ELSE NULL
+                               END,
+                               completed_at = CASE
+                                   WHEN attempt_count < max_attempts THEN NULL
+                                   ELSE now()
+                               END,
+                               claimed_by = NULL,
+                               lease_expires_at = NULL
+                         WHERE id = :id
+                           AND status = 'RUNNING'
+                           AND attempt_count = :attempt
+                        """, nativeQuery = true)
+        int failRunningAttempt(@Param("id") UUID id, @Param("attempt") int attempt, @Param("msg") String msg);
+
+        /**
          * @param pageable page request, normally {@code PageRequest.of(0, limit)}
          * @return the newest jobs first, with their endpoints loaded
          */
