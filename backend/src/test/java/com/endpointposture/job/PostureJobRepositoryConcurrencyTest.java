@@ -14,6 +14,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -146,6 +147,46 @@ class PostureJobRepositoryConcurrencyTest {
     @Test
     void noEligibleJobsReturnsEmpty() {
         assertTrue(jobService.claimNextJob().isEmpty());
+    }
+
+    @Test
+    void concurrentLeasedClaimsGiveEachJobExactlyOneOwnerAndPersistTheLease() throws Exception {
+        PostureJob jobA = jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob jobB = jobService.enqueue(endpointBId, JobType.POSTURE_CHECK, 0);
+
+        int workerCount = 8;
+        ExecutorService pool = Executors.newFixedThreadPool(workerCount);
+        CountDownLatch startGate = new CountDownLatch(1);
+
+        try {
+            List<Future<Optional<PostureJob>>> futures = IntStream.range(0, workerCount)
+                    .mapToObj(i -> pool.submit(() -> {
+                        startGate.await();
+                        return jobService.claimNextJob("worker-" + i, Duration.ofMinutes(2));
+                    }))
+                    .collect(Collectors.toList());
+            startGate.countDown();
+
+            List<PostureJob> claimed = new ArrayList<>();
+            for (Future<Optional<PostureJob>> f : futures) {
+                f.get(10, TimeUnit.SECONDS).ifPresent(claimed::add);
+            }
+
+            assertEquals(2, claimed.size());
+            assertEquals(2, claimed.stream().map(PostureJob::getId).distinct().count());
+            assertEquals(2, claimed.stream().map(PostureJob::getClaimedBy).distinct().count(),
+                    "each job must have a different owner");
+
+            for (UUID id : List.of(jobA.getId(), jobB.getId())) {
+                PostureJob stored = jobRepository.findById(id).orElseThrow();
+                assertEquals(JobStatus.RUNNING, stored.getStatus());
+                assertNotNull(stored.getClaimedBy());
+                assertNotNull(stored.getLeaseExpiresAt());
+                assertEquals(1, stored.getAttemptCount());
+            }
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     private String randomMac() {
