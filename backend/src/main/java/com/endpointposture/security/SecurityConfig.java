@@ -56,6 +56,7 @@ public class SecurityConfig {
                     auth.requestMatchers(
                             "/api/v1/auth/**",
                             "/actuator/health",
+                            "/actuator/health/**",   // liveness/readiness probe groups
                             "/error"
                     ).permitAll();
 

@@ -45,9 +45,27 @@ class LinuxProfileConfigTest {
     }
 
     @Test
-    void linuxProfileDoesNotTouchSimOrUnrelatedKeys() {
+    void linuxProfileEnablesHealthProbesWithDbInReadiness() {
         Properties linux = load("application-linux.yml");
-        assertTrue(linux.keySet().stream().allMatch(k -> k.toString().startsWith("app.jobs.")),
-                "linux profile should only override app.jobs.*: " + linux.keySet());
+        assertEquals("true", linux.getProperty("management.endpoint.health.probes.enabled"));
+        assertEquals("readinessState,db",
+                linux.getProperty("management.endpoint.health.group.readiness.include"));
+    }
+
+    @Test
+    void linuxProfileOnlyOverridesJobsAndHealthProbes() {
+        Properties linux = load("application-linux.yml");
+        assertTrue(linux.keySet().stream().allMatch(k ->
+                        k.toString().startsWith("app.jobs.")
+                                || k.toString().startsWith("management.endpoint.health.")),
+                "unexpected keys in linux profile: " + linux.keySet());
+    }
+
+    @Test
+    void secretsAndDbPasswordHaveNoDefaults() {
+        Properties base = load("application.yml");
+        assertEquals("${DB_PASSWORD}", base.getProperty("spring.datasource.password"));
+        assertEquals("${JWT_SECRET}", base.getProperty("app.jwt.secret"));
+        assertEquals("${SEED_ADMIN_PASSWORD}", base.getProperty("app.seed-admin.password"));
     }
 }

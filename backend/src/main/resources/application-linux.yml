@@ -14,3 +14,14 @@ app:
 # Agent callback URLs (app.posture.server-url, app.*.server-base-url) are already
 # environment-driven in application.yml via POSTURE_SERVER_URL / APP_SERVER_BASE_URL.
 # Set them to the address the WORKERS use to reach this backend, not localhost.
+
+# Container/orchestrator probes: /actuator/health/liveness and /actuator/health/readiness.
+# Readiness includes the database so traffic is not routed to an instance that cannot reach it.
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
