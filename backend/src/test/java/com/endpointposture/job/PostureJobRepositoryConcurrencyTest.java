@@ -382,6 +382,10 @@ class PostureJobRepositoryConcurrencyTest {
         PostureJob first = jobService.claimNextJob().orElseThrow();
         assertTrue(jobService.failAttempt(first.getId(), 1, "requeue first attempt"));
 
+        // Keep the production retry backoff intact; make the job immediately
+        // eligible only to exercise the next attempt in this fencing test.
+        jdbcTemplate.update("UPDATE posture_job SET next_attempt_at = NULL WHERE id = ?", first.getId());
+
         PostureJob second = jobService.claimNextJob().orElseThrow();
         assertEquals(2, second.getAttemptCount());
 
