@@ -99,3 +99,5 @@ application-dev.yml
 EndpointPostureEngine.exe
 WinSW*.exe
 caddy.exe
+# Local development secrets
+/backend/src/main/resources/application-dev.yml
