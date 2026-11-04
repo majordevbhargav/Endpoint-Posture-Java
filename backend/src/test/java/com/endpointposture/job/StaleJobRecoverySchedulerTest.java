@@ -120,14 +120,10 @@ class StaleJobRecoverySchedulerTest {
 
         verify(jobService).failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString());
-        verify(assessmentService).recordFailure(
-                eq(endpointId), eq(job.getId()), eq(job.getAttemptCount()), anyString());
-        verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
+        verify(assessmentService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
+        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
+        verify(securityIndicatorService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -144,14 +140,10 @@ class StaleJobRecoverySchedulerTest {
 
         verify(jobService).failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString());
-        verify(hardwareHealthService).recordFailure(
-                eq(endpointId), eq(job.getId()), eq(job.getAttemptCount()), anyString());
-        verify(assessmentService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
+        verify(hardwareHealthService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
+        verify(assessmentService, never()).recordFailure(any(), any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
+        verify(securityIndicatorService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -169,14 +161,10 @@ class StaleJobRecoverySchedulerTest {
 
         verify(jobService).failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString());
-        verify(diagnosticService).recordFailure(
-                eq(endpointId), eq(job.getId()), eq(job.getAttemptCount()), anyString());
-        verify(assessmentService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
+        verify(diagnosticService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
+        verify(assessmentService, never()).recordFailure(any(), any(), anyString());
+        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
+        verify(securityIndicatorService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -194,14 +182,10 @@ class StaleJobRecoverySchedulerTest {
 
         verify(jobService).failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString());
-        verify(securityIndicatorService).recordFailure(
-                eq(endpointId), eq(job.getId()), eq(job.getAttemptCount()), anyString());
-        verify(assessmentService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
+        verify(securityIndicatorService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
+        verify(assessmentService, never()).recordFailure(any(), any(), anyString());
+        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -218,8 +202,7 @@ class StaleJobRecoverySchedulerTest {
 
         verify(jobService, never()).failAttempt(
                 any(), anyInt(), anyString());
-        verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -235,8 +218,7 @@ class StaleJobRecoverySchedulerTest {
 
         verify(jobService, never()).failAttempt(
                 any(), anyInt(), anyString());
-        verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
+        verify(securityIndicatorService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -256,14 +238,10 @@ class StaleJobRecoverySchedulerTest {
 
         verify(jobService).failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString());
-        verify(assessmentService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
-        verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
+        verify(assessmentService, never()).recordFailure(any(), any(), anyString());
+        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
+        verify(securityIndicatorService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
@@ -281,8 +259,7 @@ class StaleJobRecoverySchedulerTest {
 
         verify(jobService, never()).failAttempt(
                 any(), anyInt(), anyString());
-        verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyInt(), anyString());
+        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
     }
 
     @Test
