@@ -116,7 +116,7 @@ app:
 
   posture:
     script-path: ../scripts/posture_agent.ps1
-    server-url: http://localhost:8090/api/v1/posture
+    server-url: ${POSTURE_SERVER_URL:http://localhost:8090/api/v1/posture}
     api-key: ${POSTURE_API_KEY}
     cim-timeout-seconds: 30
     server-timeout-seconds: 15
@@ -124,14 +124,14 @@ app:
 
   hardware:
     script-path: ../scripts/hardware_health_agent.ps1
-    server-base-url: http://localhost:8090
+    server-base-url: ${APP_SERVER_BASE_URL:http://localhost:8090}
     cim-timeout-seconds: 30
     submit-timeout-seconds: 20
     process-timeout-seconds: 70
 
   diagnostics:
     script-path: ../scripts/diagnostic_agent.ps1
-    server-base-url: http://localhost:8090
+    server-base-url: ${APP_SERVER_BASE_URL:http://localhost:8090}
     winrm-open-timeout-seconds: 20
     winrm-operation-timeout-seconds: 70
     submit-timeout-seconds: 20
@@ -141,7 +141,7 @@ app:
 
   security-indicators:
     script-path: ../scripts/security_indicator_agent.ps1
-    server-base-url: http://localhost:8090
+    server-base-url: ${APP_SERVER_BASE_URL:http://localhost:8090}
     winrm-open-timeout-seconds: 20
     winrm-operation-timeout-seconds: 100
     submit-timeout-seconds: 20

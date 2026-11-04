@@ -143,8 +143,8 @@ export default function SystemHealthPage() {
             <Tile
               title="Worker pool"
               icon={Users}
-              ok={health.workers.enabled}
-              value={health.workers.enabled ? `${health.workers.threads} thread${health.workers.threads === 1 ? "" : "s"}` : "Disabled"}
+              ok={health.workers.enabled || (health.workers.mode === "REMOTE_PENDING" && health.queue.queued === 0)}
+              value={health.workers.enabled ? `${health.workers.threads} thread${health.workers.threads === 1 ? "" : "s"}` : health.workers.mode === "REMOTE_PENDING" ? "Remote workers pending" : "Disabled"}
               caption={`${health.queue.running} running now`}
             />
             <Tile
