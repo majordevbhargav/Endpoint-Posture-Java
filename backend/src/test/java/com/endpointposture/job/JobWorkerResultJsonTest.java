@@ -26,7 +26,7 @@ class JobWorkerResultJsonTest {
 
     @BeforeEach
     void setUp() {
-                JobService jobService = mock(JobService.class);
+        JobService jobService = mock(JobService.class);
         PostureAgentProperties posture = new PostureAgentProperties();
         HardwareAgentProperties hardware = new HardwareAgentProperties();
         DiagnosticAgentProperties diagnostic = new DiagnosticAgentProperties();
