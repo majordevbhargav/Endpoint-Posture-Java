@@ -119,7 +119,7 @@ public class JobService {
      * The row lock acquired by {@code findNextClaimable()} is held until this
      * transaction commits, making the status change and lease assignment atomic.
      * The incremented {@code attemptCount} is the fencing token for this attempt;
-     * completion/failure fencing is implemented in a later stage.
+     * remote completion and failure validate that token and the active lease.
      *
      * @param workerId stable identity of the claiming worker; must not be blank
      * @param lease    how long the lease lasts from now; must be positive
