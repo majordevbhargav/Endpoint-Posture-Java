@@ -210,9 +210,8 @@ class PostureJobRepositoryConcurrencyTest {
 
     @Test
     void fencedCompletionRejectsWrongWorkerAndWrongAttempt() {
-        PostureJob claimed = jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0) != null
-                ? jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow()
-                : null;
+        jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob claimed = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
 
         assertFalse(jobService.completeFenced(claimed.getId(), "worker-B", 1));
         assertFalse(jobService.completeFenced(claimed.getId(), "worker-A", 2));
