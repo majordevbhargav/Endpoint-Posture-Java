@@ -157,6 +157,46 @@ public class JobService {
         return claimed;
     }
 
+    /**
+     * Completes a remote-worker attempt only while the submitting worker still
+     * owns the current, unexpired lease. The repository enforces all ownership
+     * and fencing predicates in one atomic UPDATE.
+     *
+     * @return true when this attempt completed the job; false when it is stale,
+     *         expired, superseded, or the job is no longer RUNNING
+     */
+    @Transactional
+    public boolean completeFenced(UUID jobId, String workerId, int attempt) {
+        validateFencedAttempt(jobId, workerId, attempt);
+        return jobRepository.completeFenced(jobId, workerId.trim(), attempt) == 1;
+    }
+
+    /**
+     * Records a remote-worker failure only while the worker still owns the
+     * current, unexpired lease. Accepted failures follow the existing retry
+     * policy and release the lease before the job can be claimed again.
+     *
+     * @return true when this attempt's failure was accepted; false when stale,
+     *         expired, superseded, or no longer RUNNING
+     */
+    @Transactional
+    public boolean failFenced(UUID jobId, String workerId, int attempt, String errorMessage) {
+        validateFencedAttempt(jobId, workerId, attempt);
+        return jobRepository.failFenced(jobId, workerId.trim(), attempt, errorMessage) == 1;
+    }
+
+    private void validateFencedAttempt(UUID jobId, String workerId, int attempt) {
+        if (jobId == null) {
+            throw new IllegalArgumentException("jobId is required");
+        }
+        if (workerId == null || workerId.isBlank()) {
+            throw new IllegalArgumentException("workerId is required");
+        }
+        if (attempt < 1) {
+            throw new IllegalArgumentException("attempt must be positive");
+        }
+    }
+
     /** Marks a job finished successfully. Unknown IDs are ignored. */
     @Transactional
     public void markComplete(UUID jobId) {
