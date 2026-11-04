@@ -197,6 +197,30 @@ public class JobService {
         }
     }
 
+    /**
+     * Completes an embedded-worker attempt only if it is still the current
+     * RUNNING attempt. Local claims have no remote worker identity or lease.
+     */
+    @Transactional
+    public boolean completeAttempt(UUID jobId, int attempt) {
+        if (jobId == null || attempt < 1) {
+            throw new IllegalArgumentException("jobId and a positive attempt are required");
+        }
+        return jobRepository.completeRunningAttempt(jobId, attempt) == 1;
+    }
+
+    /**
+     * Fails an embedded-worker or stale-sweep attempt only if it is still the
+     * current RUNNING attempt. Remote workers must use failFenced instead.
+     */
+    @Transactional
+    public boolean failAttempt(UUID jobId, int attempt, String reason) {
+        if (jobId == null || attempt < 1) {
+            throw new IllegalArgumentException("jobId and a positive attempt are required");
+        }
+        return jobRepository.failRunningAttempt(jobId, attempt, reason) == 1;
+    }
+
     /** Marks a job finished successfully. Unknown IDs are ignored. */
     @Transactional
     public void markComplete(UUID jobId) {
