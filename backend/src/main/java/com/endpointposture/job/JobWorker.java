@@ -69,22 +69,23 @@ public class JobWorker {
 
     private void dispatch(PostureJob job) {
         Endpoint endpoint = job.getEndpoint();
+        int attempt = job.getAttemptCount();
         try {
             JobSpec spec = specFactory.build(job, endpoint);
-            handleResult(job, endpoint, runAgent(spec));
+            handleResult(job, endpoint, attempt, runAgent(spec));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            fail(job, endpoint, "Dispatch interrupted");
+            fail(job, endpoint, attempt, "Dispatch interrupted");
         } catch (Exception e) {
             log.error("Dispatch failed for job {}", job.getId(), e);
-            fail(job, endpoint, "Dispatch error: " + e.getMessage());
+            fail(job, endpoint, attempt, "Dispatch error: " + e.getMessage());
         }
     }
 
-    private void handleResult(PostureJob job, Endpoint endpoint, RunResult result) {
+    private void handleResult(PostureJob job, Endpoint endpoint, int attempt, RunResult result) {
         JsonNode json = result.resultJson();
         if (json == null) {
-            fail(job, endpoint, "No RESULT_JSON (exit=" + result.exitCode()
+            fail(job, endpoint, attempt, "No RESULT_JSON (exit=" + result.exitCode()
                     + ", timedOut=" + result.timedOut() + "). Last output: " + truncate(result.rawOutput()));
             return;
         }
@@ -92,15 +93,19 @@ public class JobWorker {
         if (!json.path("submitted").asBoolean(false)) {
             String detail = json.path("detail").asText(null);
             String submitError = json.path("submitError").asText(null);
-            fail(job, endpoint, detail != null ? detail : "Submission failed: " + submitError);
+            fail(job, endpoint, attempt, detail != null ? detail : "Submission failed: " + submitError);
             return;
         }
 
-        outcomes.complete(job.getId());
+        if (!outcomes.complete(job.getId(), attempt)) {
+            log.warn("Job {} attempt {} was superseded; completion ignored", job.getId(), attempt);
+        }
     }
 
-    private void fail(PostureJob job, Endpoint endpoint, String reason) {
-        outcomes.fail(job.getJobType(), job.getId(), endpoint.getId(), reason);
+    private void fail(PostureJob job, Endpoint endpoint, int attempt, String reason) {
+        if (!outcomes.fail(job.getJobType(), job.getId(), endpoint.getId(), attempt, reason)) {
+            log.warn("Job {} attempt {} was superseded; failure ignored", job.getId(), attempt);
+        }
     }
 
     private RunResult runAgent(JobSpec spec) throws IOException, InterruptedException {

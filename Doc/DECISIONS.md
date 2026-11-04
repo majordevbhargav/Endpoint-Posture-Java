@@ -102,3 +102,17 @@ Implemented by `retention/EvidenceRetentionService` and `EvidenceRetentionSchedu
 - **Protected:** Active pointers on `endpoint` (`latest_assessment_id`, `latest_hw_id`, `good_hw_id`) are never deleted. The newest diagnostic, security indicator, and inventory row per endpoint are always kept. The newest `RESTRICT` or `CLEAR_RESTRICTION` audit row per endpoint is always kept so `/ise/actions/state` remains accurate.
 - **Partitioning (S11) deliberately not built:** S11 is marked **not needed at this window**. At 90 days (~11M assessment rows at the 20,000-device target), indexed batched deletes execute in milliseconds per batch without holding locks or generating long transactions, avoiding the need for composite foreign keys that table partitioning would require.
 - Finished jobs continue to be pruned after 30 days (`JobRetentionScheduler`), and full inventory payloads are nulled after 10 runs per endpoint (`InventoryRetentionScheduler`).
+
+## D11. Evidence ingestion is not fenced to a job attempt (Accepted risk)
+
+**Status:** Accepted for PR3. Revisit in PR4.
+
+**Context:** Job completion and failure are fenced on `(status = RUNNING, attempt_count)`. The PowerShell agents POST evidence directly with the shared agent key, independently of that transition. A superseded execution can therefore add an assessment, hardware, diagnostic or indicator row after its job-state transition is rejected.
+
+**Why accepted:** Evidence rows are append-only observations, so an extra row is an additional measurement rather than an overwrite. `assessment.job_id` is deliberately not unique because failure evidence may be recorded for the same job across attempts.
+
+**Mitigations, in order:**
+
+1. **PR4:** per-worker, individually revocable agent keys, allowing one worker to be cut off without rotating a shared key.
+2. **Later:** pass an `-Attempt` parameter to agent scripts and consider uniqueness on `(job_id, attempt)`.
+3. **Later:** move evidence submission to a worker-authenticated, lease-bound route.

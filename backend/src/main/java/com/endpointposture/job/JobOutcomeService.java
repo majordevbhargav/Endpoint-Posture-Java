@@ -27,18 +27,26 @@ public class JobOutcomeService {
         this.securityIndicatorService = securityIndicatorService;
     }
 
-    public void complete(UUID jobId) {
-        jobService.markComplete(jobId);
+    public boolean complete(UUID jobId, int attempt) {
+        return jobService.completeAttempt(jobId, attempt);
     }
 
-    /** Writes failure evidence before marking the job failed, preserving the existing behavior. */
-    public void fail(JobType type, UUID jobId, UUID endpointId, String reason) {
+    /**
+     * Transition first. If this attempt no longer owns the RUNNING job, do not
+     * append failure evidence for a superseded execution. Evidence and job state
+     * are separate transactions, so a process crash between them can omit the
+     * failure observation; recovery follows the same ordering.
+     */
+    public boolean fail(JobType type, UUID jobId, UUID endpointId, int attempt, String reason) {
+        if (!jobService.failAttempt(jobId, attempt, reason)) {
+            return false;
+        }
         switch (type) {
             case POSTURE_CHECK -> assessmentService.recordFailure(endpointId, jobId, reason);
             case HARDWARE_CHECK -> hardwareHealthService.recordFailure(endpointId, jobId, reason);
             case DIAGNOSTIC_CHECK -> diagnosticService.recordFailure(endpointId, jobId, reason);
             case SECURITY_CHECK -> securityIndicatorService.recordFailure(endpointId, jobId, reason);
         }
-        jobService.markFailed(jobId, reason);
+        return true;
     }
 }

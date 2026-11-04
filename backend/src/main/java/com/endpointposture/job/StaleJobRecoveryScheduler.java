@@ -134,7 +134,7 @@ public class StaleJobRecoveryScheduler {
                         + job.getStartedAt() + ")";
 
         boolean wasRunning =
-                jobService.markFailedIfRunning(job.getId(), reason);
+                jobService.failAttempt(job.getId(), job.getAttemptCount(), reason);
 
         if (!wasRunning) {
             return false;

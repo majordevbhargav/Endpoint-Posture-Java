@@ -104,27 +104,121 @@ public class JobService {
     }
 
     /**
-     * Claims and locks the next eligible job in one transaction (SELECT ... FOR
-     * UPDATE SKIP LOCKED, then flip to RUNNING).
+     * Claims the next eligible job for the local in-process worker pool.
+     * Local jobs do not hold a remote-worker lease.
      *
      * @return the job now marked RUNNING, or empty if nothing is eligible
      */
     @Transactional
     public Optional<PostureJob> claimNextJob() {
+        return claim(null, null);
+    }
+
+    /**
+     * Claims the next eligible job for a remote worker and records its lease.
+     * The row lock acquired by {@code findNextClaimable()} is held until this
+     * transaction commits, making the status change and lease assignment atomic.
+     * The incremented {@code attemptCount} is the fencing token for this attempt;
+     * remote completion and failure validate that token and the active lease.
+     *
+     * @param workerId stable identity of the claiming worker; must not be blank
+     * @param lease    how long the lease lasts from now; must be positive
+     * @return the leased job, or empty if no job is eligible
+     * @throws IllegalArgumentException if the worker ID is blank or the lease is not positive
+     */
+    @Transactional
+    public Optional<PostureJob> claimNextJob(String workerId, Duration lease) {
+        if (workerId == null || workerId.isBlank()) {
+            throw new IllegalArgumentException("workerId is required");
+        }
+        if (lease == null || lease.isZero() || lease.isNegative()) {
+            throw new IllegalArgumentException("lease must be positive");
+        }
+        return claim(workerId.trim(), lease);
+    }
+
+    private Optional<PostureJob> claim(String workerId, Duration lease) {
         Optional<PostureJob> claimed = jobRepository.findNextClaimable();
 
         claimed.ifPresent(job -> {
+            Instant now = Instant.now();
             job.setStatus(JobStatus.RUNNING);
-            job.setStartedAt(Instant.now());
+            job.setStartedAt(now);
             job.setAttemptCount(job.getAttemptCount() + 1);
+            job.setClaimedBy(workerId);
+            job.setLeaseExpiresAt(lease == null ? null : now.plus(lease));
             jobRepository.save(job);
 
-            // Force the lazy Endpoint proxy to resolve NOW, while the transaction is
-            // open; JobWorker reads job.getEndpoint() after this method returns.
+            // Resolve the lazy Endpoint while the transaction is open. JobWorker
+            // reads the endpoint after this method returns.
             job.getEndpoint().getMacAddress();
         });
 
         return claimed;
+    }
+
+    /**
+     * Completes a remote-worker attempt only while the submitting worker still
+     * owns the current, unexpired lease. The repository enforces all ownership
+     * and fencing predicates in one atomic UPDATE.
+     *
+     * @return true when this attempt completed the job; false when it is stale,
+     *         expired, superseded, or the job is no longer RUNNING
+     */
+    @Transactional
+    public boolean completeFenced(UUID jobId, String workerId, int attempt) {
+        validateFencedAttempt(jobId, workerId, attempt);
+        return jobRepository.completeFenced(jobId, workerId.trim(), attempt) == 1;
+    }
+
+    /**
+     * Records a remote-worker failure only while the worker still owns the
+     * current, unexpired lease. Accepted failures follow the existing retry
+     * policy and release the lease before the job can be claimed again.
+     *
+     * @return true when this attempt's failure was accepted; false when stale,
+     *         expired, superseded, or no longer RUNNING
+     */
+    @Transactional
+    public boolean failFenced(UUID jobId, String workerId, int attempt, String errorMessage) {
+        validateFencedAttempt(jobId, workerId, attempt);
+        return jobRepository.failFenced(jobId, workerId.trim(), attempt, errorMessage) == 1;
+    }
+
+    private void validateFencedAttempt(UUID jobId, String workerId, int attempt) {
+        if (jobId == null) {
+            throw new IllegalArgumentException("jobId is required");
+        }
+        if (workerId == null || workerId.isBlank()) {
+            throw new IllegalArgumentException("workerId is required");
+        }
+        if (attempt < 1) {
+            throw new IllegalArgumentException("attempt must be positive");
+        }
+    }
+
+    /**
+     * Completes an embedded-worker attempt only if it is still the current
+     * RUNNING attempt. Local claims have no remote worker identity or lease.
+     */
+    @Transactional
+    public boolean completeAttempt(UUID jobId, int attempt) {
+        if (jobId == null || attempt < 1) {
+            throw new IllegalArgumentException("jobId and a positive attempt are required");
+        }
+        return jobRepository.completeRunningAttempt(jobId, attempt) == 1;
+    }
+
+    /**
+     * Fails an embedded-worker or stale-sweep attempt only if it is still the
+     * current RUNNING attempt. Remote workers must use failFenced instead.
+     */
+    @Transactional
+    public boolean failAttempt(UUID jobId, int attempt, String reason) {
+        if (jobId == null || attempt < 1) {
+            throw new IllegalArgumentException("jobId and a positive attempt are required");
+        }
+        return jobRepository.failRunningAttempt(jobId, attempt, reason) == 1;
     }
 
     /** Marks a job finished successfully. Unknown IDs are ignored. */
@@ -134,6 +228,8 @@ public class JobService {
             job.setStatus(JobStatus.COMPLETE);
             job.setCompletedAt(Instant.now());
             job.setErrorMessage(null);
+            job.setClaimedBy(null);
+            job.setLeaseExpiresAt(null);
             jobRepository.save(job);
         });
     }
@@ -151,29 +247,17 @@ public class JobService {
                 job.setStatus(JobStatus.QUEUED);
                 long backoffMinutes = Math.min(job.getAttemptCount(), 15);
                 job.setNextAttemptAt(Instant.now().plus(backoffMinutes, ChronoUnit.MINUTES));
+                job.setCompletedAt(null);
             } else {
                 job.setStatus(JobStatus.FAILED);
+                job.setNextAttemptAt(null);
                 job.setCompletedAt(Instant.now());
             }
 
+            job.setClaimedBy(null);
+            job.setLeaseExpiresAt(null);
             jobRepository.save(job);
         });
-    }
-
-    /**
-     * Like {@link #markFailed} but only acts if the job is still RUNNING, so a
-     * job that finished in the meantime is never flipped back to QUEUED.
-     *
-     * @return true if the job was still RUNNING and has now been failed/requeued
-     */
-    @Transactional
-    public boolean markFailedIfRunning(UUID jobId, String errorMessage) {
-        boolean running = jobRepository.findById(jobId)
-                .map(j -> j.getStatus() == JobStatus.RUNNING).orElse(false);
-        if (!running)
-            return false;
-        markFailed(jobId, errorMessage);
-        return true;
     }
 
     /**
