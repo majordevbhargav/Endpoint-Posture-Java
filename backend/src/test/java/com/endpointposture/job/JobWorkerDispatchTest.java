@@ -49,10 +49,17 @@ class JobWorkerDispatchTest {
         posture.setServerUrl("http://localhost:8090/api/v1/posture");
         posture.setApiKey("secret-key");
 
-        worker = new JobWorker(jobService, assessmentService, mock(HardwareHealthService.class),
-                mock(DiagnosticService.class), mock(SecurityIndicatorService.class),
-                posture, new HardwareAgentProperties(), new DiagnosticAgentProperties(),
-                new SecurityIndicatorAgentProperties(), policyService, runner, new ObjectMapper());
+        HardwareAgentProperties hardware = new HardwareAgentProperties();
+        DiagnosticAgentProperties diagnostic = new DiagnosticAgentProperties();
+        SecurityIndicatorAgentProperties security = new SecurityIndicatorAgentProperties();
+        HardwareHealthService hardwareService = mock(HardwareHealthService.class);
+        DiagnosticService diagnosticService = mock(DiagnosticService.class);
+        SecurityIndicatorService securityService = mock(SecurityIndicatorService.class);
+        JobOutcomeService outcomes = new JobOutcomeService(jobService, assessmentService,
+                hardwareService, diagnosticService, securityService);
+        JobSpecFactory factory = new JobSpecFactory(posture, hardware, diagnostic, security, policyService);
+        worker = new JobWorker(jobService, outcomes, factory, posture, hardware, diagnostic,
+                security, runner, new ObjectMapper());
 
         when(policyService.getActive()).thenReturn(new PolicyService.PolicySnapshot(
                 UUID.randomUUID(), "p", 3, List.of("Cisco Secure Client"), List.of("uTorrent"), "admin", Instant.now()));
