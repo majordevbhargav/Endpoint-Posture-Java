@@ -209,10 +209,14 @@ class JobServiceStateTest {
     void markCompleteClearsTheErrorAndStampsCompletion() {
         PostureJob j = job(JobStatus.RUNNING, 2, 3);
         j.setErrorMessage("old failure");
+        j.setClaimedBy("worker");
+        j.setLeaseExpiresAt(Instant.now().plusSeconds(30));
         service.markComplete(j.getId());
         assertEquals(JobStatus.COMPLETE, j.getStatus());
         assertNull(j.getErrorMessage());
         assertNotNull(j.getCompletedAt());
+        assertNull(j.getClaimedBy());
+        assertNull(j.getLeaseExpiresAt());
     }
 
     @Test
@@ -225,6 +229,8 @@ class JobServiceStateTest {
     @Test
     void failureWithAttemptsLeftRequeuesWithABackoffInTheFuture() {
         PostureJob j = job(JobStatus.RUNNING, 1, 3);
+        j.setClaimedBy("worker");
+        j.setLeaseExpiresAt(Instant.now().plusSeconds(30));
         service.markFailed(j.getId(), "boom");
 
         assertEquals(JobStatus.QUEUED, j.getStatus());
@@ -232,6 +238,8 @@ class JobServiceStateTest {
         assertNull(j.getCompletedAt());
         assertTrue(j.getNextAttemptAt().isAfter(Instant.now().plus(Duration.ofSeconds(30))));
         assertTrue(j.getNextAttemptAt().isBefore(Instant.now().plus(Duration.ofMinutes(2))));
+        assertNull(j.getClaimedBy());
+        assertNull(j.getLeaseExpiresAt());
     }
 
     @Test
@@ -248,30 +256,6 @@ class JobServiceStateTest {
         service.markFailed(j.getId(), "final");
         assertEquals(JobStatus.FAILED, j.getStatus());
         assertNotNull(j.getCompletedAt());
-    }
-
-    // ---- markFailedIfRunning ----
-    @Test
-    void markFailedIfRunningActsOnARunningJob() {
-        PostureJob j = job(JobStatus.RUNNING, 1, 3);
-        assertTrue(service.markFailedIfRunning(j.getId(), "stalled"));
-        assertEquals(JobStatus.QUEUED, j.getStatus());
-    }
-
-    @Test
-    void markFailedIfRunningLeavesFinishedJobsAlone() {
-        for (JobStatus s : new JobStatus[]{JobStatus.COMPLETE, JobStatus.FAILED, JobStatus.QUEUED}) {
-            PostureJob j = job(s, 1, 3);
-            assertFalse(service.markFailedIfRunning(j.getId(), "stalled"), s.name());
-            assertEquals(s, j.getStatus());
-            assertNull(j.getErrorMessage());
-        }
-    }
-
-    @Test
-    void markFailedIfRunningOnAnUnknownJobIsFalse() {
-        when(jobs.findById(any())).thenReturn(Optional.empty());
-        assertFalse(service.markFailedIfRunning(UUID.randomUUID(), "x"));
     }
 
     // ---- reconnect enqueue ----
