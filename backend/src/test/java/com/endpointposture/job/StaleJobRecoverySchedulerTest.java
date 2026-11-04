@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -98,11 +99,11 @@ class StaleJobRecoverySchedulerTest {
 
         scheduler.sweep();
 
-        verify(jobService, never()).markFailedIfRunning(any(), anyString());
-        verify(assessmentService, never()).recordFailure(any(), any(), anyString());
-        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyString());
-        verify(diagnosticService, never()).recordFailure(any(), any(), anyString());
-        verify(securityIndicatorService, never()).recordFailure(any(), any(), anyString());
+        verify(jobService, never()).failAttempt(any(), anyInt(), anyString());
+        verify(assessmentService, never()).recordFailure(any(), any(), anyInt(), anyString());
+        verify(hardwareHealthService, never()).recordFailure(any(), any(), anyInt(), anyString());
+        verify(diagnosticService, never()).recordFailure(any(), any(), anyInt(), anyString());
+        verify(securityIndicatorService, never()).recordFailure(any(), any(), anyInt(), anyString());
     }
 
     @Test
@@ -112,21 +113,21 @@ class StaleJobRecoverySchedulerTest {
                 Instant.now().minusSeconds(200));
 
         when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
-        when(jobService.markFailedIfRunning(
-                eq(job.getId()), anyString())).thenReturn(true);
+        when(jobService.failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(true);
 
         scheduler.sweep();
 
-        verify(jobService).markFailedIfRunning(
-                eq(job.getId()), anyString());
+        verify(jobService).failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString());
         verify(assessmentService).recordFailure(
-                eq(endpointId), eq(job.getId()), anyString());
+                eq(endpointId), eq(job.getId()), eq(job.getAttemptCount()), anyString());
         verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
     }
 
     @Test
@@ -136,21 +137,21 @@ class StaleJobRecoverySchedulerTest {
                 Instant.now().minusSeconds(200));
 
         when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
-        when(jobService.markFailedIfRunning(
-                eq(job.getId()), anyString())).thenReturn(true);
+        when(jobService.failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(true);
 
         scheduler.sweep();
 
-        verify(jobService).markFailedIfRunning(
-                eq(job.getId()), anyString());
+        verify(jobService).failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString());
         verify(hardwareHealthService).recordFailure(
-                eq(endpointId), eq(job.getId()), anyString());
+                eq(endpointId), eq(job.getId()), eq(job.getAttemptCount()), anyString());
         verify(assessmentService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
     }
 
     @Test
@@ -161,21 +162,21 @@ class StaleJobRecoverySchedulerTest {
                 Instant.now().minusSeconds(300));
 
         when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
-        when(jobService.markFailedIfRunning(
-                eq(job.getId()), anyString())).thenReturn(true);
+        when(jobService.failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(true);
 
         scheduler.sweep();
 
-        verify(jobService).markFailedIfRunning(
-                eq(job.getId()), anyString());
+        verify(jobService).failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString());
         verify(diagnosticService).recordFailure(
-                eq(endpointId), eq(job.getId()), anyString());
+                eq(endpointId), eq(job.getId()), eq(job.getAttemptCount()), anyString());
         verify(assessmentService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
     }
 
     @Test
@@ -186,21 +187,21 @@ class StaleJobRecoverySchedulerTest {
                 Instant.now().minusSeconds(300));
 
         when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
-        when(jobService.markFailedIfRunning(
-                eq(job.getId()), anyString())).thenReturn(true);
+        when(jobService.failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(true);
 
         scheduler.sweep();
 
-        verify(jobService).markFailedIfRunning(
-                eq(job.getId()), anyString());
+        verify(jobService).failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString());
         verify(securityIndicatorService).recordFailure(
-                eq(endpointId), eq(job.getId()), anyString());
+                eq(endpointId), eq(job.getId()), eq(job.getAttemptCount()), anyString());
         verify(assessmentService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
     }
 
     @Test
@@ -215,10 +216,10 @@ class StaleJobRecoverySchedulerTest {
 
         scheduler.sweep();
 
-        verify(jobService, never()).markFailedIfRunning(
-                any(), anyString());
+        verify(jobService, never()).failAttempt(
+                any(), anyInt(), anyString());
         verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
     }
 
     @Test
@@ -232,15 +233,15 @@ class StaleJobRecoverySchedulerTest {
 
         scheduler.sweep();
 
-        verify(jobService, never()).markFailedIfRunning(
-                any(), anyString());
+        verify(jobService, never()).failAttempt(
+                any(), anyInt(), anyString());
         verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
     }
 
     @Test
     void jobThatCompletedBetweenQueryAndActionWritesNoFailureEvidence() {
-        // markFailedIfRunning returning false means JobWorker finished this
+        // failAttempt returning false means the attempt finished or was superseded before this
         // job for real in the gap between the sweep's query and its action -
         // no failure evidence should ever be written for it.
         PostureJob job = runningJob(
@@ -248,21 +249,21 @@ class StaleJobRecoverySchedulerTest {
                 Instant.now().minusSeconds(200));
 
         when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
-        when(jobService.markFailedIfRunning(
-                eq(job.getId()), anyString())).thenReturn(false);
+        when(jobService.failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(false);
 
         scheduler.sweep();
 
-        verify(jobService).markFailedIfRunning(
-                eq(job.getId()), anyString());
+        verify(jobService).failAttempt(
+                eq(job.getId()), eq(job.getAttemptCount()), anyString());
         verify(assessmentService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(diagnosticService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
         verify(securityIndicatorService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
     }
 
     @Test
@@ -278,10 +279,10 @@ class StaleJobRecoverySchedulerTest {
 
         scheduler.sweep();
 
-        verify(jobService, never()).markFailedIfRunning(
-                any(), anyString());
+        verify(jobService, never()).failAttempt(
+                any(), anyInt(), anyString());
         verify(hardwareHealthService, never()).recordFailure(
-                any(), any(), anyString());
+                any(), any(), anyInt(), anyString());
     }
 
     @Test
@@ -297,13 +298,13 @@ class StaleJobRecoverySchedulerTest {
         when(jobRepository.findStaleRunning(any()))
                 .thenReturn(List.of(postureJob, hardwareJob));
 
-        when(jobService.markFailedIfRunning(
-                any(), anyString())).thenReturn(true);
+        when(jobService.failAttempt(
+                any(), anyInt(), anyString())).thenReturn(true);
 
         scheduler.sweep();
 
-        verify(jobService, times(2)).markFailedIfRunning(
-                any(), anyString());
+        verify(jobService, times(2)).failAttempt(
+                any(), anyInt(), anyString());
 
         verify(assessmentService).recordFailure(
                 eq(endpointId), eq(postureJob.getId()), anyString());
@@ -321,7 +322,7 @@ class StaleJobRecoverySchedulerTest {
         // would silently kill every future scheduled tick of this bean.
         scheduler.sweep();
 
-        verify(jobService, never()).markFailedIfRunning(
-                any(), anyString());
+        verify(jobService, never()).failAttempt(
+                any(), anyInt(), anyString());
     }
 }
