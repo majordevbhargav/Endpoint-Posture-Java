@@ -26,19 +26,17 @@ class JobWorkerResultJsonTest {
 
     @BeforeEach
     void setUp() {
-                worker = new JobWorker(
-                mock(JobService.class),
-                mock(AssessmentService.class),
-                mock(HardwareHealthService.class),
-                mock(DiagnosticService.class),
-                mock(SecurityIndicatorService.class),
-                new PostureAgentProperties(),
-                new HardwareAgentProperties(),
-                new DiagnosticAgentProperties(),
-                new SecurityIndicatorAgentProperties(),
-                mock(PolicyService.class),
-                mock(AgentRunner.class),
-                new ObjectMapper());
+                JobService jobService = mock(JobService.class);
+        PostureAgentProperties posture = new PostureAgentProperties();
+        HardwareAgentProperties hardware = new HardwareAgentProperties();
+        DiagnosticAgentProperties diagnostic = new DiagnosticAgentProperties();
+        SecurityIndicatorAgentProperties security = new SecurityIndicatorAgentProperties();
+        JobOutcomeService outcomes = new JobOutcomeService(jobService,
+                mock(AssessmentService.class), mock(HardwareHealthService.class),
+                mock(DiagnosticService.class), mock(SecurityIndicatorService.class));
+        JobSpecFactory factory = new JobSpecFactory(posture, hardware, diagnostic, security, mock(PolicyService.class));
+        worker = new JobWorker(jobService, outcomes, factory, posture, hardware, diagnostic,
+                security, mock(AgentRunner.class), new ObjectMapper());
     }
 
     @Test
