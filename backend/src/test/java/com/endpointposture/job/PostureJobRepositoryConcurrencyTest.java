@@ -7,6 +7,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -68,6 +69,8 @@ class PostureJobRepositoryConcurrencyTest {
     PostureJobRepository jobRepository;
     @Autowired
     EndpointRepository endpointRepository;
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     private UUID endpointAId;
     private UUID endpointBId;
@@ -184,6 +187,128 @@ class PostureJobRepositoryConcurrencyTest {
                 assertNotNull(stored.getLeaseExpiresAt());
                 assertEquals(1, stored.getAttemptCount());
             }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void currentLeasedWorkerCanCompleteAndTheLeaseIsReleased() {
+        PostureJob queued = jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob claimed = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
+
+        assertEquals(queued.getId(), claimed.getId());
+        assertTrue(jobService.completeFenced(claimed.getId(), "worker-A", 1));
+
+        PostureJob stored = jobRepository.findById(claimed.getId()).orElseThrow();
+        assertEquals(JobStatus.COMPLETE, stored.getStatus());
+        assertNotNull(stored.getCompletedAt());
+        assertNull(stored.getErrorMessage());
+        assertNull(stored.getClaimedBy());
+        assertNull(stored.getLeaseExpiresAt());
+    }
+
+    @Test
+    void fencedCompletionRejectsWrongWorkerAndWrongAttempt() {
+        PostureJob claimed = jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0) != null
+                ? jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow()
+                : null;
+
+        assertFalse(jobService.completeFenced(claimed.getId(), "worker-B", 1));
+        assertFalse(jobService.completeFenced(claimed.getId(), "worker-A", 2));
+        assertEquals(JobStatus.RUNNING, jobRepository.findById(claimed.getId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void fencedCompletionRejectsAnExpiredLease() {
+        PostureJob claimed = jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob running = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
+        jdbcTemplate.update(
+                "UPDATE posture_job SET lease_expires_at = now() - INTERVAL '1 second' WHERE id = ?",
+                running.getId());
+
+        assertFalse(jobService.completeFenced(running.getId(), "worker-A", 1));
+        assertEquals(JobStatus.RUNNING, jobRepository.findById(claimed.getId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void completedJobRejectsASecondSubmission() {
+        PostureJob claimed = jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob running = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
+
+        assertTrue(jobService.completeFenced(running.getId(), "worker-A", 1));
+        assertFalse(jobService.completeFenced(running.getId(), "worker-A", 1));
+    }
+
+    @Test
+    void acceptedFailureRequeuesAndClearsWorkerLease() {
+        jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob running = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
+
+        assertTrue(jobService.failFenced(running.getId(), "worker-A", 1, "agent execution failed"));
+
+        PostureJob stored = jobRepository.findById(running.getId()).orElseThrow();
+        assertEquals(JobStatus.QUEUED, stored.getStatus());
+        assertEquals("agent execution failed", stored.getErrorMessage());
+        assertNotNull(stored.getNextAttemptAt());
+        assertNull(stored.getCompletedAt());
+        assertNull(stored.getClaimedBy());
+        assertNull(stored.getLeaseExpiresAt());
+    }
+
+    @Test
+    void acceptedFailureOnLastAttemptMarksFailedAndClearsWorkerLease() {
+        PostureJob queued = jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        jdbcTemplate.update("UPDATE posture_job SET attempt_count = 2 WHERE id = ?", queued.getId());
+        PostureJob running = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
+
+        assertEquals(3, running.getAttemptCount());
+        assertTrue(jobService.failFenced(running.getId(), "worker-A", 3, "final attempt failed"));
+
+        PostureJob stored = jobRepository.findById(running.getId()).orElseThrow();
+        assertEquals(JobStatus.FAILED, stored.getStatus());
+        assertNotNull(stored.getCompletedAt());
+        assertNull(stored.getClaimedBy());
+        assertNull(stored.getLeaseExpiresAt());
+    }
+
+    @Test
+    void staleAttemptAndCurrentAttemptRaceAllowsOnlyTheCurrentWorkerToComplete() throws Exception {
+        jobService.enqueue(endpointAId, JobType.POSTURE_CHECK, 0);
+        PostureJob firstAttempt = jobService.claimNextJob("worker-A", Duration.ofMinutes(5)).orElseThrow();
+
+        // Simulate lease recovery/requeue between attempts. Recovery itself is
+        // outside this stage; the test establishes the state it must leave behind.
+        jdbcTemplate.update("""
+                UPDATE posture_job
+                   SET status = 'QUEUED', claimed_by = NULL, lease_expires_at = NULL,
+                       next_attempt_at = NULL
+                 WHERE id = ?
+                """, firstAttempt.getId());
+
+        PostureJob secondAttempt = jobService.claimNextJob("worker-B", Duration.ofMinutes(5)).orElseThrow();
+        assertEquals(2, secondAttempt.getAttemptCount());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch startGate = new CountDownLatch(1);
+        try {
+            Future<Boolean> stale = pool.submit(() -> {
+                startGate.await();
+                return jobService.completeFenced(firstAttempt.getId(), "worker-A", 1);
+            });
+            Future<Boolean> current = pool.submit(() -> {
+                startGate.await();
+                return jobService.completeFenced(secondAttempt.getId(), "worker-B", 2);
+            });
+            startGate.countDown();
+
+            boolean staleAccepted = stale.get(10, TimeUnit.SECONDS);
+            boolean currentAccepted = current.get(10, TimeUnit.SECONDS);
+            assertFalse(staleAccepted, "superseded attempt must be fenced out");
+            assertTrue(currentAccepted, "current owner and fencing token must be accepted");
+            assertEquals(1, List.of(staleAccepted, currentAccepted).stream().filter(Boolean::booleanValue).count());
+            assertEquals(JobStatus.COMPLETE,
+                    jobRepository.findById(secondAttempt.getId()).orElseThrow().getStatus());
         } finally {
             pool.shutdownNow();
         }
