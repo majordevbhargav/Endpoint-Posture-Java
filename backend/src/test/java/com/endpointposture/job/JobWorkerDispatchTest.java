@@ -126,8 +126,7 @@ class JobWorkerDispatchTest {
     @Test
     void supersededSuccessfulExecutionDoesNotCompleteTheNewerAttempt() throws Exception {
         when(runner.run(any())).thenReturn(new AgentRunResult(0, false,
-                "RESULT_JSON:{\\"submitted\\":true}\\n"));
-        when(jobService.completeAttempt(job.getId(), 2)).thenReturn(false);
+                "RESULT_JSON:{\"submitted\":true}\n"));
 
         assertTrue(worker.runOnce());
 
