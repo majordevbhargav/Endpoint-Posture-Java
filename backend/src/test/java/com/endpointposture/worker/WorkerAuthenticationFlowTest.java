@@ -43,6 +43,9 @@ class WorkerAuthenticationFlowTest {
         r.add("app.jobs.workers.enabled", () -> "false");
         r.add("app.jobs.recheck.enabled", () -> "false");
         r.add("app.retention.enabled", () -> "false");
+        r.add("app.workers.enrollment-rate-limit.capacity", () -> "1000");
+        r.add("app.workers.enrollment-rate-limit.refill-tokens", () -> "1000");
+        r.add("app.workers.enrollment-rate-limit.refill-duration-seconds", () -> "60");
     }
 
     private static final String ADMIN_TOKENS = "/api/v1/admin/workers/enrollment-tokens";
@@ -275,7 +278,7 @@ class WorkerAuthenticationFlowTest {
         assertEquals(200, res.getResponse().getStatus());
         JsonNode out = body(res);
         assertEquals("ACTIVE", out.get("status").asText());
-        assertNotNull(out.get("lastSeenAt").asText());
+        assertTrue(out.hasNonNull("lastSeenAt"));
         assertTrue(lastSeen(a.get("workerId").asText()).after(bBefore));
         assertEquals(bBefore, lastSeen(b.get("workerId").asText()));
     }

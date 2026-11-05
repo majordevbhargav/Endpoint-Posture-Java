@@ -318,6 +318,22 @@ class StaleJobRecoverySchedulerTest {
     }
 
     @Test
+    void remoteJobWithExpiredLeaseIsRecoveredEvenWhenStartedRecently() {
+        PostureJob job = runningJob(JobType.POSTURE_CHECK, Instant.now().minusSeconds(30));
+        job.setClaimedBy("worker-1");
+        job.setLeaseExpiresAt(Instant.now().minusSeconds(10));
+        when(jobRepository.findStaleRunning(any(), any())).thenReturn(List.of(job));
+        when(jobService.failExpiredLeaseAttempt(eq(job.getId()), eq(job.getAttemptCount()), anyString()))
+                .thenReturn(true);
+
+        scheduler.sweep();
+
+        verify(jobService).failExpiredLeaseAttempt(eq(job.getId()), eq(job.getAttemptCount()), anyString());
+        verify(jobService, never()).failAttempt(any(), anyInt(), anyString());
+        verify(assessmentService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
+    }
+
+    @Test
     void remoteJobWithExpiredLeaseIsRecoveredThroughTheLeaseFencedPath() {
         PostureJob job = runningJob(JobType.POSTURE_CHECK, Instant.now().minusSeconds(5000));
         job.setClaimedBy("worker-1");

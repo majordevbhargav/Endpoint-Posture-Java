@@ -229,11 +229,16 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
         List<PostureJob> findRecentForEndpoint(@Param("endpointId") UUID endpointId, Pageable pageable);
 
         /**
-         * @return jobs still RUNNING that started before the cutoff (stalled),
+         * @return local RUNNING jobs past the cutoff and remote RUNNING jobs with expired leases,
          *         endpoints loaded
          */
-        @Query("SELECT j FROM PostureJob j JOIN FETCH j.endpoint WHERE j.status = com.endpointposture.job.JobStatus.RUNNING AND j.startedAt < :cutoff")
-        List<PostureJob> findStaleRunning(@Param("cutoff") Instant cutoff);
+        @Query("""
+                        SELECT j FROM PostureJob j JOIN FETCH j.endpoint
+                         WHERE j.status = com.endpointposture.job.JobStatus.RUNNING
+                           AND ((j.leaseExpiresAt IS NOT NULL AND j.leaseExpiresAt <= :now)
+                                OR (j.leaseExpiresAt IS NULL AND j.startedAt < :cutoff))
+                        """)
+        List<PostureJob> findStaleRunning(@Param("cutoff") Instant cutoff, @Param("now") Instant now);
 
         /**
          * Bulk-deletes finished jobs that completed before the cutoff. Evidence rows

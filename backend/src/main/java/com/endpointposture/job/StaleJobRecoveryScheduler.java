@@ -82,11 +82,11 @@ public class StaleJobRecoveryScheduler {
                             diagnosticProps.getProcessTimeoutSeconds()),
                     securityProps.getProcessTimeoutSeconds());
 
-            Instant widestCutoff =
-                    Instant.now().minusSeconds(widestTimeoutSeconds + marginSeconds);
+            Instant now = Instant.now();
+            Instant widestCutoff = now.minusSeconds(widestTimeoutSeconds + marginSeconds);
 
             List<PostureJob> candidates =
-                    jobRepository.findStaleRunning(widestCutoff);
+                    jobRepository.findStaleRunning(widestCutoff, now);
 
             if (candidates.isEmpty()) {
                 return;
@@ -124,7 +124,7 @@ public class StaleJobRecoveryScheduler {
         // A remote-leased job is owned by its lease, not by started_at: while the
         // worker keeps renewing, the process-timeout rule must not recover it.
         if (job.getLeaseExpiresAt() != null) {
-            return job.getLeaseExpiresAt().isBefore(Instant.now());
+            return !job.getLeaseExpiresAt().isAfter(Instant.now());
         }
         Instant cutoff = Instant.now().minusSeconds(
                 timeoutSecondsFor(job) + marginSeconds);

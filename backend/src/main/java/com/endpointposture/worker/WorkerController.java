@@ -9,7 +9,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.*;\nimport org.springframework.beans.factory.annotation.Value;
 import java.util.Map;
 import java.util.UUID;
 
@@ -24,10 +24,19 @@ public class WorkerController {
     private final WorkerRegistryService registry;
     private final WorkerJobService jobService;
     private final WorkerAuditService audit;
-    private final LoginRateLimiter enrollLimiter=new LoginRateLimiter(true,10,10,60);
+    private final LoginRateLimiter enrollLimiter;
 
-    public WorkerController(WorkerRegistryService registry,WorkerJobService jobService,WorkerAuditService audit) {
-        this.registry=registry; this.jobService=jobService; this.audit=audit;
+    public WorkerController(
+            WorkerRegistryService registry,
+            WorkerJobService jobService,
+            WorkerAuditService audit,
+            @Value("${app.workers.enrollment-rate-limit.capacity:10}") int capacity,
+            @Value("${app.workers.enrollment-rate-limit.refill-tokens:10}") int refillTokens,
+            @Value("${app.workers.enrollment-rate-limit.refill-duration-seconds:60}") long refillDurationSeconds) {
+        this.registry = registry;
+        this.jobService = jobService;
+        this.audit = audit;
+        this.enrollLimiter = new LoginRateLimiter(true, capacity, refillTokens, refillDurationSeconds);
     }
     @Operation(summary="Redeem a single-use enrollment token. The API key is returned once.")
     @PostMapping("/enroll")
