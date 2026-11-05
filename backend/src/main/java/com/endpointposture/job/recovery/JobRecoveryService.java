@@ -57,9 +57,11 @@ public class JobRecoveryService {
         JobType jobType = job.getJobType();
 
         // 1. Atomically transition job state only if it is still the current RUNNING attempt
-        boolean wasRunning = job.getLeaseExpiresAt() != null
-                ? jobService.failExpiredLeaseAttempt(jobId, attempt, reason)
-                : jobService.failAttempt(jobId, attempt, reason);
+        boolean wasRunning = switch (recoveryType) {
+            case LEASE_EXPIRED -> jobService.failExpiredLeaseAttempt(jobId, attempt, reason);
+            case WORKER_REVOKED -> jobService.failRevokedWorkerAttempt(jobId, attempt, reason);
+            case PROCESS_TIMEOUT -> jobService.failAttempt(jobId, attempt, reason);
+        };
 
         if (!wasRunning) {
             log.debug("Job {} attempt {} was already superseded or lease renewed; skipping recovery", jobId, attempt);
@@ -78,6 +80,7 @@ public class JobRecoveryService {
         JobRecoveryEvent event = JobRecoveryEvent.builder()
                 .jobId(jobId)
                 .endpointId(endpointId)
+                .endpointMacAddress(endpoint != null ? endpoint.getMacAddress() : "unknown")
                 .jobType(jobType)
                 .attemptCount(attempt)
                 .claimedBy(claimedBy)
@@ -86,7 +89,7 @@ public class JobRecoveryService {
                 .recoveredAt(Instant.now())
                 .build();
 
-        recoveryEventRepository.save(event);
+        recoveryEventRepository.saveAndFlush(event);
 
         log.info("Recovered stale job {} ({}, attempt {}) via {} for endpoint {}",
                 jobId, jobType, attempt, recoveryType, endpoint != null ? endpoint.getMacAddress() : "unknown");
