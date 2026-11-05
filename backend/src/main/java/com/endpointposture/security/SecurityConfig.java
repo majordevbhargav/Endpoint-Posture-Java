@@ -13,6 +13,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import com.endpointposture.worker.WorkerAuthFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -23,6 +24,7 @@ public class SecurityConfig {
     private final PostureApiKeyFilter postureApiKeyFilter;
     private final IseFeedAuthFilter iseFeedAuthFilter;
     private final SecurityHeadersFilter securityHeadersFilter;
+    private final WorkerAuthFilter workerAuthFilter;
     private final boolean docsPublic;
 
     public SecurityConfig(
@@ -30,11 +32,13 @@ public class SecurityConfig {
             PostureApiKeyFilter postureApiKeyFilter,
             IseFeedAuthFilter iseFeedAuthFilter,
             SecurityHeadersFilter securityHeadersFilter,
+            WorkerAuthFilter workerAuthFilter,
             @Value("${app.docs.public:false}") boolean docsPublic) {
         this.jwtAuthFilter = jwtAuthFilter;
         this.postureApiKeyFilter = postureApiKeyFilter;
         this.iseFeedAuthFilter = iseFeedAuthFilter;
         this.securityHeadersFilter = securityHeadersFilter;
+        this.workerAuthFilter = workerAuthFilter;
         this.docsPublic = docsPublic;
     }
 
@@ -90,6 +94,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/policy/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/warranty/upload").hasRole("ADMIN")
                         .requestMatchers("/api/v1/users/**").hasRole("ADMIN")
+                        // Enrollment uses a one-time token; all other worker routes require ROLE_WORKER.
+                        .requestMatchers(HttpMethod.POST, WorkerAuthFilter.ENROLL_PATH).permitAll()
+                        .requestMatchers("/api/v1/workers/**").hasRole("WORKER")
+                        .requestMatchers("/api/v1/admin/workers/**").hasRole("ADMIN")
+                        // Explicitly exclude machine workers from all other application APIs.
+                        .requestMatchers("/api/v1/**").hasAnyRole("ADMIN", "OPERATOR", "ANALYST", "VIEWER", "AGENT", "ISE_FEED")
                         .anyRequest().authenticated();
                 })
                 .addFilterBefore(
@@ -103,7 +113,8 @@ public class SecurityConfig {
                         UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(
                         iseFeedAuthFilter,
-                        UsernamePasswordAuthenticationFilter.class);
+                        UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(workerAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
