@@ -17,6 +17,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Recovers jobs stuck in RUNNING because a remote worker lease expired, a worker died,
@@ -77,7 +79,11 @@ public class StaleJobRecoveryScheduler {
                 candidates.put(job.getId(), job);
             }
             // Revocation takes precedence if a job is also lease-expired.
-            for (PostureJob job : jobRepository.findRunningJobsOwnedByRevokedWorkers()) {
+            List<PostureJob> revokedJobs = jobRepository.findRunningJobsOwnedByRevokedWorkers();
+            Set<java.util.UUID> revokedIds = revokedJobs.stream()
+                    .map(PostureJob::getId)
+                    .collect(Collectors.toSet());
+            for (PostureJob job : revokedJobs) {
                 candidates.put(job.getId(), job);
             }
 
@@ -88,9 +94,7 @@ public class StaleJobRecoveryScheduler {
             int recovered = 0;
             for (PostureJob job : candidates.values()) {
                 try {
-                    boolean revoked = job.getClaimedBy() != null
-                                && jobRepository.findRunningJobsOwnedByRevokedWorkers().stream()
-                                    .anyMatch(candidate -> candidate.getId().equals(job.getId()));
+                    boolean revoked = revokedIds.contains(job.getId());
                     if (revoked || isActuallyStale(job)) {
                         RecoveryType type = revoked ? RecoveryType.WORKER_REVOKED
                                 : job.getLeaseExpiresAt() != null ? RecoveryType.LEASE_EXPIRED
