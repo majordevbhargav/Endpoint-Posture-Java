@@ -21,4 +21,3 @@ CREATE INDEX IF NOT EXISTS idx_job_recovery_event_endpoint
 
 CREATE INDEX IF NOT EXISTS idx_job_recovery_event_recovered_at
     ON job_recovery_event(recovered_at DESC);
-

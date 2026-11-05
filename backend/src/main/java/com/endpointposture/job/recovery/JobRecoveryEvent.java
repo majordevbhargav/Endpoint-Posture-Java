@@ -54,4 +54,3 @@ public class JobRecoveryEvent {
     @Column(name = "recovered_at", nullable = false)
     private Instant recoveredAt;
 }
-

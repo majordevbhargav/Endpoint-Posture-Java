@@ -13,4 +13,3 @@ public enum RecoveryType {
     /** Owning worker was explicitly revoked by an administrator while holding active jobs. */
     WORKER_REVOKED
 }
-

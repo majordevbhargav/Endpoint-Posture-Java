@@ -18,4 +18,3 @@ public interface JobRecoveryEventRepository extends JpaRepository<JobRecoveryEve
 
     List<JobRecoveryEvent> findByJobIdOrderByAttemptCountAsc(UUID jobId);
 }
-

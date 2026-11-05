@@ -48,4 +48,3 @@ class JobRecoveryEventTest {
         assertEquals(3, RecoveryType.values().length);
     }
 }
-
