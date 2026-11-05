@@ -16,6 +16,8 @@ import java.util.List;
 @Component
 public class WorkerAuthFilter extends OncePerRequestFilter {
     public static final String HEADER="X-Worker-Key";
+    /** Accepted alias for {@link #HEADER}; HEADER wins when both are sent. */
+    public static final String ALT_HEADER="X-Worker-Api-Key";
     public static final String ENROLL_PATH="/api/v1/workers/enroll";
     private static final String PREFIX="/api/v1/workers/";
     private final WorkerRegistryService registry;
@@ -29,6 +31,7 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
     @Override protected void doFilterInternal(@NonNull HttpServletRequest req,@NonNull HttpServletResponse res,
                                                @NonNull FilterChain chain)throws ServletException,IOException{
         String key=req.getHeader(HEADER);
+        if(key==null)key=req.getHeader(ALT_HEADER);
         if(key==null){chain.doFilter(req,res);return;}
         String ip=req.getRemoteAddr();
         if(!requestLimiter.tryAcquire(ip)){res.setStatus(429);res.setContentType("text/plain");res.getWriter().write("Too many requests");return;}

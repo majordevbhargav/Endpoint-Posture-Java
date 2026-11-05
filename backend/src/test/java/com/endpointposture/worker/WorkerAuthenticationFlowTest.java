@@ -43,16 +43,23 @@ class WorkerAuthenticationFlowTest {
         r.add("app.jobs.workers.enabled", () -> "false");
         r.add("app.jobs.recheck.enabled", () -> "false");
         r.add("app.retention.enabled", () -> "false");
+        r.add("app.workers.enrollment-rate-limit.capacity", () -> "1000");
+        r.add("app.workers.enrollment-rate-limit.refill-tokens", () -> "1000");
+        r.add("app.workers.enrollment-rate-limit.refill-duration-seconds", () -> "60");
     }
 
     private static final String ADMIN_TOKENS = "/api/v1/admin/workers/enrollment-tokens";
     private static final String ENROLL = "/api/v1/workers/enroll";
     private static final String CLAIM = "/api/v1/workers/jobs/claim";
 
-    @Autowired MockMvc mvc;
-    @Autowired JdbcTemplate jdbc;
-    @Autowired WorkerRegistryService registry;
-    @Autowired ObjectMapper json;
+    @Autowired
+    MockMvc mvc;
+    @Autowired
+    JdbcTemplate jdbc;
+    @Autowired
+    WorkerRegistryService registry;
+    @Autowired
+    ObjectMapper json;
 
     @AfterEach
     void cleanUp() {
@@ -92,7 +99,8 @@ class WorkerAuthenticationFlowTest {
 
     private int claimStatus(String key) throws Exception {
         var b = MockMvcRequestBuilders.post(CLAIM);
-        if (key != null) b.header(WorkerAuthFilter.HEADER, key);
+        if (key != null)
+            b.header(WorkerAuthFilter.HEADER, key);
         return mvc.perform(b).andReturn().getResponse().getStatus();
     }
 
@@ -174,7 +182,8 @@ class WorkerAuthenticationFlowTest {
         UUID ep = endpoint("DD:00:00:00:02:01", "10.1.0.2");
         UUID jobId = job(ep, "site-a");
         String owner = enrollOk(adminCreatesToken("flow-owner", "site-a")).get("apiKey").asText();
-        String thief = registry.enroll(registry.createEnrollmentToken("flow-thief", "site-a", 10, "root").token()).apiKey();
+        String thief = registry.enroll(registry.createEnrollmentToken("flow-thief", "site-a", 10, "root").token())
+                .apiKey();
 
         assertEquals(200, claim(owner).getResponse().getStatus());
         assertEquals(409, finish(thief, jobId, "complete", "{\"attempt\":1}"));
@@ -251,4 +260,94 @@ class WorkerAuthenticationFlowTest {
                 .content("{\"workerName\":\"x-worker\",\"shard\":\"site-a\"}")).andReturn().getResponse().getStatus();
         assertTrue(s == 401 || s == 403);
     }
+
+    private org.springframework.test.web.servlet.MvcResult heartbeat(String header, String key) throws Exception {
+        var b = MockMvcRequestBuilders.post("/api/v1/workers/heartbeat");
+        if (key != null)
+            b.header(header, key);
+        return mvc.perform(b).andReturn();
+    }
+
+    private java.sql.Timestamp lastSeen(String workerId) {
+        return jdbc.queryForObject("SELECT last_seen_at FROM worker_registry WHERE id = ?::uuid",
+                java.sql.Timestamp.class, workerId);
+    }
+
+    @Test
+    void heartbeatUpdatesOnlyTheCallingWorkerAndReturnsActive() throws Exception {
+        JsonNode a = enrollOk(adminCreatesToken("hb-a", "site-a"));
+        JsonNode b = enrollOk(adminCreatesToken("hb-b", "site-a"));
+        String oldTime = "2020-01-01T00:00:00Z";
+        jdbc.update("UPDATE worker_registry SET last_seen_at = ?::timestamptz", oldTime);
+        java.sql.Timestamp bBefore = lastSeen(b.get("workerId").asText());
+
+        var res = heartbeat(WorkerAuthFilter.HEADER, a.get("apiKey").asText());
+        assertEquals(200, res.getResponse().getStatus());
+        JsonNode out = body(res);
+        assertEquals("ACTIVE", out.get("status").asText());
+        assertTrue(out.hasNonNull("lastSeenAt"));
+        assertTrue(lastSeen(a.get("workerId").asText()).after(bBefore));
+        assertEquals(bBefore, lastSeen(b.get("workerId").asText()));
+    }
+
+    @Test
+    void heartbeatIgnoresAnyWorkerIdSuppliedByTheCaller() throws Exception {
+        JsonNode a = enrollOk(adminCreatesToken("hb-iso-a", "site-a"));
+        JsonNode b = enrollOk(adminCreatesToken("hb-iso-b", "site-a"));
+        jdbc.update("UPDATE worker_registry SET last_seen_at = '2020-01-01T00:00:00Z'");
+        java.sql.Timestamp bBefore = lastSeen(b.get("workerId").asText());
+
+        var res = mvc
+                .perform(MockMvcRequestBuilders.post("/api/v1/workers/heartbeat?workerId=" + b.get("workerId").asText())
+                        .header(WorkerAuthFilter.HEADER, a.get("apiKey").asText())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"workerId\":\"" + b.get("workerId").asText() + "\"}"))
+                .andReturn();
+        assertEquals(200, res.getResponse().getStatus());
+        assertEquals(bBefore, lastSeen(b.get("workerId").asText()));
+        assertTrue(lastSeen(a.get("workerId").asText()).after(bBefore));
+    }
+
+    @Test
+    void heartbeatAcceptsTheApiKeyHeaderAlias() throws Exception {
+        String key = enrollOk(adminCreatesToken("hb-alias", "site-a")).get("apiKey").asText();
+        assertEquals(200, heartbeat(WorkerAuthFilter.ALT_HEADER, key).getResponse().getStatus());
+    }
+
+    @Test
+    void heartbeatRejectsMissingInvalidAndRevokedKeys() throws Exception {
+        JsonNode w = enrollOk(adminCreatesToken("hb-bad", "site-a"));
+        String key = w.get("apiKey").asText();
+        int none = heartbeat(WorkerAuthFilter.HEADER, null).getResponse().getStatus();
+        assertTrue(none == 401 || none == 403);
+        assertEquals(401, heartbeat(WorkerAuthFilter.HEADER, WorkerCredentials.newKey()).getResponse().getStatus());
+        assertEquals(401, heartbeat(WorkerAuthFilter.HEADER, "not-a-key").getResponse().getStatus());
+
+        mvc.perform(MockMvcRequestBuilders.post("/api/v1/admin/workers/" + w.get("workerId").asText() + "/revoke")
+                .with(SecurityMockMvcRequestPostProcessors.user("root").roles("ADMIN"))).andReturn();
+        jdbc.update("UPDATE worker_registry SET last_seen_at = '2020-01-01T00:00:00Z'");
+        java.sql.Timestamp before = lastSeen(w.get("workerId").asText());
+        assertEquals(401, heartbeat(WorkerAuthFilter.HEADER, key).getResponse().getStatus());
+        assertEquals(before, lastSeen(w.get("workerId").asText()));
+    }
+
+    @Test
+    void adminListDistinguishesActiveStaleAndRevoked() throws Exception {
+        JsonNode active = enrollOk(adminCreatesToken("st-active", "site-a"));
+        JsonNode stale = enrollOk(adminCreatesToken("st-stale", "site-a"));
+        JsonNode revoked = enrollOk(adminCreatesToken("st-revoked", "site-a"));
+        jdbc.update("UPDATE worker_registry SET last_seen_at = now() WHERE name = 'st-active'");
+        jdbc.update("UPDATE worker_registry SET last_seen_at = now() - interval '1 hour' WHERE name = 'st-stale'");
+        mvc.perform(MockMvcRequestBuilders.post("/api/v1/admin/workers/" + revoked.get("workerId").asText() + "/revoke")
+                .with(SecurityMockMvcRequestPostProcessors.user("root").roles("ADMIN"))).andReturn();
+
+        var res = mvc.perform(MockMvcRequestBuilders.get("/api/v1/admin/workers")
+                .with(SecurityMockMvcRequestPostProcessors.user("root").roles("ADMIN"))).andReturn();
+        java.util.Map<String, String> byName = new java.util.HashMap<>();
+        body(res).forEach(n -> byName.put(n.get("name").asText(), n.get("status").asText()));
+        assertEquals("ACTIVE", byName.get("st-active"));
+        assertEquals("STALE", byName.get("st-stale"));
+        assertEquals("REVOKED", byName.get("st-revoked"));
+    }
 }
+
