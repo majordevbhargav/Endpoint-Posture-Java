@@ -40,6 +40,18 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
                         """, nativeQuery = true)
         Optional<PostureJob> findNextClaimable();
 
+        /** Same locked claim operation, restricted to the authenticated worker's shard. */
+        @Query(value = """
+                        SELECT * FROM posture_job
+                        WHERE status = 'QUEUED'
+                          AND shard = :shard
+                          AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+                        ORDER BY priority DESC, created_at ASC
+                        LIMIT 1
+                        FOR UPDATE SKIP LOCKED
+                        """, nativeQuery = true)
+        Optional<PostureJob> findNextClaimableInShard(@Param("shard") String shard);
+
         /**
          * Atomically completes a remote-worker job only if the worker still owns
          * the current, unexpired attempt. attempt_count is the fencing token.

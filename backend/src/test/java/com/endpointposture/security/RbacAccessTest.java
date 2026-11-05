@@ -199,4 +199,34 @@ class RbacAccessTest {
         // Admin role allowed
         assertEquals(200, get("/v3/api-docs", "ADMIN"));
     }
+    @Test
+    void workerPrincipalCannotReadApplicationOrAdminApis() throws Exception {
+        for (String path : List.of("/api/v1/endpoints", "/api/v1/policy/apps", "/api/v1/users",
+                "/api/v1/warranty", "/api/v1/jobs", "/api/v1/admin/workers")) {
+            assertEquals(403, get(path, "WORKER"), "GET " + path);
+        }
+        for (String path : List.of("/api/v1/jobs", "/api/v1/ise/posture/share",
+                "/api/v1/ise/enforcement/restrict", "/api/v1/posture")) {
+            assertEquals(403, post(path, "WORKER"), "POST " + path);
+        }
+    }
+
+    @Test
+    void applicationJwtRolesCannotCallWorkerApi() throws Exception {
+        for (String role : List.of("VIEWER", "ANALYST", "OPERATOR", "ADMIN")) {
+            int status = mvc.perform(MockMvcRequestBuilders.post("/api/v1/workers/jobs/claim")
+                    .with(SecurityMockMvcRequestPostProcessors.user("u").roles(role)))
+                    .andReturn().getResponse().getStatus();
+            assertEquals(403, status, "role " + role);
+        }
+    }
+
+    @Test
+    void workerAdminApiIsAdminOnly() throws Exception {
+        for (String role : List.of("VIEWER", "ANALYST", "OPERATOR", "WORKER", "AGENT")) {
+            assertEquals(403, get("/api/v1/admin/workers", role), "role " + role);
+        }
+        assertEquals(200, get("/api/v1/admin/workers", "ADMIN"));
+    }
+
 }
