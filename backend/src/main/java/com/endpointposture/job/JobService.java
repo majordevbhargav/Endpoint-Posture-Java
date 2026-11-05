@@ -111,7 +111,7 @@ public class JobService {
      */
     @Transactional
     public Optional<PostureJob> claimNextJob() {
-        return claim(null, null);
+        return claim(null, null, null);
     }
 
     /**
@@ -134,11 +134,28 @@ public class JobService {
         if (lease == null || lease.isZero() || lease.isNegative()) {
             throw new IllegalArgumentException("lease must be positive");
         }
-        return claim(workerId.trim(), lease);
+        return claim(workerId.trim(), lease, null);
     }
 
-    private Optional<PostureJob> claim(String workerId, Duration lease) {
-        Optional<PostureJob> claimed = jobRepository.findNextClaimable();
+    /** Claims only jobs assigned to the worker's authenticated shard. */
+    @Transactional
+    public Optional<PostureJob> claimNextJobInShard(String workerId, String shard, Duration lease) {
+        if (workerId == null || workerId.isBlank()) {
+            throw new IllegalArgumentException("workerId is required");
+        }
+        if (shard == null || shard.isBlank()) {
+            throw new IllegalArgumentException("shard is required");
+        }
+        if (lease == null || lease.isZero() || lease.isNegative()) {
+            throw new IllegalArgumentException("lease must be positive");
+        }
+        return claim(workerId.trim(), lease, shard.trim());
+    }
+
+    private Optional<PostureJob> claim(String workerId, Duration lease, String shard) {
+        Optional<PostureJob> claimed = shard == null
+                ? jobRepository.findNextClaimable()
+                : jobRepository.findNextClaimableInShard(shard);
 
         claimed.ifPresent(job -> {
             Instant now = Instant.now();
