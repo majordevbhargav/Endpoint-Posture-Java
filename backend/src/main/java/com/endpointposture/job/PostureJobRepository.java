@@ -166,6 +166,39 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
                         """, nativeQuery = true)
         int failExpiredLeaseAttempt(@Param("id") UUID id, @Param("attempt") int attempt, @Param("msg") String msg);
 
+        /** Finds RUNNING jobs owned by workers that have been administratively disabled. */
+        @Query(value = """
+                        SELECT j.* FROM posture_job j
+                        JOIN worker_registry w ON w.id::text = j.claimed_by
+                        WHERE j.status = 'RUNNING' AND w.enabled = false
+                        """, nativeQuery = true)
+        List<PostureJob> findRunningJobsOwnedByRevokedWorkers();
+
+        /** Fails only the current attempt while its recorded owner is still revoked. */
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query(value = """
+                        UPDATE posture_job j
+                           SET status = CASE WHEN j.attempt_count < j.max_attempts THEN 'QUEUED' ELSE 'FAILED' END,
+                               error_message = :msg,
+                               next_attempt_at = CASE
+                                   WHEN j.attempt_count < j.max_attempts
+                                   THEN now() + (LEAST(j.attempt_count, 15) * INTERVAL '1 minute')
+                                   ELSE NULL
+                               END,
+                               completed_at = CASE WHEN j.attempt_count < j.max_attempts THEN NULL ELSE now() END,
+                               claimed_by = NULL,
+                               lease_expires_at = NULL
+                         WHERE j.id = :id
+                           AND j.status = 'RUNNING'
+                           AND j.attempt_count = :attempt
+                           AND EXISTS (
+                               SELECT 1 FROM worker_registry w
+                                WHERE w.id::text = j.claimed_by AND w.enabled = false
+                           )
+                        """, nativeQuery = true)
+        int failRevokedWorkerAttempt(@Param("id") UUID id, @Param("attempt") int attempt,
+                                     @Param("msg") String msg);
+
         /**
          * Atomically completes an embedded-worker attempt. Unlike completeFenced,
          * this deliberately does not require claimed_by or a remote lease because

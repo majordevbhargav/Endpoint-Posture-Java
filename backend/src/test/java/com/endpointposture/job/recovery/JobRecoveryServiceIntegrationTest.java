@@ -1,0 +1,281 @@
+package com.endpointposture.job.recovery;
+
+import com.endpointposture.EndpointPostureApplication;
+import com.endpointposture.job.JobService;
+import com.endpointposture.job.PostureJob;
+import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+@Testcontainers
+@SpringBootTest(classes = EndpointPostureApplication.class)
+class JobRecoveryServiceIntegrationTest {
+
+    private static final String MAC_PREFIX = "F2:5A:00:00:00:";
+
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
+            .withDatabaseName("endpoint_posture_recovery_test")
+            .withUsername("test")
+            .withPassword("test");
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("app.jwt.secret", () -> "testcontainers-only-secret-at-least-256-bits-long-value");
+        registry.add("app.seed-admin.password", () -> "test-admin-password");
+        registry.add("app.posture.api-key", () -> "test-agent-key");
+        registry.add("app.jobs.workers.enabled", () -> "false");
+        registry.add("app.jobs.recheck.enabled", () -> "false");
+        registry.add("app.retention.enabled", () -> "false");
+    }
+
+    @Autowired
+    private JobRecoveryService recoveryService;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private JobService jobService;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    private UUID endpointId;
+    private UUID jobId;
+
+    @AfterEach
+    void cleanUp() {
+        if (jobId != null) {
+            jdbc.update("DELETE FROM job_recovery_event WHERE job_id = ?", jobId);
+            jdbc.update("DELETE FROM posture_job WHERE id = ?", jobId);
+        }
+        if (endpointId != null) {
+            jdbc.update("DELETE FROM assessment WHERE endpoint_id = ?", endpointId);
+            jdbc.update("DELETE FROM endpoint WHERE id = ?", endpointId);
+        }
+        dropFailureTrigger("assessment", "test_reject_assessment_insert");
+        dropFailureTrigger("job_recovery_event", "test_reject_recovery_event_insert");
+    }
+
+    @Test
+    void successfulRecoveryCommitsJobTransitionFailureEvidenceAndAuditTogether() {
+        PostureJob candidate = runningPostureJob();
+
+        assertTrue(recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "worker process disappeared"));
+
+        assertEquals("QUEUED", jobStatus());
+        assertEquals(1, count("SELECT count(*) FROM assessment WHERE endpoint_id = ?", endpointId));
+        assertEquals(1, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+        assertEquals("F2:5A:00:00:00:01", jdbc.queryForObject(
+                "SELECT endpoint_mac_address FROM job_recovery_event WHERE job_id = ?", String.class, jobId));
+    }
+
+    @Test
+    void evidenceInsertFailureRollsBackJobTransitionAndAudit() {
+        PostureJob candidate = runningPostureJob();
+        installFailureTrigger("assessment", "test_reject_assessment_insert");
+
+        assertThrows(RuntimeException.class,
+                () -> recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "simulated evidence failure"));
+
+        assertEquals("RUNNING", jobStatus());
+        assertEquals(0, count("SELECT count(*) FROM assessment WHERE endpoint_id = ?", endpointId));
+        assertEquals(0, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+    }
+
+    @Test
+    void auditInsertFailureRollsBackJobTransitionAndPreviouslyWrittenEvidence() {
+        PostureJob candidate = runningPostureJob();
+        installFailureTrigger("job_recovery_event", "test_reject_recovery_event_insert");
+
+        assertThrows(RuntimeException.class,
+                () -> recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "simulated audit failure"));
+
+        assertEquals("RUNNING", jobStatus());
+        assertEquals(0, count("SELECT count(*) FROM assessment WHERE endpoint_id = ?", endpointId));
+        assertEquals(0, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+    }
+
+    @Test
+    void supersededAttemptDoesNotWriteEvidenceOrAudit() {
+        PostureJob candidate = runningPostureJob();
+        jdbc.update("UPDATE posture_job SET attempt_count = 2 WHERE id = ?", jobId);
+
+        assertFalse(recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "stale attempt"));
+
+        assertEquals("RUNNING", jobStatus());
+        assertEquals(0, count("SELECT count(*) FROM assessment WHERE endpoint_id = ?", endpointId));
+        assertEquals(0, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+    }
+
+
+    @Test
+    void leaseRenewalBeforeRecoveryPreventsStaleLeaseRecovery() {
+        String workerId = UUID.randomUUID().toString();
+        PostureJob candidate = runningRemotePostureJob(workerId, true, Instant.now().plusSeconds(30));
+
+        Instant beforeRenewal = jdbc.queryForObject(
+                "SELECT lease_expires_at FROM posture_job WHERE id = ?", Timestamp.class, jobId).toInstant();
+
+        assertTrue(jobService.renewLease(jobId, workerId, 1, Duration.ofMinutes(5)).isPresent());
+        Instant afterRenewal = jdbc.queryForObject(
+                "SELECT lease_expires_at FROM posture_job WHERE id = ?", Timestamp.class, jobId).toInstant();
+        assertTrue(afterRenewal.isAfter(beforeRenewal));
+
+        assertFalse(recoveryService.recoverJob(candidate, RecoveryType.LEASE_EXPIRED, "lease was renewed"));
+        assertEquals("RUNNING", jobStatus());
+        assertEquals(0, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+    }
+
+    @Test
+    void enabledWorkerCannotBeRecoveredAsRevoked() {
+        String workerId = UUID.randomUUID().toString();
+        PostureJob candidate = runningRemotePostureJob(workerId, true, Instant.now().plusSeconds(300));
+
+        assertFalse(recoveryService.recoverJob(candidate, RecoveryType.WORKER_REVOKED, "worker is still enabled"));
+        assertEquals("RUNNING", jobStatus());
+        assertEquals(0, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+    }
+
+    @Test
+    void disabledWorkerIsRecoveredAndAudited() {
+        String workerId = UUID.randomUUID().toString();
+        PostureJob candidate = runningRemotePostureJob(workerId, false, Instant.now().plusSeconds(300));
+
+        assertTrue(recoveryService.recoverJob(candidate, RecoveryType.WORKER_REVOKED, "worker was revoked"));
+        assertEquals("QUEUED", jobStatus());
+        assertEquals(1, count("SELECT count(*) FROM assessment WHERE endpoint_id = ?", endpointId));
+        assertEquals(1, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+        assertEquals("WORKER_REVOKED", jdbc.queryForObject(
+                "SELECT recovery_type FROM job_recovery_event WHERE job_id = ?", String.class, jobId));
+    }
+
+
+    @Test
+    void duplicateRecoveryAttemptCreatesOnlyOneEvidenceAndAuditRecord() {
+        PostureJob candidate = runningPostureJob();
+
+        assertTrue(recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "first recovery"));
+        assertFalse(recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "duplicate recovery"));
+
+        assertEquals("QUEUED", jobStatus());
+        assertEquals(1, count("SELECT count(*) FROM assessment WHERE endpoint_id = ?", endpointId));
+        assertEquals(1, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+    }
+
+    @Test
+    void recoveryAuditSurvivesJobAndEndpointDeletion() {
+        PostureJob candidate = runningPostureJob();
+        UUID recoveredJobId = jobId;
+        UUID recoveredEndpointId = endpointId;
+        String expectedMac = MAC_PREFIX + "01";
+
+        assertTrue(recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "preserve audit history"));
+
+        jdbc.update("DELETE FROM assessment WHERE endpoint_id = ?", recoveredEndpointId);
+        jdbc.update("DELETE FROM posture_job WHERE id = ?", recoveredJobId);
+        jdbc.update("DELETE FROM endpoint WHERE id = ?", recoveredEndpointId);
+
+        assertEquals(1, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", recoveredJobId));
+        assertEquals(expectedMac, jdbc.queryForObject(
+                "SELECT endpoint_mac_address FROM job_recovery_event WHERE job_id = ?",
+                String.class, recoveredJobId));
+        assertEquals(recoveredEndpointId, jdbc.queryForObject(
+                "SELECT endpoint_id FROM job_recovery_event WHERE job_id = ?",
+                UUID.class, recoveredJobId));
+    }
+
+    private PostureJob runningPostureJob() {
+        endpointId = jdbc.queryForObject(
+                "INSERT INTO endpoint (mac_address, connected) VALUES (?, true) RETURNING id",
+                UUID.class, MAC_PREFIX + "01");
+
+        jobId = jdbc.queryForObject("""
+                INSERT INTO posture_job
+                    (endpoint_id, job_type, status, priority, attempt_count, max_attempts,
+                     shard, claimed_by, started_at, lease_expires_at)
+                VALUES (?, 'POSTURE_CHECK', 'RUNNING', 0, 1, 3, 'default',
+                        'local-integration-test', ?, NULL)
+                RETURNING id
+                """, UUID.class, endpointId, Timestamp.from(java.time.Instant.now().minusSeconds(600)));
+
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        return transaction.execute(status -> entityManager.createQuery(
+                        "SELECT j FROM PostureJob j JOIN FETCH j.endpoint WHERE j.id = :id", PostureJob.class)
+                .setParameter("id", jobId)
+                .getSingleResult());
+    }
+
+
+    private PostureJob runningRemotePostureJob(String workerId, boolean enabled, Instant leaseExpiresAt) {
+        jdbc.update("""
+                INSERT INTO worker_registry (id, name, shard, key_hash, enabled)
+                VALUES (?::uuid, ?, 'default', ?, ?)
+                """, workerId, "integration-worker-" + workerId, "hash-" + workerId, enabled);
+
+        endpointId = jdbc.queryForObject(
+                "INSERT INTO endpoint (mac_address, connected) VALUES (?, true) RETURNING id",
+                UUID.class, MAC_PREFIX + "01");
+
+        jobId = jdbc.queryForObject("""
+                INSERT INTO posture_job
+                    (endpoint_id, job_type, status, priority, attempt_count, max_attempts,
+                     shard, claimed_by, started_at, lease_expires_at)
+                VALUES (?, 'POSTURE_CHECK', 'RUNNING', 0, 1, 3, 'default',
+                        ?, ?, ?)
+                RETURNING id
+                """, UUID.class, endpointId, workerId,
+                Timestamp.from(Instant.now().minusSeconds(60)), Timestamp.from(leaseExpiresAt));
+
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        return transaction.execute(status -> entityManager.createQuery(
+                        "SELECT j FROM PostureJob j JOIN FETCH j.endpoint WHERE j.id = :id", PostureJob.class)
+                .setParameter("id", jobId)
+                .getSingleResult());
+    }
+
+    private String jobStatus() {
+        return jdbc.queryForObject("SELECT status FROM posture_job WHERE id = ?", String.class, jobId);
+    }
+
+    private int count(String sql, UUID id) {
+        return jdbc.queryForObject(sql, Integer.class, id);
+    }
+
+    private void installFailureTrigger(String table, String function) {
+        jdbc.execute("CREATE OR REPLACE FUNCTION " + function
+                + "() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                + "RAISE EXCEPTION 'intentional integration-test failure'; END; $$");
+        jdbc.execute("CREATE TRIGGER " + function + " BEFORE INSERT ON " + table
+                + " FOR EACH ROW EXECUTE FUNCTION " + function + "()");
+    }
+
+    private void dropFailureTrigger(String table, String function) {
+        jdbc.execute("DROP TRIGGER IF EXISTS " + function + " ON " + table);
+        jdbc.execute("DROP FUNCTION IF EXISTS " + function + "()");
+    }
+}

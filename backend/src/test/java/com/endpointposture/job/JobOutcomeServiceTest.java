@@ -41,6 +41,22 @@ class JobOutcomeServiceTest {
     }
 
     @Test
+    void recordFailureEvidenceDispatchesToCorrespondingServices() {
+        UUID jobId = UUID.randomUUID();
+        UUID endpointId = UUID.randomUUID();
+
+        outcomes.recordFailureEvidence(JobType.POSTURE_CHECK, endpointId, jobId, "posture error");
+        outcomes.recordFailureEvidence(JobType.HARDWARE_CHECK, endpointId, jobId, "hardware error");
+        outcomes.recordFailureEvidence(JobType.DIAGNOSTIC_CHECK, endpointId, jobId, "diag error");
+        outcomes.recordFailureEvidence(JobType.SECURITY_CHECK, endpointId, jobId, "sec error");
+
+        verify(posture).recordFailure(endpointId, jobId, "posture error");
+        verify(hardware).recordFailure(endpointId, jobId, "hardware error");
+        verify(diagnostics).recordFailure(endpointId, jobId, "diag error");
+        verify(security).recordFailure(endpointId, jobId, "sec error");
+    }
+
+    @Test
     void supersededFailuresWriteNoEvidence() {
         UUID jobId = UUID.randomUUID();
         UUID endpointId = UUID.randomUUID();
