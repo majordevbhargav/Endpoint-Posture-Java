@@ -230,6 +230,15 @@ public class JobService {
         return jobRepository.failExpiredLeaseAttempt(jobId, attempt, reason) == 1;
     }
 
+    /** Fails a job only while its recorded worker is still administratively revoked. */
+    @Transactional
+    public boolean failRevokedWorkerAttempt(UUID jobId, int attempt, String reason) {
+        if (jobId == null || attempt < 1) {
+            throw new IllegalArgumentException("jobId and a positive attempt are required");
+        }
+        return jobRepository.failRevokedWorkerAttempt(jobId, attempt, reason) == 1;
+    }
+
     private void validateFencedAttempt(UUID jobId, String workerId, int attempt) {
         if (jobId == null) {
             throw new IllegalArgumentException("jobId is required");
