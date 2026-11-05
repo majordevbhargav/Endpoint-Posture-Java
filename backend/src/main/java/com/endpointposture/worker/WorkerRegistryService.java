@@ -1,9 +1,11 @@
 package com.endpointposture.worker;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -19,7 +21,10 @@ public class WorkerRegistryService {
     }
     public record EnrollmentToken(String token,String workerName,String shard,Instant expiresAt){}
     public record Enrolled(UUID workerId,String name,String shard,String apiKey){}
-    public record WorkerView(UUID id,String name,String shard,boolean enabled,Instant createdAt,Instant lastSeenAt,Instant revokedAt,String createdBy){}
+    /** Derived operational state; never stored, so it cannot go out of date between sweeps. */
+    public enum WorkerState{ACTIVE,STALE,REVOKED}
+    public record WorkerView(UUID id,String name,String shard,boolean enabled,Instant createdAt,Instant lastSeenAt,Instant revokedAt,String createdBy,WorkerState status){}
+    public record Heartbeat(WorkerState status,Instant lastSeenAt,long heartbeatIntervalSeconds,long staleAfterSeconds){}
     public static class EnrollmentRejectedException extends RuntimeException{
         public EnrollmentRejectedException(){super("Invalid, expired or already used enrollment token");}
     }
@@ -28,7 +33,35 @@ public class WorkerRegistryService {
     }
     private record TokenRow(UUID id,String workerName,String shard,String createdBy){}
     private final JdbcTemplate jdbc;
-    public WorkerRegistryService(JdbcTemplate jdbc){this.jdbc=jdbc;}
+    private final Duration heartbeatInterval;
+    private final Duration staleAfter;
+    public WorkerRegistryService(JdbcTemplate jdbc,
+            @Value("${app.workers.heartbeat-interval-seconds:30}") long heartbeatIntervalSeconds,
+            @Value("${app.workers.stale-after-seconds:90}") long staleAfterSeconds){
+        if(heartbeatIntervalSeconds<1)throw new IllegalArgumentException("app.workers.heartbeat-interval-seconds must be at least 1");
+        if (heartbeatIntervalSeconds > staleAfterSeconds / 2)
+            throw new IllegalArgumentException("app.workers.stale-after-seconds must be at least twice the heartbeat interval");
+        this.jdbc=jdbc;this.heartbeatInterval=Duration.ofSeconds(heartbeatIntervalSeconds);this.staleAfter=Duration.ofSeconds(staleAfterSeconds);
+    }
+
+    /** REVOKED when disabled; STALE when never seen or silent past the threshold; otherwise ACTIVE. */
+    static WorkerState stateOf(boolean enabled,Instant lastSeenAt,Instant now,Duration staleAfter){
+        if(!enabled)return WorkerState.REVOKED;
+        if(lastSeenAt==null||lastSeenAt.isBefore(now.minus(staleAfter)))return WorkerState.STALE;
+        return WorkerState.ACTIVE;
+    }
+
+    /**
+     * Records a heartbeat for the already-authenticated worker. The id comes from the principal only.
+     * Returns empty when the worker is not enabled (revoked between authentication and now).
+     */
+    @Transactional
+    public java.util.Optional<Heartbeat> heartbeat(UUID workerId){
+        List<Timestamp> rows=jdbc.query("UPDATE worker_registry SET last_seen_at=now() WHERE id=? AND enabled RETURNING last_seen_at",
+          (rs,i)->rs.getTimestamp(1),workerId);
+        if(rows.isEmpty())return java.util.Optional.empty();
+        return java.util.Optional.of(new Heartbeat(WorkerState.ACTIVE,rows.get(0).toInstant(),heartbeatInterval.toSeconds(),staleAfter.toSeconds()));
+    }
 
     @Transactional
     public EnrollmentToken createEnrollmentToken(String workerName,String shard,Integer ttlMinutes,String admin){
@@ -77,15 +110,27 @@ public class WorkerRegistryService {
             rs.getObject("id",UUID.class),rs.getString("name"),rs.getString("shard")),WorkerCredentials.sha256Hex(key));
         if(rows.isEmpty())return new AuthResult(Status.UNKNOWN_KEY,null,null,null);
         AuthResult r=rows.get(0);
-        if(r.status()==Status.OK)jdbc.update("UPDATE worker_registry SET last_seen_at=now() WHERE id=? AND (last_seen_at IS NULL OR last_seen_at<now()-interval '30 seconds')",r.workerId());
+        if (r.status() == Status.OK) {
+    jdbc.update(
+        "UPDATE worker_registry SET last_seen_at=now() " +
+        "WHERE id=? AND (last_seen_at IS NULL OR last_seen_at < now() - (? * interval '1 second'))",
+        r.workerId(),
+        heartbeatInterval.toSeconds()
+    );
+}
         return r;
     }
 
     @Transactional(readOnly=true)
     public List<WorkerView> list(){
+        Instant now=Instant.now();
         return jdbc.query("SELECT id,name,shard,enabled,created_at,last_seen_at,revoked_at,created_by FROM worker_registry ORDER BY created_at DESC",
-          (rs,i)->new WorkerView(rs.getObject("id",UUID.class),rs.getString("name"),rs.getString("shard"),rs.getBoolean("enabled"),
-            rs.getTimestamp("created_at").toInstant(),inst(rs.getTimestamp("last_seen_at")),inst(rs.getTimestamp("revoked_at")),rs.getString("created_by")));
+          (rs,i)->{
+            boolean enabled=rs.getBoolean("enabled");Instant seen=inst(rs.getTimestamp("last_seen_at"));
+            return new WorkerView(rs.getObject("id",UUID.class),rs.getString("name"),rs.getString("shard"),enabled,
+              rs.getTimestamp("created_at").toInstant(),seen,inst(rs.getTimestamp("revoked_at")),rs.getString("created_by"),
+              stateOf(enabled,seen,now,staleAfter));
+          });
     }
 
     @Transactional

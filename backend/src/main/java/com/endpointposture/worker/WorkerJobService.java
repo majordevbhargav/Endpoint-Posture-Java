@@ -30,13 +30,16 @@ public class WorkerJobService {
     private final DiagnosticService diagnostics;
     private final SecurityIndicatorService indicators;
     private final Duration lease;
+    private final Duration maxExtension;
 
     public WorkerJobService(JobService jobService, JobSpecFactory specFactory, PostureJobRepository jobs,
             AssessmentService assessments, HardwareHealthService hardware, DiagnosticService diagnostics,
-            SecurityIndicatorService indicators, @Value("${app.workers.lease-seconds:300}") long leaseSeconds) {
+            SecurityIndicatorService indicators, @Value("${app.workers.lease-seconds:300}") long leaseSeconds,
+            @Value("${app.workers.max-lease-extension-seconds:900}") long maxExtensionSeconds) {
         this.jobService=jobService; this.specFactory=specFactory; this.jobs=jobs;
         this.assessments=assessments; this.hardware=hardware; this.diagnostics=diagnostics; this.indicators=indicators;
         this.lease=Duration.ofSeconds(Math.max(30, leaseSeconds));
+        this.maxExtension=Duration.ofSeconds(Math.max(this.lease.toSeconds(), maxExtensionSeconds));
     }
 
     public Optional<Claimed> claim(WorkerPrincipal worker) {
@@ -51,6 +54,20 @@ public class WorkerJobService {
             failWithEvidence(worker,job.getId(),job.getAttemptCount(),"Could not build job spec: "+e.getMessage());
             return Optional.empty();
         }
+    }
+    /**
+     * Renews the lease for a job this worker owns. A null extension means the
+     * configured lease length.
+     *
+     * @throws IllegalArgumentException if the extension is not positive or exceeds the maximum
+     * @return the new expiry, or empty when stale, not owned or already expired
+     */
+    public Optional<Instant> renew(WorkerPrincipal worker,UUID jobId,int attempt,Integer extensionSeconds) {
+        Duration ext=extensionSeconds==null?lease:Duration.ofSeconds(extensionSeconds);
+        if(ext.isZero()||ext.isNegative())throw new IllegalArgumentException("extensionSeconds must be positive");
+        if(ext.compareTo(maxExtension)>0)
+            throw new IllegalArgumentException("extensionSeconds must not exceed "+maxExtension.toSeconds());
+        return jobService.renewLease(jobId,worker.claimId(),attempt,ext);
     }
     public boolean complete(WorkerPrincipal worker,UUID jobId,int attempt) {
         return jobService.completeFenced(jobId,worker.claimId(),attempt);

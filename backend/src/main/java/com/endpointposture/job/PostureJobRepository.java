@@ -114,6 +114,59 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
                        @Param("error") String error);
 
         /**
+         * Atomically extends a remote worker's lease. Succeeds only for the current
+         * RUNNING attempt, owned by this worker, whose lease has not yet expired.
+         * The expiry never moves backwards (GREATEST) and an expired lease can
+         * never be revived: the predicate fails once lease_expires_at <= now().
+         *
+         * @return one when the lease was extended, otherwise zero
+         */
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query(value = """
+                        UPDATE posture_job
+                           SET lease_expires_at = GREATEST(lease_expires_at,
+                                   now() + (CAST(:seconds AS integer) * INTERVAL '1 second'))
+                         WHERE id = :id
+                           AND status = 'RUNNING'
+                           AND claimed_by = :worker
+                           AND attempt_count = :attempt
+                           AND lease_expires_at > now()
+                        """, nativeQuery = true)
+        int renewLease(@Param("id") UUID id,
+                       @Param("worker") String worker,
+                       @Param("attempt") int attempt,
+                       @Param("seconds") long seconds);
+
+        /**
+         * Stale-sweep failure for a remote-leased attempt. Same as failRunningAttempt
+         * but only while the lease is still expired at update time, so a renewal that
+         * lands between the sweep's read and this write wins.
+         */
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query(value = """
+                        UPDATE posture_job
+                           SET status = CASE WHEN attempt_count < max_attempts THEN 'QUEUED' ELSE 'FAILED' END,
+                               error_message = :msg,
+                               next_attempt_at = CASE
+                                   WHEN attempt_count < max_attempts
+                                   THEN now() + (LEAST(attempt_count, 15) * INTERVAL '1 minute')
+                                   ELSE NULL
+                               END,
+                               completed_at = CASE
+                                   WHEN attempt_count < max_attempts THEN NULL
+                                   ELSE now()
+                               END,
+                               claimed_by = NULL,
+                               lease_expires_at = NULL
+                         WHERE id = :id
+                           AND status = 'RUNNING'
+                           AND attempt_count = :attempt
+                           AND lease_expires_at IS NOT NULL
+                           AND lease_expires_at <= now()
+                        """, nativeQuery = true)
+        int failExpiredLeaseAttempt(@Param("id") UUID id, @Param("attempt") int attempt, @Param("msg") String msg);
+
+        /**
          * Atomically completes an embedded-worker attempt. Unlike completeFenced,
          * this deliberately does not require claimed_by or a remote lease because
          * local claims have neither. attempt_count still prevents a late execution
@@ -176,11 +229,16 @@ public interface PostureJobRepository extends JpaRepository<PostureJob, UUID> {
         List<PostureJob> findRecentForEndpoint(@Param("endpointId") UUID endpointId, Pageable pageable);
 
         /**
-         * @return jobs still RUNNING that started before the cutoff (stalled),
+         * @return local RUNNING jobs past the cutoff and remote RUNNING jobs with expired leases,
          *         endpoints loaded
          */
-        @Query("SELECT j FROM PostureJob j JOIN FETCH j.endpoint WHERE j.status = com.endpointposture.job.JobStatus.RUNNING AND j.startedAt < :cutoff")
-        List<PostureJob> findStaleRunning(@Param("cutoff") Instant cutoff);
+        @Query("""
+                        SELECT j FROM PostureJob j JOIN FETCH j.endpoint
+                         WHERE j.status = com.endpointposture.job.JobStatus.RUNNING
+                           AND ((j.leaseExpiresAt IS NOT NULL AND j.leaseExpiresAt <= :now)
+                                OR (j.leaseExpiresAt IS NULL AND j.startedAt < :cutoff))
+                        """)
+        List<PostureJob> findStaleRunning(@Param("cutoff") Instant cutoff, @Param("now") Instant now);
 
         /**
          * Bulk-deletes finished jobs that completed before the cutoff. Evidence rows

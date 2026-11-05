@@ -95,7 +95,7 @@ class StaleJobRecoverySchedulerTest {
 
     @Test
     void noStaleJobsRecoversNothing() {
-        when(jobRepository.findStaleRunning(any())).thenReturn(List.of());
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of());
 
         scheduler.sweep();
 
@@ -112,7 +112,7 @@ class StaleJobRecoverySchedulerTest {
                 JobType.POSTURE_CHECK,
                 Instant.now().minusSeconds(200));
 
-        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
         when(jobService.failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(true);
 
@@ -132,7 +132,7 @@ class StaleJobRecoverySchedulerTest {
                 JobType.HARDWARE_CHECK,
                 Instant.now().minusSeconds(200));
 
-        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
         when(jobService.failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(true);
 
@@ -153,7 +153,7 @@ class StaleJobRecoverySchedulerTest {
                 JobType.DIAGNOSTIC_CHECK,
                 Instant.now().minusSeconds(300));
 
-        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
         when(jobService.failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(true);
 
@@ -174,7 +174,7 @@ class StaleJobRecoverySchedulerTest {
                 JobType.SECURITY_CHECK,
                 Instant.now().minusSeconds(300));
 
-        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
         when(jobService.failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(true);
 
@@ -196,7 +196,7 @@ class StaleJobRecoverySchedulerTest {
                 JobType.DIAGNOSTIC_CHECK,
                 Instant.now().minusSeconds(150));
 
-        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
 
         scheduler.sweep();
 
@@ -212,7 +212,7 @@ class StaleJobRecoverySchedulerTest {
                 JobType.SECURITY_CHECK,
                 Instant.now().minusSeconds(200));
 
-        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
 
         scheduler.sweep();
 
@@ -230,7 +230,7 @@ class StaleJobRecoverySchedulerTest {
                 JobType.POSTURE_CHECK,
                 Instant.now().minusSeconds(200));
 
-        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
         when(jobService.failAttempt(
                 eq(job.getId()), eq(job.getAttemptCount()), anyString())).thenReturn(false);
 
@@ -253,7 +253,7 @@ class StaleJobRecoverySchedulerTest {
                 JobType.HARDWARE_CHECK,
                 Instant.now().minusSeconds(65));
 
-        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
 
         scheduler.sweep();
 
@@ -272,7 +272,7 @@ class StaleJobRecoverySchedulerTest {
                 JobType.HARDWARE_CHECK,
                 Instant.now().minusSeconds(300));
 
-        when(jobRepository.findStaleRunning(any()))
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class)))
                 .thenReturn(List.of(postureJob, hardwareJob));
 
         when(jobService.failAttempt(
@@ -292,7 +292,7 @@ class StaleJobRecoverySchedulerTest {
 
     @Test
     void repositoryFailureIsCaughtAndDoesNotThrow() {
-        when(jobRepository.findStaleRunning(any()))
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class)))
                 .thenThrow(new RuntimeException("db unreachable"));
 
         // Must not propagate - a thrown exception out of a @Scheduled method
@@ -301,5 +301,51 @@ class StaleJobRecoverySchedulerTest {
 
         verify(jobService, never()).failAttempt(
                 any(), anyInt(), anyString());
+    }
+
+    @Test
+    void remoteJobWithLiveLeaseIsNotRecoveredEvenWhenStartedLongAgo() {
+        PostureJob job = runningJob(JobType.POSTURE_CHECK, Instant.now().minusSeconds(5000));
+        job.setClaimedBy("worker-1");
+        job.setLeaseExpiresAt(Instant.now().plusSeconds(120));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
+
+        scheduler.sweep();
+
+        verify(jobService, never()).failAttempt(any(), anyInt(), anyString());
+        verify(jobService, never()).failExpiredLeaseAttempt(any(), anyInt(), anyString());
+        verify(assessmentService, never()).recordFailure(any(), any(), anyString());
+    }
+
+    @Test
+    void remoteJobWithExpiredLeaseIsRecoveredEvenWhenStartedRecently() {
+        PostureJob job = runningJob(JobType.POSTURE_CHECK, Instant.now().minusSeconds(30));
+        job.setClaimedBy("worker-1");
+        job.setLeaseExpiresAt(Instant.now().minusSeconds(10));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
+        when(jobService.failExpiredLeaseAttempt(eq(job.getId()), eq(job.getAttemptCount()), anyString()))
+                .thenReturn(true);
+
+        scheduler.sweep();
+
+        verify(jobService).failExpiredLeaseAttempt(eq(job.getId()), eq(job.getAttemptCount()), anyString());
+        verify(jobService, never()).failAttempt(any(), anyInt(), anyString());
+        verify(assessmentService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
+    }
+
+    @Test
+    void remoteJobWithExpiredLeaseIsRecoveredThroughTheLeaseFencedPath() {
+        PostureJob job = runningJob(JobType.POSTURE_CHECK, Instant.now().minusSeconds(5000));
+        job.setClaimedBy("worker-1");
+        job.setLeaseExpiresAt(Instant.now().minusSeconds(10));
+        when(jobRepository.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of(job));
+        when(jobService.failExpiredLeaseAttempt(eq(job.getId()), eq(job.getAttemptCount()), anyString()))
+                .thenReturn(true);
+
+        scheduler.sweep();
+
+        verify(jobService).failExpiredLeaseAttempt(eq(job.getId()), eq(job.getAttemptCount()), anyString());
+        verify(jobService, never()).failAttempt(any(), anyInt(), anyString());
+        verify(assessmentService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
     }
 }

@@ -86,6 +86,11 @@ app:
 
   workers:
     lease-seconds: ${WORKER_LEASE_SECONDS:300}
+    # PR5.1: workers heartbeat at this interval; silent longer than stale-after => STALE (must be >= 2x interval).
+    # PR5.2: largest lease extension a worker may request per renewal (never below lease-seconds).
+    max-lease-extension-seconds: ${WORKER_MAX_LEASE_EXTENSION_SECONDS:900}
+    heartbeat-interval-seconds: ${WORKER_HEARTBEAT_INTERVAL_SECONDS:30}
+    stale-after-seconds: ${WORKER_STALE_AFTER_SECONDS:90}
 
   jobs:
     poll-interval-ms: 3000
