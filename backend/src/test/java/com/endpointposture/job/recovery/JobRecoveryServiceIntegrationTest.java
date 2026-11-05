@@ -174,6 +174,41 @@ class JobRecoveryServiceIntegrationTest {
                 "SELECT recovery_type FROM job_recovery_event WHERE job_id = ?", String.class, jobId));
     }
 
+
+    @Test
+    void duplicateRecoveryAttemptCreatesOnlyOneEvidenceAndAuditRecord() {
+        PostureJob candidate = runningPostureJob();
+
+        assertTrue(recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "first recovery"));
+        assertFalse(recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "duplicate recovery"));
+
+        assertEquals("QUEUED", jobStatus());
+        assertEquals(1, count("SELECT count(*) FROM assessment WHERE endpoint_id = ?", endpointId));
+        assertEquals(1, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+    }
+
+    @Test
+    void recoveryAuditSurvivesJobAndEndpointDeletion() {
+        PostureJob candidate = runningPostureJob();
+        UUID recoveredJobId = jobId;
+        UUID recoveredEndpointId = endpointId;
+        String expectedMac = MAC_PREFIX + "01";
+
+        assertTrue(recoveryService.recoverJob(candidate, RecoveryType.PROCESS_TIMEOUT, "preserve audit history"));
+
+        jdbc.update("DELETE FROM assessment WHERE endpoint_id = ?", recoveredEndpointId);
+        jdbc.update("DELETE FROM posture_job WHERE id = ?", recoveredJobId);
+        jdbc.update("DELETE FROM endpoint WHERE id = ?", recoveredEndpointId);
+
+        assertEquals(1, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", recoveredJobId));
+        assertEquals(expectedMac, jdbc.queryForObject(
+                "SELECT endpoint_mac_address FROM job_recovery_event WHERE job_id = ?",
+                String.class, recoveredJobId));
+        assertEquals(recoveredEndpointId, jdbc.queryForObject(
+                "SELECT endpoint_id FROM job_recovery_event WHERE job_id = ?",
+                UUID.class, recoveredJobId));
+    }
+
     private PostureJob runningPostureJob() {
         endpointId = jdbc.queryForObject(
                 "INSERT INTO endpoint (mac_address, connected) VALUES (?, true) RETURNING id",
