@@ -56,6 +56,7 @@ class WorkerAuthenticationFlowTest {
 
     @AfterEach
     void cleanUp() {
+        jdbc.update("DELETE FROM assessment");
         jdbc.update("DELETE FROM posture_job");
         jdbc.update("DELETE FROM endpoint");
         jdbc.update("DELETE FROM worker_enrollment_token");
@@ -222,8 +223,12 @@ class WorkerAuthenticationFlowTest {
         job(ep, "site-a");
         JsonNode enrolled = enrollOk(adminCreatesToken("flow-revoked", "site-a"));
         String key = enrolled.get("apiKey").asText();
-        assertEquals(200, claim(key).getResponse().getStatus());
+        int dashboardBeforeRevoke = mvc.perform(MockMvcRequestBuilders.get("/api/v1/endpoints")
+                .header(WorkerAuthFilter.HEADER, key)).andReturn().getResponse().getStatus();
+        assertTrue(dashboardBeforeRevoke == 401 || dashboardBeforeRevoke == 403,
+                "a valid worker key must not authorize dashboard routes");
 
+        assertEquals(200, claim(key).getResponse().getStatus());
         int revoke = mvc.perform(MockMvcRequestBuilders
                 .post("/api/v1/admin/workers/" + enrolled.get("workerId").asText() + "/revoke")
                 .with(SecurityMockMvcRequestPostProcessors.user("root").roles("ADMIN")))
