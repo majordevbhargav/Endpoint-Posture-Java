@@ -40,7 +40,6 @@ class StaleJobRecoverySchedulerTest {
         when(diagnostics.getProcessTimeoutSeconds()).thenReturn(130);
         when(security.getProcessTimeoutSeconds()).thenReturn(170);
         when(jobs.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of());
-        when(jobs.findRunningJobsOwnedByRevokedWorkers()).thenReturn(List.of());
         scheduler = new StaleJobRecoveryScheduler(
                 jobs, recovery, posture, hardware, diagnostics, security, 60);
     }
