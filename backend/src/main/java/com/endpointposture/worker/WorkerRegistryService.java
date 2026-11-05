@@ -37,6 +37,11 @@ public class WorkerRegistryService {
         int ttl=ttlMinutes==null?60:Math.max(1,Math.min(ttlMinutes,1440));
         Integer taken=jdbc.queryForObject("SELECT count(*) FROM worker_registry WHERE lower(name)=lower(?)",Integer.class,name);
         if(taken!=null&&taken>0)throw new IllegalStateException("A worker named '"+name+"' already exists");
+        Integer pending=jdbc.queryForObject("""
+                SELECT count(*) FROM worker_enrollment_token
+                 WHERE lower(worker_name)=lower(?) AND redeemed_at IS NULL AND expires_at > now()
+                """,Integer.class,name);
+        if(pending!=null&&pending>0)throw new IllegalStateException("An active enrollment token already exists for '"+name+"'");
         String token=WorkerCredentials.newEnrollmentToken();
         Timestamp expires=jdbc.queryForObject("""
           INSERT INTO worker_enrollment_token(token_hash,worker_name,shard,expires_at,created_by)
