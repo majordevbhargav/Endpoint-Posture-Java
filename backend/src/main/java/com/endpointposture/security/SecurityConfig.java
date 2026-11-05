@@ -114,7 +114,7 @@ public class SecurityConfig {
                 .addFilterBefore(
                         iseFeedAuthFilter,
                         UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(workerAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterAfter(workerAuthFilter, JwtAuthFilter.class);
 
         return http.build();
     }
