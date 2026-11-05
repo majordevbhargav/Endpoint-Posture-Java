@@ -39,7 +39,6 @@ class StaleJobRecoverySchedulerTest {
         when(hardware.getProcessTimeoutSeconds()).thenReturn(70);
         when(diagnostics.getProcessTimeoutSeconds()).thenReturn(130);
         when(security.getProcessTimeoutSeconds()).thenReturn(170);
-        when(jobs.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of());
         scheduler = new StaleJobRecoveryScheduler(
                 jobs, recovery, posture, hardware, diagnostics, security, 60);
     }
@@ -62,6 +61,7 @@ class StaleJobRecoverySchedulerTest {
 
     @Test
     void emptySweepDoesNothing() {
+        when(jobs.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of());
         scheduler.sweep();
         verifyNoInteractions(recovery);
     }
