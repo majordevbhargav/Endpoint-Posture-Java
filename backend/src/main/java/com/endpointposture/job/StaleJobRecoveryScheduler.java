@@ -63,19 +63,22 @@ public class StaleJobRecoveryScheduler {
     @Scheduled(fixedDelayString = "${app.jobs.stale-sweep-interval-ms:60000}")
     public void sweep() {
         try {
-            long widestTimeoutSeconds = Math.max(
-                    Math.max(
-                            Math.max(
+            // Use the shortest timeout for candidate discovery. The per-job
+            // isActuallyStale check below applies the precise timeout for each type.
+            // Using the widest timeout here can hide jobs that have shorter limits.
+            long shortestTimeoutSeconds = Math.min(
+                    Math.min(
+                            Math.min(
                                     postureProps.getProcessTimeoutSeconds(),
                                     hardwareProps.getProcessTimeoutSeconds()),
                             diagnosticProps.getProcessTimeoutSeconds()),
                     securityProps.getProcessTimeoutSeconds());
 
             Instant now = Instant.now();
-            Instant widestCutoff = now.minusSeconds(widestTimeoutSeconds + marginSeconds);
+            Instant candidateCutoff = now.minusSeconds(shortestTimeoutSeconds + marginSeconds);
 
             Map<java.util.UUID, PostureJob> candidates = new LinkedHashMap<>();
-            for (PostureJob job : jobRepository.findStaleRunning(widestCutoff, now)) {
+            for (PostureJob job : jobRepository.findStaleRunning(candidateCutoff, now)) {
                 candidates.put(job.getId(), job);
             }
             // Revocation takes precedence if a job is also lease-expired.
