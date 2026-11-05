@@ -21,7 +21,7 @@ public class WorkerAuthFilter extends OncePerRequestFilter {
     private final WorkerRegistryService registry;
     private final WorkerAuditService audit;
     // Apply before the indexed hash lookup, so invalid-key floods cannot reach the database unbounded.
-    private final LoginRateLimiter requestLimiter=new LoginRateLimiter(true,120,120,60);
+    private final LoginRateLimiter requestLimiter=new LoginRateLimiter(true,6000,6000,60);
     public WorkerAuthFilter(WorkerRegistryService registry,WorkerAuditService audit){this.registry=registry;this.audit=audit;}
     @Override protected boolean shouldNotFilter(@NonNull HttpServletRequest req){
         String uri=req.getRequestURI(); return !uri.startsWith(PREFIX)||ENROLL_PATH.equals(uri);
