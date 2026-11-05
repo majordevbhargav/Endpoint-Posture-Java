@@ -84,6 +84,9 @@ app:
     # above this many endpoints; use /latest/batch and /hardware-health/page instead.
     fleet-list-max-endpoints: 2000
 
+  workers:
+    lease-seconds: ${WORKER_LEASE_SECONDS:300}
+
   jobs:
     poll-interval-ms: 3000
     worker-threads: 4
