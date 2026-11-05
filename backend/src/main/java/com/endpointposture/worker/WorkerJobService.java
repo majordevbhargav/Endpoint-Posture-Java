@@ -60,9 +60,11 @@ public class WorkerJobService {
     }
     private boolean failWithEvidence(WorkerPrincipal worker,UUID jobId,int attempt,String reason) {
         PostureJob job=jobs.findById(jobId).orElse(null);
-        if(job==null||!jobService.failFenced(jobId,worker.claimId(),attempt,reason)) return false;
+        if(job==null) return false;
         UUID endpointId=job.getEndpoint().getId();
-        switch(job.getJobType()) {
+        JobType type=job.getJobType();
+        if(!jobService.failFenced(jobId,worker.claimId(),attempt,reason)) return false;
+        switch(type) {
             case POSTURE_CHECK -> assessments.recordFailure(endpointId,jobId,reason);
             case HARDWARE_CHECK -> hardware.recordFailure(endpointId,jobId,reason);
             case DIAGNOSTIC_CHECK -> diagnostics.recordFailure(endpointId,jobId,reason);
