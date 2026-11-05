@@ -5,6 +5,7 @@ import com.endpointposture.hardware.HardwareHealthService;
 import com.endpointposture.indicator.SecurityIndicatorService;
 import com.endpointposture.posture.AssessmentService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -44,6 +45,7 @@ public class JobOutcomeService {
     }
 
     /** Centralized failure evidence recorder for all four job types. */
+    @Transactional
     public void recordFailureEvidence(JobType type, UUID endpointId, UUID jobId, String reason) {
         switch (type) {
             case POSTURE_CHECK -> assessmentService.recordFailure(endpointId, jobId, reason);
