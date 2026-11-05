@@ -302,4 +302,34 @@ class StaleJobRecoverySchedulerTest {
         verify(jobService, never()).failAttempt(
                 any(), anyInt(), anyString());
     }
+
+    @Test
+    void remoteJobWithLiveLeaseIsNotRecoveredEvenWhenStartedLongAgo() {
+        PostureJob job = runningJob(JobType.POSTURE_CHECK, Instant.now().minusSeconds(5000));
+        job.setClaimedBy("worker-1");
+        job.setLeaseExpiresAt(Instant.now().plusSeconds(120));
+        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+
+        scheduler.sweep();
+
+        verify(jobService, never()).failAttempt(any(), anyInt(), anyString());
+        verify(jobService, never()).failExpiredLeaseAttempt(any(), anyInt(), anyString());
+        verify(assessmentService, never()).recordFailure(any(), any(), anyString());
+    }
+
+    @Test
+    void remoteJobWithExpiredLeaseIsRecoveredThroughTheLeaseFencedPath() {
+        PostureJob job = runningJob(JobType.POSTURE_CHECK, Instant.now().minusSeconds(5000));
+        job.setClaimedBy("worker-1");
+        job.setLeaseExpiresAt(Instant.now().minusSeconds(10));
+        when(jobRepository.findStaleRunning(any())).thenReturn(List.of(job));
+        when(jobService.failExpiredLeaseAttempt(eq(job.getId()), eq(job.getAttemptCount()), anyString()))
+                .thenReturn(true);
+
+        scheduler.sweep();
+
+        verify(jobService).failExpiredLeaseAttempt(eq(job.getId()), eq(job.getAttemptCount()), anyString());
+        verify(jobService, never()).failAttempt(any(), anyInt(), anyString());
+        verify(assessmentService).recordFailure(eq(endpointId), eq(job.getId()), anyString());
+    }
 }

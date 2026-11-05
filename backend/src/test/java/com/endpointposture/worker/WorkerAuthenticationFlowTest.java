@@ -43,23 +43,16 @@ class WorkerAuthenticationFlowTest {
         r.add("app.jobs.workers.enabled", () -> "false");
         r.add("app.jobs.recheck.enabled", () -> "false");
         r.add("app.retention.enabled", () -> "false");
-        r.add("app.workers.enrollment-rate-limit.capacity", () -> "1000");
-        r.add("app.workers.enrollment-rate-limit.refill-tokens", () -> "1000");
-        r.add("app.workers.enrollment-rate-limit.refill-duration-seconds", () -> "60");
     }
 
     private static final String ADMIN_TOKENS = "/api/v1/admin/workers/enrollment-tokens";
     private static final String ENROLL = "/api/v1/workers/enroll";
     private static final String CLAIM = "/api/v1/workers/jobs/claim";
 
-    @Autowired
-    MockMvc mvc;
-    @Autowired
-    JdbcTemplate jdbc;
-    @Autowired
-    WorkerRegistryService registry;
-    @Autowired
-    ObjectMapper json;
+    @Autowired MockMvc mvc;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired WorkerRegistryService registry;
+    @Autowired ObjectMapper json;
 
     @AfterEach
     void cleanUp() {
@@ -99,8 +92,7 @@ class WorkerAuthenticationFlowTest {
 
     private int claimStatus(String key) throws Exception {
         var b = MockMvcRequestBuilders.post(CLAIM);
-        if (key != null)
-            b.header(WorkerAuthFilter.HEADER, key);
+        if (key != null) b.header(WorkerAuthFilter.HEADER, key);
         return mvc.perform(b).andReturn().getResponse().getStatus();
     }
 
@@ -182,8 +174,7 @@ class WorkerAuthenticationFlowTest {
         UUID ep = endpoint("DD:00:00:00:02:01", "10.1.0.2");
         UUID jobId = job(ep, "site-a");
         String owner = enrollOk(adminCreatesToken("flow-owner", "site-a")).get("apiKey").asText();
-        String thief = registry.enroll(registry.createEnrollmentToken("flow-thief", "site-a", 10, "root").token())
-                .apiKey();
+        String thief = registry.enroll(registry.createEnrollmentToken("flow-thief", "site-a", 10, "root").token()).apiKey();
 
         assertEquals(200, claim(owner).getResponse().getStatus());
         assertEquals(409, finish(thief, jobId, "complete", "{\"attempt\":1}"));
@@ -263,8 +254,7 @@ class WorkerAuthenticationFlowTest {
 
     private org.springframework.test.web.servlet.MvcResult heartbeat(String header, String key) throws Exception {
         var b = MockMvcRequestBuilders.post("/api/v1/workers/heartbeat");
-        if (key != null)
-            b.header(header, key);
+        if (key != null) b.header(header, key);
         return mvc.perform(b).andReturn();
     }
 
@@ -285,7 +275,7 @@ class WorkerAuthenticationFlowTest {
         assertEquals(200, res.getResponse().getStatus());
         JsonNode out = body(res);
         assertEquals("ACTIVE", out.get("status").asText());
-        assertTrue(out.hasNonNull("lastSeenAt"));
+        assertNotNull(out.get("lastSeenAt").asText());
         assertTrue(lastSeen(a.get("workerId").asText()).after(bBefore));
         assertEquals(bBefore, lastSeen(b.get("workerId").asText()));
     }
@@ -297,11 +287,9 @@ class WorkerAuthenticationFlowTest {
         jdbc.update("UPDATE worker_registry SET last_seen_at = '2020-01-01T00:00:00Z'");
         java.sql.Timestamp bBefore = lastSeen(b.get("workerId").asText());
 
-        var res = mvc
-                .perform(MockMvcRequestBuilders.post("/api/v1/workers/heartbeat?workerId=" + b.get("workerId").asText())
-                        .header(WorkerAuthFilter.HEADER, a.get("apiKey").asText())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"workerId\":\"" + b.get("workerId").asText() + "\"}"))
+        var res = mvc.perform(MockMvcRequestBuilders.post("/api/v1/workers/heartbeat?workerId=" + b.get("workerId").asText())
+                .header(WorkerAuthFilter.HEADER, a.get("apiKey").asText())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"workerId\":\"" + b.get("workerId").asText() + "\"}"))
                 .andReturn();
         assertEquals(200, res.getResponse().getStatus());
         assertEquals(bBefore, lastSeen(b.get("workerId").asText()));
@@ -349,5 +337,94 @@ class WorkerAuthenticationFlowTest {
         assertEquals("STALE", byName.get("st-stale"));
         assertEquals("REVOKED", byName.get("st-revoked"));
     }
-}
 
+    private org.springframework.test.web.servlet.MvcResult renew(String key, UUID jobId, String jsonBody) throws Exception {
+        return mvc.perform(MockMvcRequestBuilders.post("/api/v1/workers/jobs/" + jobId + "/lease/renew")
+                .header(WorkerAuthFilter.HEADER, key)
+                .contentType(MediaType.APPLICATION_JSON).content(jsonBody)).andReturn();
+    }
+
+    private java.sql.Timestamp leaseOf(UUID jobId) {
+        return jdbc.queryForObject("SELECT lease_expires_at FROM posture_job WHERE id = ?",
+                java.sql.Timestamp.class, jobId);
+    }
+
+    @Test
+    void ownerCanRenewItsLeaseAndTheExpiryMovesForward() throws Exception {
+        UUID ep = endpoint("DD:00:00:00:06:01", "10.1.0.6");
+        UUID jobId = job(ep, "site-a");
+        String key = enrollOk(adminCreatesToken("rn-owner", "site-a")).get("apiKey").asText();
+        assertEquals(200, claim(key).getResponse().getStatus());
+        jdbc.update("UPDATE posture_job SET lease_expires_at = now() + interval '10 seconds' WHERE id = ?", jobId);
+        java.sql.Timestamp before = leaseOf(jobId);
+
+        var res = renew(key, jobId, "{\"attempt\":1,\"extensionSeconds\":120}");
+        assertEquals(200, res.getResponse().getStatus());
+        assertTrue(body(res).get("accepted").asBoolean());
+        assertTrue(leaseOf(jobId).after(before));
+        assertEquals(200, finish(key, jobId, "complete", "{\"attempt\":1}"));
+    }
+
+    @Test
+    void renewalNeverShortensALongerLease() throws Exception {
+        UUID ep = endpoint("DD:00:00:00:06:02", "10.1.0.7");
+        UUID jobId = job(ep, "site-a");
+        String key = enrollOk(adminCreatesToken("rn-short", "site-a")).get("apiKey").asText();
+        assertEquals(200, claim(key).getResponse().getStatus());
+        java.sql.Timestamp before = leaseOf(jobId);
+        assertEquals(200, renew(key, jobId, "{\"attempt\":1,\"extensionSeconds\":1}").getResponse().getStatus());
+        assertFalse(leaseOf(jobId).before(before));
+    }
+
+    @Test
+    void anExpiredLeaseCannotBeRenewed() throws Exception {
+        UUID ep = endpoint("DD:00:00:00:06:03", "10.1.0.8");
+        UUID jobId = job(ep, "site-a");
+        String key = enrollOk(adminCreatesToken("rn-expired", "site-a")).get("apiKey").asText();
+        assertEquals(200, claim(key).getResponse().getStatus());
+        jdbc.update("UPDATE posture_job SET lease_expires_at = now() - interval '1 second' WHERE id = ?", jobId);
+        java.sql.Timestamp before = leaseOf(jobId);
+
+        assertEquals(409, renew(key, jobId, "{\"attempt\":1}").getResponse().getStatus());
+        assertEquals(before, leaseOf(jobId));
+    }
+
+    @Test
+    void anotherWorkerCannotRenewSomeoneElsesLease() throws Exception {
+        UUID ep = endpoint("DD:00:00:00:06:04", "10.1.0.9");
+        UUID jobId = job(ep, "site-a");
+        String owner = enrollOk(adminCreatesToken("rn-a", "site-a")).get("apiKey").asText();
+        String other = registry.enroll(registry.createEnrollmentToken("rn-b", "site-a", 10, "root").token()).apiKey();
+        assertEquals(200, claim(owner).getResponse().getStatus());
+        java.sql.Timestamp before = leaseOf(jobId);
+
+        assertEquals(409, renew(other, jobId, "{\"attempt\":1,\"extensionSeconds\":600}").getResponse().getStatus());
+        assertEquals(before, leaseOf(jobId));
+    }
+
+    @Test
+    void aStaleAttemptNumberCannotRenew() throws Exception {
+        UUID ep = endpoint("DD:00:00:00:06:05", "10.1.0.10");
+        UUID jobId = job(ep, "site-a");
+        String key = enrollOk(adminCreatesToken("rn-attempt", "site-a")).get("apiKey").asText();
+        assertEquals(200, claim(key).getResponse().getStatus());
+        assertEquals(409, renew(key, jobId, "{\"attempt\":2}").getResponse().getStatus());
+    }
+
+    @Test
+    void anExtensionAboveTheMaximumIsRejectedAndNothingChanges() throws Exception {
+        UUID ep = endpoint("DD:00:00:00:06:06", "10.1.0.11");
+        UUID jobId = job(ep, "site-a");
+        String key = enrollOk(adminCreatesToken("rn-big", "site-a")).get("apiKey").asText();
+        assertEquals(200, claim(key).getResponse().getStatus());
+        java.sql.Timestamp before = leaseOf(jobId);
+        assertEquals(400, renew(key, jobId, "{\"attempt\":1,\"extensionSeconds\":999999}").getResponse().getStatus());
+        assertEquals(before, leaseOf(jobId));
+    }
+
+    @Test
+    void renewalRequiresAValidWorkerKey() throws Exception {
+        UUID jobId = UUID.randomUUID();
+        assertEquals(401, renew(WorkerCredentials.newKey(), jobId, "{\"attempt\":1}").getResponse().getStatus());
+    }
+}

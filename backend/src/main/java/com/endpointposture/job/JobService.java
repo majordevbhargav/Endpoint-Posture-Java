@@ -202,6 +202,34 @@ public class JobService {
         return jobRepository.failFenced(jobId, workerId.trim(), attempt, errorMessage) == 1;
     }
 
+    /**
+     * Extends a remote worker's lease by {@code extension} from now. Only the
+     * owning worker, for the current attempt, while the lease is unexpired.
+     *
+     * @return the new lease expiry, or empty if the attempt is stale, not owned,
+     *         expired or no longer RUNNING
+     */
+    @Transactional
+    public Optional<Instant> renewLease(UUID jobId, String workerId, int attempt, Duration extension) {
+        validateFencedAttempt(jobId, workerId, attempt);
+        if (extension == null || extension.isZero() || extension.isNegative()) {
+            throw new IllegalArgumentException("extension must be positive");
+        }
+        if (jobRepository.renewLease(jobId, workerId.trim(), attempt, extension.toSeconds()) != 1) {
+            return Optional.empty();
+        }
+        return jobRepository.findById(jobId).map(PostureJob::getLeaseExpiresAt);
+    }
+
+    /** Stale-sweep failure for a remote-leased attempt; only while the lease is expired. */
+    @Transactional
+    public boolean failExpiredLeaseAttempt(UUID jobId, int attempt, String reason) {
+        if (jobId == null || attempt < 1) {
+            throw new IllegalArgumentException("jobId and a positive attempt are required");
+        }
+        return jobRepository.failExpiredLeaseAttempt(jobId, attempt, reason) == 1;
+    }
+
     private void validateFencedAttempt(UUID jobId, String workerId, int attempt) {
         if (jobId == null) {
             throw new IllegalArgumentException("jobId is required");

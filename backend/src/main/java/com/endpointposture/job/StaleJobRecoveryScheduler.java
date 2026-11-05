@@ -121,6 +121,11 @@ public class StaleJobRecoveryScheduler {
     }
 
     private boolean isActuallyStale(PostureJob job) {
+        // A remote-leased job is owned by its lease, not by started_at: while the
+        // worker keeps renewing, the process-timeout rule must not recover it.
+        if (job.getLeaseExpiresAt() != null) {
+            return job.getLeaseExpiresAt().isBefore(Instant.now());
+        }
         Instant cutoff = Instant.now().minusSeconds(
                 timeoutSecondsFor(job) + marginSeconds);
 
@@ -133,8 +138,9 @@ public class StaleJobRecoveryScheduler {
                 "Recovered: worker died or the backend restarted mid-job (was RUNNING since "
                         + job.getStartedAt() + ")";
 
-        boolean wasRunning =
-                jobService.failAttempt(job.getId(), job.getAttemptCount(), reason);
+        boolean wasRunning = job.getLeaseExpiresAt() != null
+                ? jobService.failExpiredLeaseAttempt(job.getId(), job.getAttemptCount(), reason)
+                : jobService.failAttempt(job.getId(), job.getAttemptCount(), reason);
 
         if (!wasRunning) {
             return false;
