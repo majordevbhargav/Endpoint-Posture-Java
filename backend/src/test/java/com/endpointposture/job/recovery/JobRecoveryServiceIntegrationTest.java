@@ -1,8 +1,7 @@
 package com.endpointposture.job.recovery;
 
 import com.endpointposture.EndpointPostureApplication;
-import com.endpointposture.job.JobStatus;
-import com.endpointposture.job.JobType;
+import com.endpointposture.job.JobService;
 import com.endpointposture.job.PostureJob;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.AfterEach;
@@ -19,6 +18,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -53,6 +54,9 @@ class JobRecoveryServiceIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private JobService jobService;
 
     @Autowired
     private EntityManager entityManager;
@@ -128,6 +132,48 @@ class JobRecoveryServiceIntegrationTest {
         assertEquals(0, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
     }
 
+
+    @Test
+    void leaseRenewalBeforeRecoveryPreventsStaleLeaseRecovery() {
+        String workerId = UUID.randomUUID().toString();
+        PostureJob candidate = runningRemotePostureJob(workerId, true, Instant.now().plusSeconds(30));
+
+        Instant beforeRenewal = jdbc.queryForObject(
+                "SELECT lease_expires_at FROM posture_job WHERE id = ?", Timestamp.class, jobId).toInstant();
+
+        assertTrue(jobService.renewLease(jobId, workerId, 1, Duration.ofMinutes(5)).isPresent());
+        Instant afterRenewal = jdbc.queryForObject(
+                "SELECT lease_expires_at FROM posture_job WHERE id = ?", Timestamp.class, jobId).toInstant();
+        assertTrue(afterRenewal.isAfter(beforeRenewal));
+
+        assertFalse(recoveryService.recoverJob(candidate, RecoveryType.LEASE_EXPIRED, "lease was renewed"));
+        assertEquals("RUNNING", jobStatus());
+        assertEquals(0, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+    }
+
+    @Test
+    void enabledWorkerCannotBeRecoveredAsRevoked() {
+        String workerId = UUID.randomUUID().toString();
+        PostureJob candidate = runningRemotePostureJob(workerId, true, Instant.now().plusSeconds(300));
+
+        assertFalse(recoveryService.recoverJob(candidate, RecoveryType.WORKER_REVOKED, "worker is still enabled"));
+        assertEquals("RUNNING", jobStatus());
+        assertEquals(0, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+    }
+
+    @Test
+    void disabledWorkerIsRecoveredAndAudited() {
+        String workerId = UUID.randomUUID().toString();
+        PostureJob candidate = runningRemotePostureJob(workerId, false, Instant.now().plusSeconds(300));
+
+        assertTrue(recoveryService.recoverJob(candidate, RecoveryType.WORKER_REVOKED, "worker was revoked"));
+        assertEquals("QUEUED", jobStatus());
+        assertEquals(1, count("SELECT count(*) FROM assessment WHERE endpoint_id = ?", endpointId));
+        assertEquals(1, count("SELECT count(*) FROM job_recovery_event WHERE job_id = ?", jobId));
+        assertEquals("WORKER_REVOKED", jdbc.queryForObject(
+                "SELECT recovery_type FROM job_recovery_event WHERE job_id = ?", String.class, jobId));
+    }
+
     private PostureJob runningPostureJob() {
         endpointId = jdbc.queryForObject(
                 "INSERT INTO endpoint (mac_address, connected) VALUES (?, true) RETURNING id",
@@ -141,6 +187,34 @@ class JobRecoveryServiceIntegrationTest {
                         'local-integration-test', ?, NULL)
                 RETURNING id
                 """, UUID.class, endpointId, Timestamp.from(java.time.Instant.now().minusSeconds(600)));
+
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        return transaction.execute(status -> entityManager.createQuery(
+                        "SELECT j FROM PostureJob j JOIN FETCH j.endpoint WHERE j.id = :id", PostureJob.class)
+                .setParameter("id", jobId)
+                .getSingleResult());
+    }
+
+
+    private PostureJob runningRemotePostureJob(String workerId, boolean enabled, Instant leaseExpiresAt) {
+        jdbc.update("""
+                INSERT INTO worker_registry (id, name, shard, key_hash, enabled)
+                VALUES (?::uuid, ?, 'default', ?, ?)
+                """, workerId, "integration-worker-" + workerId, "hash-" + workerId, enabled);
+
+        endpointId = jdbc.queryForObject(
+                "INSERT INTO endpoint (mac_address, connected) VALUES (?, true) RETURNING id",
+                UUID.class, MAC_PREFIX + "01");
+
+        jobId = jdbc.queryForObject("""
+                INSERT INTO posture_job
+                    (endpoint_id, job_type, status, priority, attempt_count, max_attempts,
+                     shard, claimed_by, started_at, lease_expires_at)
+                VALUES (?, 'POSTURE_CHECK', 'RUNNING', 0, 1, 3, 'default',
+                        ?, ?, ?)
+                RETURNING id
+                """, UUID.class, endpointId, workerId,
+                Timestamp.from(Instant.now().minusSeconds(60)), Timestamp.from(leaseExpiresAt));
 
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         return transaction.execute(status -> entityManager.createQuery(
