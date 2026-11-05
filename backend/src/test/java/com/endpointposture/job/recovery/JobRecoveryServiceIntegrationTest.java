@@ -18,7 +18,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -140,7 +140,7 @@ class JobRecoveryServiceIntegrationTest {
                 VALUES (?, 'POSTURE_CHECK', 'RUNNING', 0, 1, 3, 'default',
                         'local-integration-test', ?, NULL)
                 RETURNING id
-                """, UUID.class, endpointId, Instant.now().minusSeconds(600));
+                """, UUID.class, endpointId, Timestamp.from(java.time.Instant.now().minusSeconds(600)));
 
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         return transaction.execute(status -> entityManager.createQuery(
