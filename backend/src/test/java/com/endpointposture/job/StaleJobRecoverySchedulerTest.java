@@ -10,6 +10,7 @@ import com.endpointposture.posture.config.PostureAgentProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -64,6 +66,26 @@ class StaleJobRecoverySchedulerTest {
         when(jobs.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of());
         scheduler.sweep();
         verifyNoInteractions(recovery);
+    }
+
+    @Test
+    void candidateQueryUsesShortestConfiguredTimeoutSoShorterJobsAreNotMissed() {
+        when(jobs.findStaleRunning(any(Instant.class), any(Instant.class))).thenReturn(List.of());
+
+        Instant beforeSweep = Instant.now();
+        scheduler.sweep();
+        Instant afterSweep = Instant.now();
+
+        ArgumentCaptor<Instant> cutoff = ArgumentCaptor.forClass(Instant.class);
+        verify(jobs).findStaleRunning(cutoff.capture(), any(Instant.class));
+
+        // Shortest timeout is 60s, plus the 60s margin. The previous widest-timeout
+        // cutoff was 230s and could exclude a diagnostic job stale at 190s.
+        Instant earliestExpected = beforeSweep.minusSeconds(120);
+        Instant latestExpected = afterSweep.minusSeconds(120);
+        assertTrue(!cutoff.getValue().isBefore(earliestExpected)
+                        && !cutoff.getValue().isAfter(latestExpected),
+                "candidate cutoff must use the shortest configured timeout plus margin");
     }
 
     @Test
