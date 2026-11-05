@@ -31,6 +31,9 @@ public class JobRecoveryEvent {
     @Column(name = "endpoint_id", nullable = false)
     private UUID endpointId;
 
+    @Column(name = "endpoint_mac_address", nullable = false)
+    private String endpointMacAddress;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "job_type", nullable = false)
     private JobType jobType;
