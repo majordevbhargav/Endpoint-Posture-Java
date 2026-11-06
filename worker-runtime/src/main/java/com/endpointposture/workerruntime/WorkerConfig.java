@@ -70,7 +70,6 @@ public record WorkerConfig(URI backendUrl, Path stateFile, String enrollmentToke
         return "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host)
                 || "::1".equals(host) || "[::1]".equals(host);
     }
-    }
 
     private static Duration seconds(Map<String, String> env, String name, long fallback) {
         String raw = trimToNull(env.get(name));
