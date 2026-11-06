@@ -10,22 +10,26 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Windows DPAPI (current-user scope) through PowerShell's ConvertFrom/To-SecureString, the same
- * mechanism as Save-PostureCredential.ps1. The secret goes in through stdin, never the command
- * line. Only the Windows account on the machine that protected a value can unprotect it, so the
- * worker service account must be the account that enrolled.
+ * Windows DPAPI (current-user scope) through .NET ProtectedData. The secret goes in through
+ * stdin, never the command line. This avoids PowerShell module auto-loading and uses the native
+ * Windows DPAPI implementation. Only the Windows account that protected a value can unprotect it,
+ * so the worker service account must be the account that enrolled.
  */
 public final class DpapiSecretProtector implements SecretProtector {
     private static final String PROTECT =
-            "$in=[Console]::In.ReadToEnd().Trim();"
-            + "$s=ConvertTo-SecureString -String $in -AsPlainText -Force;"
-            + "ConvertFrom-SecureString -SecureString $s";
+            "$ErrorActionPreference='Stop';"
+            + "Add-Type -AssemblyName System.Security;"
+            + "$in=[Console]::In.ReadToEnd();"
+            + "$bytes=[Text.Encoding]::UTF8.GetBytes($in);"
+            + "$protected=[Security.Cryptography.ProtectedData]::Protect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);"
+            + "[Console]::Out.Write([Convert]::ToBase64String($protected))";
     private static final String UNPROTECT =
-            "$in=[Console]::In.ReadToEnd().Trim();"
-            + "$s=ConvertTo-SecureString -String $in;"
-            + "$b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s);"
-            + "try{[Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))}"
-            + "finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}";
+            "$ErrorActionPreference='Stop';"
+            + "Add-Type -AssemblyName System.Security;"
+            + "$in=[Console]::In.ReadToEnd().Trim();"
+            + "$bytes=[Convert]::FromBase64String($in);"
+            + "$plain=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser);"
+            + "[Console]::Out.Write([Text.Encoding]::UTF8.GetString($plain))";
 
     private final String powershell;
     private final Duration timeout;
