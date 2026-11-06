@@ -50,6 +50,24 @@ jobs:
           POSTURE_API_KEY: ci-test-agent-key
         run: mvn -B clean verify -Duser.timezone=UTC
 
+  # ─── Independent Windows worker runtime + real DPAPI tests ─────────────────
+  worker-runtime:
+    name: Windows worker — Maven build, tests & DPAPI
+    runs-on: windows-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+          cache-dependency-path: worker-runtime/pom.xml
+      - name: Build and test worker runtime
+        working-directory: worker-runtime
+        run: mvn -B clean verify -Duser.timezone=UTC
+
   # ─── Frontend type-check, test, build ──────────────────────────────────────
   frontend:
     name: Frontend — TypeScript type-check, test & build
