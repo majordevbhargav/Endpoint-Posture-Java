@@ -68,4 +68,15 @@ class WorkerConfigTest {
         assertThrows(IllegalArgumentException.class, () -> WorkerConfig.fromEnvironment(
                 Map.of("EP_BACKEND_URL", "https://h", "EP_HTTP_REQUEST_TIMEOUT_SECONDS", "0")));
     }
+    @Test
+    void rejectsInvalidPortsAndAcceptsIpv6Loopback() {
+        for (String bad : new String[] {"https://host:0", "https://host:65536", "https://host:"}) {
+            assertThrows(IllegalArgumentException.class, () -> of(bad, null), bad);
+        }
+        assertEquals(URI.create("http://[::1]:8090"), of("http://[::1]:8090", null).backendUrl());
+        assertEquals(URI.create("https://[2001:db8::1]:8090"),
+                of("https://[2001:db8::1]:8090", null).backendUrl());
+        assertThrows(IllegalArgumentException.class, () -> of("http://[2001:db8::1]:8090", null));
+    }
+
 }
