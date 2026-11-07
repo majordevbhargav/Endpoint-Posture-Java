@@ -134,7 +134,7 @@ public final class WorkerLifecycle {
     }
 
     private Duration jitteredServerDelay(Duration requested) {
-        // Never retry before Retry-After; add up to 20% positive jitter without exceeding 5m.
+        // Honor Retry-After up to the five-minute cap; add positive jitter without exceeding that cap.
         Duration base = capped(requested);
         long remaining = MAX_BACKOFF.minus(base).toMillis();
         if (remaining <= 0) return MAX_BACKOFF;
