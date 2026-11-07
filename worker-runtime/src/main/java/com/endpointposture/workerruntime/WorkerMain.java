@@ -67,7 +67,7 @@ public final class WorkerMain {
         WorkerLifecycle lifecycle = new WorkerLifecycle(
                 WorkerApiClient.authenticated(config, c.apiKey()),
                 null, // PR6.3 supplies the executor; never lease a job before it can be executed.
-                sleeper);
+                sleeper, err);
         return lifecycle.run();
     }
 }
