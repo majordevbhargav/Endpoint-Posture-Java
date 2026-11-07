@@ -1,8 +1,12 @@
 # worker-runtime
 
-Independent Windows worker for the VE Compliance Engine (PR6). This slice (PR6.1) enrolls the
-worker, stores its key with Windows DPAPI, and proves the key with one heartbeat. Heartbeat and
-claim loops, agent execution, lease renewal and result reporting come in PR6.2 to PR6.5.
+Independent Windows worker for the VE Compliance Engine (PR6). This runtime enrolls the worker, stores its key with Windows DPAPI, and then runs a persistent
+heartbeat lifecycle. Heartbeat cadence is supplied by the backend; transient network/server
+failures use bounded exponential backoff, HTTP 429 honors Retry-After, and HTTP 401 stops the
+worker because its credentials may have been revoked. Shutdown interrupts the wait loop cleanly.
+Job claiming is wired behind a handler boundary and remains disabled until PR6.3 provides a real
+executor, so this version cannot lease work it cannot execute. Lease renewal and result reporting
+are added in PR6.4; Windows service installation and service-account ACLs are added in PR6.5.
 
 ## Run
 
