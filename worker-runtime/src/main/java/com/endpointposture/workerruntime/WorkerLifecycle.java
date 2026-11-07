@@ -9,7 +9,6 @@ import com.endpointposture.workerruntime.api.WorkerTransportException;
 import java.io.PrintStream;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Long-running worker control loop. Heartbeat cadence comes from the backend, not a local
@@ -34,7 +33,6 @@ public final class WorkerLifecycle {
     private final JobHandler jobHandler;
     private final Sleeper sleeper;
     private final PrintStream err;
-    private final AtomicBoolean stopping = new AtomicBoolean();
 
     public WorkerLifecycle(WorkerApiClient api, JobHandler jobHandler, Sleeper sleeper, PrintStream err) {
         this.api = api;
@@ -47,7 +45,7 @@ public final class WorkerLifecycle {
     public int run() {
         Duration backoff = INITIAL_BACKOFF;
         Duration nextDelay = Duration.ZERO;
-        while (!stopping.get()) {
+        while (true) {
             if (!nextDelay.isZero()) {
                 try {
                     sleeper.sleep(nextDelay);
@@ -55,7 +53,6 @@ public final class WorkerLifecycle {
                     Thread.currentThread().interrupt();
                     return 0;
                 }
-                if (stopping.get()) return 0;
             }
 
             try {
@@ -108,10 +105,6 @@ public final class WorkerLifecycle {
             }
         }
         return 0;
-    }
-
-    public void requestStop() {
-        stopping.set(true);
     }
 
     private static Duration nextBackoff(Duration current) {
