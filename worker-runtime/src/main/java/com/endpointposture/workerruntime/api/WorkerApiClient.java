@@ -186,8 +186,7 @@ public final class WorkerApiClient {
         return text.length() > 200 ? text.substring(0, 200) : text;
     }
 
-    private static Duration retryAfter(ApiResponse res) {
-        String value = res.headers().firstValue("Retry-After").orElse(null);
+    static Duration parseRetryAfter(String value, Instant now) {
         if (value == null || value.isBlank()) return null;
         String trimmed = value.trim();
         try {
@@ -198,11 +197,15 @@ public final class WorkerApiClient {
         }
         try {
             Instant retryAt = ZonedDateTime.parse(trimmed, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
-            Duration delay = Duration.between(Instant.now(), retryAt);
+            Duration delay = Duration.between(now, retryAt);
             return delay.isNegative() ? Duration.ZERO : delay;
         } catch (DateTimeParseException | ArithmeticException ignored) {
             return null;
         }
+    }
+
+    private static Duration retryAfter(ApiResponse res) {
+        return parseRetryAfter(res.headers().firstValue("Retry-After").orElse(null), Instant.now());
     }
 
     @Override
