@@ -10,6 +10,8 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.UUID;
 
@@ -60,6 +62,24 @@ class WorkerApiClientTest {
                     () -> WorkerApiClient.unauthenticated(cfg(s.uri())).enroll("ept_x"));
             assertEquals(Duration.ofSeconds(7), ex.retryAfter().orElseThrow());
         }
+    }
+
+    @Test
+    void retryAfterParsesDeltaSecondsAndHttpDatesSafely() {
+        Instant now = Instant.parse("2026-11-07T12:00:00Z");
+        String future = DateTimeFormatter.RFC_1123_DATE_TIME.format(now.plusSeconds(45).atZone(ZoneOffset.UTC));
+        String expired = DateTimeFormatter.RFC_1123_DATE_TIME.format(now.minusSeconds(10).atZone(ZoneOffset.UTC));
+
+        assertEquals(Duration.ofSeconds(7), WorkerApiClient.parseRetryAfter("7", now));
+        assertEquals(Duration.ofSeconds(45), WorkerApiClient.parseRetryAfter(future, now));
+        assertEquals(Duration.ZERO, WorkerApiClient.parseRetryAfter(expired, now));
+        assertEquals(Duration.ZERO, WorkerApiClient.parseRetryAfter("0", now));
+        assertEquals(Duration.ZERO, WorkerApiClient.parseRetryAfter("-5", now));
+        assertEquals(Duration.ofSeconds(Long.MAX_VALUE),
+                WorkerApiClient.parseRetryAfter(Long.toString(Long.MAX_VALUE), now));
+        assertNull(WorkerApiClient.parseRetryAfter("not-a-date", now));
+        assertNull(WorkerApiClient.parseRetryAfter("999999999999999999999999999999", now));
+        assertNull(WorkerApiClient.parseRetryAfter(null, now));
     }
 
     @Test

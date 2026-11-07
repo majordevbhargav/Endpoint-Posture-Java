@@ -15,6 +15,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -183,14 +186,26 @@ public final class WorkerApiClient {
         return text.length() > 200 ? text.substring(0, 200) : text;
     }
 
+    static Duration parseRetryAfter(String value, Instant now) {
+        if (value == null || value.isBlank()) return null;
+        String trimmed = value.trim();
+        try {
+            long seconds = Long.parseLong(trimmed);
+            return Duration.ofSeconds(Math.max(0, seconds));
+        } catch (NumberFormatException ignored) {
+            // RFC 7231 HTTP-date form is also valid for Retry-After.
+        }
+        try {
+            Instant retryAt = ZonedDateTime.parse(trimmed, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+            Duration delay = Duration.between(now, retryAt);
+            return delay.isNegative() ? Duration.ZERO : delay;
+        } catch (DateTimeParseException | ArithmeticException ignored) {
+            return null;
+        }
+    }
+
     private static Duration retryAfter(ApiResponse res) {
-        return res.headers().firstValue("Retry-After").map(v -> {
-            try {
-                return Duration.ofSeconds(Math.max(0, Long.parseLong(v.trim())));
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }).orElse(null);
+        return parseRetryAfter(res.headers().firstValue("Retry-After").orElse(null), Instant.now());
     }
 
     @Override

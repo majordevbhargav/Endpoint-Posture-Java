@@ -1,23 +1,16 @@
 package com.endpointposture.workerruntime;
 
-import com.endpointposture.workerruntime.api.HeartbeatResponse;
 import com.endpointposture.workerruntime.api.WorkerApiClient;
-import com.endpointposture.workerruntime.api.WorkerApiException;
-import com.endpointposture.workerruntime.api.WorkerTransportException;
 import com.endpointposture.workerruntime.credentials.CredentialStore;
 import com.endpointposture.workerruntime.credentials.DpapiSecretProtector;
 import com.endpointposture.workerruntime.credentials.SecretProtector;
 import com.endpointposture.workerruntime.credentials.StoredCredentials;
 
 import java.io.PrintStream;
+import java.time.Duration;
 import java.util.Map;
 
-/**
- * PR6.1 entry point: load config, enroll once (or reuse stored credentials), prove the key with
- * one heartbeat, exit. The heartbeat and claim loops arrive in PR6.2.
- *
- * <p>Exit codes: 0 ok, 2 configuration, 3 startup/enrollment, 4 key rejected, 5 backend or network error.</p>
- */
+/** Windows worker entry point. Enrollment is a startup operation; lifecycle then runs until stopped. */
 public final class WorkerMain {
     private WorkerMain() {}
 
@@ -26,10 +19,30 @@ public final class WorkerMain {
             System.err.println("This worker runs on Windows only (DPAPI credential storage).");
             System.exit(2);
         }
-        System.exit(run(System.getenv(), System.out, System.err, new DpapiSecretProtector()));
+
+        Thread workerThread = Thread.currentThread();
+        Thread shutdownHook = new Thread(workerThread::interrupt, "worker-shutdown");
+        Runtime.getRuntime().addShutdownHook(shutdownHook);
+        int exitCode;
+        try {
+            exitCode = run(System.getenv(), System.out, System.err, new DpapiSecretProtector(),
+                    duration -> Thread.sleep(duration.toMillis()));
+        } finally {
+            try {
+                Runtime.getRuntime().removeShutdownHook(shutdownHook);
+            } catch (IllegalStateException ignored) {
+                // JVM shutdown is already in progress.
+            }
+        }
+        System.exit(exitCode);
     }
 
     static int run(Map<String, String> env, PrintStream out, PrintStream err, SecretProtector protector) {
+        return run(env, out, err, protector, duration -> Thread.sleep(duration.toMillis()));
+    }
+
+    static int run(Map<String, String> env, PrintStream out, PrintStream err,
+                   SecretProtector protector, WorkerLifecycle.Sleeper sleeper) {
         WorkerConfig config;
         try {
             config = WorkerConfig.fromEnvironment(env);
@@ -51,17 +64,10 @@ public final class WorkerMain {
         out.println((boot.newlyEnrolled() ? "Enrolled as worker '" : "Using stored credentials for worker '")
                 + c.name() + "' (shard " + c.shard() + ").");
 
-        try {
-            HeartbeatResponse hb = WorkerApiClient.authenticated(config, c.apiKey()).heartbeat();
-            out.println("Heartbeat accepted: status=" + hb.status()
-                    + ", interval=" + hb.heartbeatIntervalSeconds() + "s.");
-            return 0;
-        } catch (WorkerApiException.Unauthorized e) {
-            err.println("The backend rejected this worker's key. The worker may have been revoked.");
-            return 4;
-        } catch (WorkerApiException | WorkerTransportException e) {
-            err.println("Heartbeat failed: " + e.getMessage());
-            return 5;
-        }
+        WorkerLifecycle lifecycle = new WorkerLifecycle(
+                WorkerApiClient.authenticated(config, c.apiKey()),
+                null, // PR6.3 supplies the executor; never lease a job before it can be executed.
+                sleeper, err);
+        return lifecycle.run();
     }
 }
