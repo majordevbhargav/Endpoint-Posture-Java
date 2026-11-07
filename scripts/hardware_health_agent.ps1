@@ -35,8 +35,23 @@ param(
     [securestring]$Password,
     [string]$PlainPassword,
     [string]$CommonCredPath = "$PSScriptRoot\posture_common_cred.xml",
-    [int]$CimOperationTimeoutSec = 30
+    [int]$CimOperationTimeoutSec = 30,
+    [switch]$OutputOnly
 )
+
+function Write-WorkerOutputEnvelope {
+    param([string]$JobType,[string]$CollectionOutcome,$ReportPayload,[string[]]$Errors=@(),[string[]]$Warnings=@())
+    $Envelope = [ordered]@{
+        schemaVersion = 1
+        jobId = $JobId
+        jobType = $JobType
+        collectionOutcome = $CollectionOutcome
+        reportPayload = $ReportPayload
+        errors = @($Errors | Where-Object { $_ })
+        warnings = @($Warnings | Where-Object { $_ })
+    }
+    Write-Output ("RESULT_JSON:" + ($Envelope | ConvertTo-Json -Compress -Depth 30))
+}
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -122,6 +137,7 @@ function Get-HardwareHealthCred {
 
 function Submit-FailureAndExit {
     param([string]$Detail)
+    if ($OutputOnly) { Write-WorkerOutputEnvelope "HARDWARE_CHECK" "FAILED" $null @($Detail) @(); exit 1 }
 
     Write-Host ""
     Write-Host "ERROR: $Detail" -ForegroundColor Red
@@ -272,6 +288,19 @@ try {
     }
 
     $payload = $report | ConvertTo-Json -Depth 8
+
+    if ($OutputOnly) {
+        $Warnings = @()
+        if ($hwEventsError) { $Warnings += [string]$hwEventsError }
+        if (-not $cs) { $Warnings += "Computer system identity collection returned no data." }
+        if (-not $cpu) { $Warnings += "CPU collection returned no data." }
+        if (-not $os) { $Warnings += "Operating system and memory collection returned no data." }
+        if (-not $disks -or $disks.Count -eq 0) { $Warnings += "Physical disk collection returned no data." }
+        if (-not $batteryStatic -or $batteryStatic.Count -eq 0) { $Warnings += "Battery data is unavailable on this endpoint." }
+        $Outcome = if ($Warnings.Count -gt 0) { "PARTIAL" } else { "SUCCESS" }
+        Write-WorkerOutputEnvelope "HARDWARE_CHECK" $Outcome $report @() $Warnings
+        exit 0
+    }
 
     # ---------------------------------------------------------------------
     # Submit - authenticated the same way posture_agent.ps1 authenticates.
