@@ -106,7 +106,7 @@ class WorkerLifecycleTest {
         try (TestServer server = new TestServer()) {
             server.on(P + "/heartbeat", 200, HEARTBEAT);
             server.onSequence(P + "/jobs/claim", new int[]{429, 204},
-                    new String[]{"{\"message\":\"slow down\"}", ""});
+                    new String[]{"{\"message\":\"slow down\"}", ""}, Map.of("Retry-After", "7"));
             // The first delay is exactly the server minimum when random=0; the next is normal cadence.
             List<Duration> sleeps = new ArrayList<>();
             int exit = lifecycle(server, job -> fail("204 should not dispatch a job"), delay -> {
@@ -173,8 +173,8 @@ class WorkerLifecycleTest {
         try (TestServer server = new TestServer()) {
             server.on(P + "/heartbeat", 200, HEARTBEAT);
             server.on(P + "/jobs/claim", 409, "{\"message\":\"Attempt is stale\"}");
-            int exit = lifecycle(server, null, delay -> fail("409 must not retry"),
-                    new ByteArrayOutputStream()).run();
+            int exit = lifecycle(server, job -> fail("409 must not dispatch a job"),
+                    delay -> fail("409 must not retry"), new ByteArrayOutputStream()).run();
             assertEquals(5, exit);
         }
     }
