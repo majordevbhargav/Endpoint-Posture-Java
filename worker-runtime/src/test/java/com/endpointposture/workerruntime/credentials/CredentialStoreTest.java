@@ -61,6 +61,14 @@ class CredentialStoreTest {
     }
 
     @Test
+    void oversizedCredentialFileIsRejectedBeforeParsing() throws Exception {
+        Path f = dir.resolve("state.json");
+        Files.write(f, new byte[64 * 1024 + 1]);
+        var ex = assertThrows(CredentialStoreException.class, () -> store().load());
+        assertTrue(ex.getMessage().contains("maximum allowed size"));
+    }
+
+    @Test
     void aKeyThatCannotBeDecryptedGivesAHelpfulError() throws Exception {
         store().save(creds());
         Path f = dir.resolve("state.json");
