@@ -5,9 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Optional;
@@ -19,6 +21,7 @@ import java.util.UUID;
  */
 public final class CredentialStore {
     private static final int FORMAT = 1;
+    private static final int MAX_STATE_FILE_BYTES = 64 * 1024;
 
     private final Path file;
     private final SecretProtector protector;
@@ -30,13 +33,21 @@ public final class CredentialStore {
     }
 
     public Optional<StoredCredentials> load() {
-        if (!Files.isRegularFile(file)) {
-            if (Files.exists(file)) throw new CredentialStoreException("State path is not a file: " + file);
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            if (Files.exists(file, LinkOption.NOFOLLOW_LINKS))
+                throw new CredentialStoreException("State path is not a regular file: " + file);
             return Optional.empty();
         }
+
         JsonNode n;
-        try {
-            n = mapper.readTree(Files.readAllBytes(file));
+        try (InputStream in = Files.newInputStream(file)) {
+            byte[] data = in.readNBytes(MAX_STATE_FILE_BYTES + 1);
+            if (data.length > MAX_STATE_FILE_BYTES)
+                throw new CredentialStoreException("Credential file exceeds the maximum allowed size of "
+                        + MAX_STATE_FILE_BYTES + " bytes: " + file);
+            n = mapper.readTree(data);
+        } catch (CredentialStoreException e) {
+            throw e;
         } catch (IOException e) {
             throw corrupt(e);
         }
@@ -76,6 +87,9 @@ public final class CredentialStore {
             n.put("backendUrl", c.backendUrl().toString());
             n.put("protectedApiKey", protectedKey);
             byte[] data = mapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(n);
+            if (data.length > MAX_STATE_FILE_BYTES)
+                throw new CredentialStoreException("Credential state exceeds the maximum allowed size of "
+                        + MAX_STATE_FILE_BYTES + " bytes");
 
             Path dir = file.getParent();
             Files.createDirectories(dir);
@@ -86,15 +100,22 @@ public final class CredentialStore {
             } catch (AtomicMoveNotSupportedException e) {
                 Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
             }
+        } catch (CredentialStoreException e) {
+            cleanup(tmp);
+            throw e;
         } catch (IOException e) {
-            if (tmp != null) {
-                try {
-                    Files.deleteIfExists(tmp);
-                } catch (IOException ignored) {
-                    // best effort
-                }
-            }
+            cleanup(tmp);
             throw new CredentialStoreException("Cannot write credential file " + file + ": " + e.getMessage(), e);
+        }
+    }
+
+    private static void cleanup(Path tmp) {
+        if (tmp != null) {
+            try {
+                Files.deleteIfExists(tmp);
+            } catch (IOException ignored) {
+                // best effort
+            }
         }
     }
 
