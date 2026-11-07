@@ -2,10 +2,16 @@
 
 Independent Windows worker for the VE Compliance Engine (PR6). This runtime enrolls the worker, stores its key with Windows DPAPI, and then runs a persistent
 heartbeat lifecycle. Heartbeat cadence is supplied by the backend; transient network/server
-failures use bounded exponential backoff, HTTP 429 honors Retry-After, and HTTP 401 stops the
+failures use bounded exponential backoff with jitter, HTTP 429 honors delta-seconds or HTTP-date Retry-After values, and HTTP 401 stops the
 worker because its credentials may have been revoked. Shutdown interrupts the wait loop cleanly.
-Job claiming is wired behind a handler boundary and remains disabled until PR6.3 provides a real
-executor, so this version cannot lease work it cannot execute. Lease renewal and result reporting
+Job claiming is wired behind a handler boundary and remains disabled in the production entry point until PR6.3 provides a real
+executor, so this version cannot lease work it cannot execute. Retry delays cap at five minutes; transient HTTP 408, 425, 429 and 5xx responses are retried, while authentication failures and permanent client errors stop the worker.
+
+## Lifecycle constraints for PR6.3
+
+The current handler interface is synchronous and is only a test seam in PR6.2. Do not connect a blocking PowerShell executor directly to this lifecycle thread: a long-running handler would prevent subsequent heartbeats and could allow the backend to mark the worker stale. PR6.3 must run job execution independently from the control-plane heartbeat loop, use bounded queues/coordination, and propagate cancellation and worker shutdown to the executor. PR6.4 must coordinate lease renewal with that executor and fence all results by the current worker/job attempt. No PowerShell execution or lease renewal is implemented in PR6.2.
+
+Lease renewal and result reporting
 are added in PR6.4; Windows service installation and service-account ACLs are added in PR6.5.
 
 ## Run
