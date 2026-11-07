@@ -122,6 +122,23 @@ class WorkerLifecycleTest {
     }
 
     @Test
+    void zeroAndInvalidRetryAfterFallBackToJitteredBackoff() throws Exception {
+        for (String retryAfter : new String[]{"0", "not-a-date"}) {
+            try (TestServer server = new TestServer()) {
+                server.on(P + "/heartbeat", 429, ERROR, Map.of("Retry-After", retryAfter));
+                List<Duration> sleeps = new ArrayList<>();
+                int exit = lifecycle(server, null, delay -> {
+                    sleeps.add(delay);
+                    throw new InterruptedException("stop");
+                }, new ByteArrayOutputStream(), () -> 0.0).run();
+
+                assertEquals(0, exit);
+                assertEquals(List.of(Duration.ofMillis(500)), sleeps);
+            }
+        }
+    }
+
+    @Test
     void exponentialBackoffUsesInjectedEqualJitter() throws Exception {
         for (double random : new double[]{0.0, 1.0}) {
             try (TestServer server = new TestServer()) {
