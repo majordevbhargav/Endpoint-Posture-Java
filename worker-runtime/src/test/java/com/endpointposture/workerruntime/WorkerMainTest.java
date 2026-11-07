@@ -23,7 +23,12 @@ class WorkerMainTest {
     private final ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
 
     private int run(Map<String, String> env) {
-        return WorkerMain.run(env, new PrintStream(outBuf), new PrintStream(errBuf), new FakeProtector(), duration -> { throw new InterruptedException("test shutdown"); });
+        try {
+            return WorkerMain.run(env, new PrintStream(outBuf), new PrintStream(errBuf), new FakeProtector(),
+                    duration -> { throw new InterruptedException("test shutdown"); });
+        } finally {
+            Thread.interrupted(); // Clear the lifecycle interruption between independent test runs.
+        }
     }
 
     private Map<String, String> env(TestServer s, String token) {
