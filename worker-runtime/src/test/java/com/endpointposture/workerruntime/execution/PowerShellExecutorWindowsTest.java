@@ -78,7 +78,7 @@ class PowerShellExecutorWindowsTest {
                 + "$psi.UseShellExecute = $false; "
                 + "$child = [System.Diagnostics.Process]::Start($psi); "
                 + "Set-Content -LiteralPath '" + pidPath + "' -Value $child.Id; "
-                + "exit 0";
+                + "Start-Sleep -Milliseconds 250; exit 0";
         script(parent);
 
         assertThrows(java.io.IOException.class,
