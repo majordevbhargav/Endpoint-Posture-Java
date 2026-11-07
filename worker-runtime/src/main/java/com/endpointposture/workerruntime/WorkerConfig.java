@@ -51,9 +51,13 @@ public record WorkerConfig(URI backendUrl, Path stateFile, String enrollmentToke
         String scheme = u.getScheme();
         if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https")))
             throw new IllegalArgumentException("EP_BACKEND_URL must start with http:// or https://");
-        if (u.getHost() == null) throw new IllegalArgumentException("EP_BACKEND_URL must include a host");
+        if (u.getHost() == null || u.getHost().isBlank())
+            throw new IllegalArgumentException("EP_BACKEND_URL must include a valid host");
         if (u.getUserInfo() != null)
             throw new IllegalArgumentException("EP_BACKEND_URL must not contain a user name or password");
+        if (u.getPort() == 0 || u.getPort() > 65535 || (u.getRawAuthority() != null
+                && u.getRawAuthority().endsWith(":")))
+            throw new IllegalArgumentException("EP_BACKEND_URL must use a valid port between 1 and 65535");
         String path = u.getPath();
         if (path != null && !path.isEmpty() && !path.equals("/"))
             throw new IllegalArgumentException("EP_BACKEND_URL must not include a path");
