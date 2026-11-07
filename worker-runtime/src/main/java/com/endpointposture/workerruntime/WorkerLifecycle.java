@@ -61,7 +61,7 @@ public final class WorkerLifecycle {
             try {
                 HeartbeatResponse heartbeat = api.heartbeat();
                 if (heartbeat.heartbeatIntervalSeconds() < 1
-                        || heartbeat.staleAfterSeconds() < heartbeat.heartbeatIntervalSeconds() * 2) {
+                        || heartbeat.staleAfterSeconds() / 2 < heartbeat.heartbeatIntervalSeconds()) {
                     err.println("Backend returned invalid worker heartbeat timing; stopping.");
                     return 5;
                 }
@@ -77,7 +77,7 @@ public final class WorkerLifecycle {
                         } catch (Exception e) {
                             // The handler owns execution-specific failure reporting. Do not claim
                             // another job in a tight loop after an unexpected handler failure.
-                            System.err.println("Worker job handler failed: " + safeMessage(e));
+                            err.println("Worker job handler failed: " + safeMessage(e));
                             return 5;
                         }
                         nextDelay = Duration.ZERO;
@@ -89,7 +89,7 @@ public final class WorkerLifecycle {
                 }
                 backoff = INITIAL_BACKOFF;
             } catch (WorkerApiException.Unauthorized e) {
-                System.err.println("The backend rejected this worker's key. The worker may have been revoked.");
+                err.println("The backend rejected this worker's key. The worker may have been revoked.");
                 return 4;
             } catch (WorkerApiException.RateLimited e) {
                 nextDelay = e.retryAfter().filter(d -> !d.isZero()).orElse(backoff);
@@ -99,7 +99,7 @@ public final class WorkerLifecycle {
                     nextDelay = backoff;
                     backoff = nextBackoff(backoff);
                 } else {
-                    System.err.println("Worker API rejected a request (HTTP " + e.status() + "): " + safeMessage(e));
+                    err.println("Worker API rejected a request (HTTP " + e.status() + "): " + safeMessage(e));
                     return 5;
                 }
             } catch (WorkerTransportException e) {
