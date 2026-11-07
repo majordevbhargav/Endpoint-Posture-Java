@@ -70,13 +70,10 @@ class PowerShellExecutorWindowsTest {
     }
 
     @Test void killsChildProcessEvenWhenParentExitsDuringTimeoutCleanup() throws Exception {
-        Path childScript = scripts.resolve("long-running-child.ps1");
         Path childPidFile = scripts.resolve("child.pid");
-        Files.writeString(childScript, "Start-Sleep -Seconds 60");
-        String childPath = childScript.toString().replace("'", "''");
         String pidPath = childPidFile.toString().replace("'", "''");
         String parent = "Start-Process -FilePath 'powershell.exe' "
-                + "-ArgumentList '-NoProfile -NonInteractive -File \\"" + childPath + "\\"' "
+                + "-ArgumentList '-NoProfile -NonInteractive -Command Start-Sleep -Seconds 60' "
                 + "-PassThru | ForEach-Object { Set-Content -LiteralPath '" + pidPath + "' -Value $_.Id }; "
                 + "Start-Sleep -Seconds 60";
         script(parent);

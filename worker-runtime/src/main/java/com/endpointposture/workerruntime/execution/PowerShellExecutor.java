@@ -13,8 +13,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -134,87 +133,21 @@ public final class PowerShellExecutor {
     }
 
     private static void terminateTree(Process process) {
-        ProcessHandle root = process.toHandle();
-        Map<Long, ProcessHandle> descendants = new LinkedHashMap<>();
-
-        // Keep handles, not just PIDs: after the parent exits, descendants() may no longer
-        // expose children that are still running. Snapshot before and during graceful shutdown.
-        collectDescendants(root, descendants);
-        destroyGracefully(descendants.values());
-        waitForHandles(descendants.values(), 500);
-
-        // A child may have spawned another process while the first snapshot was being stopped.
-        // Capture those descendants while the parent is still available.
-        collectDescendants(root, descendants);
+        // ProcessHandle.descendants() is a point-in-time snapshot. A child that spawns another
+        // process concurrently with termination can escape this snapshot (notably on Windows).
+        // If this becomes a production requirement, use a Windows Job Object to own the full tree.
+        process.toHandle().descendants().sorted(Comparator.comparingLong(ProcessHandle::pid).reversed())
+                .forEach(handle -> { try { handle.destroy(); } catch (RuntimeException ignored) { } });
         process.destroy();
-
         try {
-            process.waitFor(500, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            forceTerminate(descendants.values());
-            process.destroyForcibly();
-            Thread.currentThread().interrupt();
-            return;
-        }
-
-        // Always force any retained descendant that survived the grace period, regardless
-        // of whether the parent exited. Do not make child cleanup conditional on parent state.
-        collectDescendants(root, descendants);
-        forceTerminate(descendants.values());
-        process.destroyForcibly();
-
-        try {
-            process.waitFor(2, TimeUnit.SECONDS);
+            if (!process.waitFor(500, TimeUnit.MILLISECONDS)) {
+                process.toHandle().descendants().forEach(handle -> { try { handle.destroyForcibly(); } catch (RuntimeException ignored) { } });
+                process.destroyForcibly();
+                process.waitFor(2, TimeUnit.SECONDS);
+            }
         } catch (InterruptedException e) {
             process.destroyForcibly();
             Thread.currentThread().interrupt();
-        }
-        waitForHandles(descendants.values(), 2_000);
-    }
-
-    private static void collectDescendants(ProcessHandle root, Map<Long, ProcessHandle> descendants) {
-        try {
-            root.descendants().forEach(handle -> descendants.putIfAbsent(handle.pid(), handle));
-        } catch (RuntimeException ignored) {
-            // Retained handles are still cleaned up even if a later snapshot is unavailable.
-        }
-    }
-
-    private static void destroyGracefully(Iterable<ProcessHandle> handles) {
-        for (ProcessHandle handle : handles) {
-            try {
-                if (handle.isAlive()) handle.destroy();
-            } catch (RuntimeException ignored) {
-                // Continue cleanup for the remaining descendants.
-            }
-        }
-    }
-
-    private static void forceTerminate(Iterable<ProcessHandle> handles) {
-        for (ProcessHandle handle : handles) {
-            try {
-                if (handle.isAlive()) handle.destroyForcibly();
-            } catch (RuntimeException ignored) {
-                // Continue cleanup for the remaining descendants.
-            }
-        }
-    }
-
-    private static void waitForHandles(Iterable<ProcessHandle> handles, long timeoutMillis) {
-        List<CompletableFuture<ProcessHandle>> exits = new ArrayList<>();
-        for (ProcessHandle handle : handles) {
-            try {
-                if (handle.isAlive()) exits.add(handle.onExit());
-            } catch (RuntimeException ignored) {
-                // A process may have exited between isAlive() and onExit().
-            }
-        }
-        if (exits.isEmpty()) return;
-        try {
-            CompletableFuture.allOf(exits.toArray(CompletableFuture[]::new))
-                    .get(timeoutMillis, TimeUnit.MILLISECONDS);
-        } catch (Exception ignored) {
-            // Cleanup is best-effort after force termination; never hide the original job failure.
         }
     }
 }
