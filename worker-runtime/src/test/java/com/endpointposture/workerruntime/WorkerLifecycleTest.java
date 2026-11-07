@@ -1,7 +1,7 @@
 package com.endpointposture.workerruntime;
 
 import com.endpointposture.workerruntime.api.WorkerApiClient;
-import com.endpointposture.workerruntime.api.WorkerApiException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -14,6 +14,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WorkerLifecycleTest {
+    @AfterEach
+    void clearInterruptFlag() {
+        Thread.interrupted();
+    }
+
     private static final String P = "/api/v1/workers";
     private static final String KEY = "epw_lifecycle-test-key";
     private static final String HEARTBEAT =
