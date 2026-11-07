@@ -68,6 +68,34 @@ class PowerShellExecutorWindowsTest {
         assertThrows(IllegalArgumentException.class,()->executor("powershell.exe",4096).resolveApprovedScript("../posture_agent.ps1"));
         assertThrows(java.io.IOException.class,()->executor("no-such-powershell-executable",4096).execute(claimed(Duration.ofMinutes(2)),job(Duration.ofSeconds(20))));
     }
+
+    @Test void killsChildProcessEvenWhenParentExitsDuringTimeoutCleanup() throws Exception {
+        Path childScript = scripts.resolve("long-running-child.ps1");
+        Path childPidFile = scripts.resolve("child.pid");
+        Files.writeString(childScript, "Start-Sleep -Seconds 60");
+        String childPath = childScript.toString().replace("'", "''");
+        String pidPath = childPidFile.toString().replace("'", "''");
+        String parent = "Start-Process -FilePath 'powershell.exe' "
+                + "-ArgumentList '-NoProfile -NonInteractive -File \\"" + childPath + "\\"' "
+                + "-PassThru | ForEach-Object { Set-Content -LiteralPath '" + pidPath + "' -Value $_.Id }; "
+                + "Start-Sleep -Seconds 60";
+        script(parent);
+
+        assertThrows(java.util.concurrent.TimeoutException.class,
+                () -> executor("powershell.exe", 4096).execute(
+                        claimed(Duration.ofMinutes(2)), job(Duration.ofSeconds(3))));
+
+        assertTrue(Files.exists(childPidFile), "parent should have recorded the child PID before timeout");
+        long childPid = Long.parseLong(Files.readString(childPidFile).trim());
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false)
+                && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
+        assertFalse(ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false),
+                "child PowerShell process must not survive parent timeout cleanup");
+    }
+
     @Test void rejectsMalformedAndMismatchedResultJson() throws Exception {
         script("Write-Output 'RESULT_JSON:not-json'");
         assertThrows(java.io.IOException.class,()->executor("powershell.exe",4096).execute(claimed(Duration.ofMinutes(2)),job(Duration.ofSeconds(20))));
