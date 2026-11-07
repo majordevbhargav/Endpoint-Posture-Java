@@ -22,9 +22,12 @@ After enrollment the token is no longer needed. Remove `EP_ENROLLMENT_TOKEN` aft
 
 ## Security notes
 - The key is DPAPI-protected (current user). Run the worker as the same Windows account that enrolled.
-- Restrict the state directory's ACL to that account.
+- Credential state files are limited to 64 KiB; symlink and non-regular state paths are rejected.
+- DPAPI subprocess input is limited to 16 KiB; captured stdout and stderr are limited to 64 KiB and 16 KiB.
+- Worker API response bodies are limited to 1 MiB.
+- Restrict the state directory's ACL to the Windows service account during installation (PR6.5).
 - The key is only ever sent to the origin it enrolled with; a different `EP_BACKEND_URL` is refused.
 - HTTP redirects are never followed.
 - If enrollment succeeds but the key cannot be saved, the token is spent: an admin must revoke the worker and issue a new token.
 
-For local development only, `http://127.0.0.1` and `http://localhost` are accepted. Non-loopback backends must use HTTPS. Restrict the state directory ACL to the Windows service account during installation (PR6.5).
+For local development only, `http://127.0.0.1` and `http://localhost` are accepted. Non-loopback backends must use HTTPS.
