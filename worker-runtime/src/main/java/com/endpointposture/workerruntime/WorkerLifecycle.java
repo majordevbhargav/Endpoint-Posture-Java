@@ -6,6 +6,7 @@ import com.endpointposture.workerruntime.api.WorkerApiClient;
 import com.endpointposture.workerruntime.api.WorkerApiException;
 import com.endpointposture.workerruntime.api.WorkerTransportException;
 
+import java.io.PrintStream;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -32,12 +33,14 @@ public final class WorkerLifecycle {
     private final WorkerApiClient api;
     private final JobHandler jobHandler;
     private final Sleeper sleeper;
+    private final PrintStream err;
     private final AtomicBoolean stopping = new AtomicBoolean();
 
-    public WorkerLifecycle(WorkerApiClient api, JobHandler jobHandler, Sleeper sleeper) {
+    public WorkerLifecycle(WorkerApiClient api, JobHandler jobHandler, Sleeper sleeper, PrintStream err) {
         this.api = api;
         this.jobHandler = jobHandler;
         this.sleeper = sleeper;
+        this.err = err;
     }
 
     /** Returns 0 for an orderly stop, 4 for revoked credentials, and 5 for a permanent API error. */
@@ -59,7 +62,7 @@ public final class WorkerLifecycle {
                 HeartbeatResponse heartbeat = api.heartbeat();
                 if (heartbeat.heartbeatIntervalSeconds() < 1
                         || heartbeat.staleAfterSeconds() < heartbeat.heartbeatIntervalSeconds() * 2) {
-                    System.err.println("Backend returned invalid worker heartbeat timing; stopping.");
+                    err.println("Backend returned invalid worker heartbeat timing; stopping.");
                     return 5;
                 }
 
