@@ -81,9 +81,11 @@ class PowerShellExecutorWindowsTest {
                 + "Start-Sleep -Milliseconds 250; exit 0";
         script(parent);
 
-        assertThrows(java.io.IOException.class,
+        java.io.IOException captureFailure = assertThrows(java.io.IOException.class,
                 () -> executor("powershell.exe", 4096).execute(
                         claimed(Duration.ofMinutes(2)), job(Duration.ofSeconds(20))));
+        assertTrue(captureFailure.getMessage().contains("output streams remained open"),
+                "the child must keep the inherited output pipes open after the parent exits");
 
         assertTrue(Files.exists(childPidFile), "parent must record child PID before exiting");
         long childPid = Long.parseLong(Files.readString(childPidFile).trim());
