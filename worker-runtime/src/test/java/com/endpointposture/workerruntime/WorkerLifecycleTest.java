@@ -109,7 +109,7 @@ class WorkerLifecycleTest {
                     new String[]{"{\"message\":\"slow down\"}", ""});
             // The first delay is exactly the server minimum when random=0; the next is normal cadence.
             List<Duration> sleeps = new ArrayList<>();
-            int exit = lifecycle(server, null, delay -> {
+            int exit = lifecycle(server, job -> fail("204 should not dispatch a job"), delay -> {
                 sleeps.add(delay);
                 if (sleeps.size() == 2) throw new InterruptedException("stop");
             }, new ByteArrayOutputStream(), () -> 0.0).run();
@@ -118,6 +118,40 @@ class WorkerLifecycleTest {
             assertEquals(Duration.ofSeconds(30), sleeps.get(1));
             assertTrue(sleeps.get(0).compareTo(Duration.ofSeconds(7)) >= 0);
             assertTrue(sleeps.get(0).compareTo(Duration.ofSeconds(9)) <= 0);
+        }
+    }
+
+    @Test
+    void exponentialBackoffUsesInjectedEqualJitter() throws Exception {
+        for (double random : new double[]{0.0, 1.0}) {
+            try (TestServer server = new TestServer()) {
+                server.onSequence(P + "/heartbeat", new int[]{503, 200},
+                        new String[]{ERROR, HEARTBEAT});
+                List<Duration> sleeps = new ArrayList<>();
+                int exit = lifecycle(server, null, delay -> {
+                    sleeps.add(delay);
+                    if (sleeps.size() == 2) throw new InterruptedException("stop");
+                }, new ByteArrayOutputStream(), () -> random).run();
+
+                assertEquals(0, exit);
+                assertEquals(random == 0.0 ? Duration.ofMillis(500) : Duration.ofSeconds(1), sleeps.get(0));
+            }
+        }
+    }
+
+    @Test
+    void excessivelyLargeRetryAfterIsCappedAtFiveMinutes() throws Exception {
+        try (TestServer server = new TestServer()) {
+            server.on(P + "/heartbeat", 429, ERROR,
+                    Map.of("Retry-After", Long.toString(Long.MAX_VALUE)));
+            List<Duration> sleeps = new ArrayList<>();
+            int exit = lifecycle(server, null, delay -> {
+                sleeps.add(delay);
+                throw new InterruptedException("stop");
+            }, new ByteArrayOutputStream(), () -> 1.0).run();
+
+            assertEquals(0, exit);
+            assertEquals(List.of(Duration.ofMinutes(5)), sleeps);
         }
     }
 
