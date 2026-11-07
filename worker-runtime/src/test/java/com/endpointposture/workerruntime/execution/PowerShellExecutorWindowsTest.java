@@ -69,28 +69,31 @@ class PowerShellExecutorWindowsTest {
         assertThrows(java.io.IOException.class,()->executor("no-such-powershell-executable",4096).execute(claimed(Duration.ofMinutes(2)),job(Duration.ofSeconds(20))));
     }
 
-    @Test void killsChildProcessEvenWhenParentExitsDuringTimeoutCleanup() throws Exception {
-        Path childPidFile = scripts.resolve("child.pid");
+    @Test void killsChildThatKeepsOutputPipesOpenAfterParentExits() throws Exception {
+        Path childPidFile = scripts.resolve("orphan-child.pid");
         String pidPath = childPidFile.toString().replace("'", "''");
-        String parent = "Start-Process -FilePath 'powershell.exe' "
-                + "-ArgumentList '-NoProfile -NonInteractive -Command Start-Sleep -Seconds 60' "
-                + "-PassThru | ForEach-Object { Set-Content -LiteralPath '" + pidPath + "' -Value $_.Id }; "
-                + "Start-Sleep -Seconds 60";
+        String parent = "$psi = New-Object System.Diagnostics.ProcessStartInfo; "
+                + "$psi.FileName = 'powershell.exe'; "
+                + "$psi.Arguments = '-NoProfile -NonInteractive -Command Start-Sleep -Seconds 60'; "
+                + "$psi.UseShellExecute = $false; "
+                + "$child = [System.Diagnostics.Process]::Start($psi); "
+                + "Set-Content -LiteralPath '" + pidPath + "' -Value $child.Id; "
+                + "exit 0";
         script(parent);
 
-        assertThrows(java.util.concurrent.TimeoutException.class,
+        assertThrows(java.io.IOException.class,
                 () -> executor("powershell.exe", 4096).execute(
-                        claimed(Duration.ofMinutes(2)), job(Duration.ofSeconds(3))));
+                        claimed(Duration.ofMinutes(2)), job(Duration.ofSeconds(20))));
 
-        assertTrue(Files.exists(childPidFile), "parent should have recorded the child PID before timeout");
+        assertTrue(Files.exists(childPidFile), "parent must record child PID before exiting");
         long childPid = Long.parseLong(Files.readString(childPidFile).trim());
-        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        long deadline = System.nanoTime() + Duration.ofSeconds(8).toNanos();
         while (ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false)
                 && System.nanoTime() < deadline) {
             Thread.sleep(50);
         }
         assertFalse(ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false),
-                "child PowerShell process must not survive parent timeout cleanup");
+                "child process must be terminated after parent exits and output capture times out");
     }
 
     @Test void rejectsMalformedAndMismatchedResultJson() throws Exception {

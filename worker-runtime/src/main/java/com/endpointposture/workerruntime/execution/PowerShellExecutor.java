@@ -15,6 +15,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Collection;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -57,27 +59,38 @@ public final class PowerShellExecutor {
             throw new IOException("Could not start configured PowerShell executable", e);
         }
 
+        var descendants = new ConcurrentHashMap<Long, ProcessHandle>();
         try (var readers = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            CompletableFuture<Void> descendantTracker = CompletableFuture.runAsync(
+                    () -> trackDescendants(process, descendants), readers);
             CompletableFuture<Captured> stdout = CompletableFuture.supplyAsync(
                     () -> capture(process.getInputStream(), config.maxOutputBytes()), readers);
             CompletableFuture<Captured> stderr = CompletableFuture.supplyAsync(
                     () -> capture(process.getErrorStream(), config.maxOutputBytes()), readers);
             boolean exited = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
             if (!exited) {
-                terminateTree(process);
+                terminateTree(process, descendants.values());
                 throw new java.util.concurrent.TimeoutException("PowerShell job exceeded its execution/lease deadline");
             }
-            Captured out = stdout.get(5, TimeUnit.SECONDS);
-            Captured err = stderr.get(5, TimeUnit.SECONDS);
+            Captured out;
+            Captured err;
+            try {
+                out = stdout.get(5, TimeUnit.SECONDS);
+                err = stderr.get(5, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException captureTimeout) {
+                terminateTree(process, descendants.values());
+                throw new IOException("PowerShell output streams remained open after the parent process exited", captureTimeout);
+            }
             // A valid partial report is retained even when collection exits non-zero.
             JsonNode result = parseResult(out.text(), job.jobId(), job.jobType());
             return new ExecutionResult(process.exitValue(), result, out.truncated(), err.truncated());
         } catch (InterruptedException e) {
-            terminateTree(process);
+            terminateTree(process, descendants.values());
             Thread.currentThread().interrupt();
             throw e;
         } finally {
-            if (process.isAlive()) terminateTree(process);
+            if (process.isAlive() || descendants.values().stream().anyMatch(ProcessHandle::isAlive))
+                terminateTree(process, descendants.values());
         }
     }
 
@@ -132,20 +145,47 @@ public final class PowerShellExecutor {
         }
     }
 
-    private static void terminateTree(Process process) {
-        // ProcessHandle.descendants() is a point-in-time snapshot. A child that spawns another
-        // process concurrently with termination can escape this snapshot (notably on Windows).
-        // If this becomes a production requirement, use a Windows Job Object to own the full tree.
-        process.toHandle().descendants().sorted(Comparator.comparingLong(ProcessHandle::pid).reversed())
-                .forEach(handle -> { try { handle.destroy(); } catch (RuntimeException ignored) { } });
-        process.destroy();
+    private static void trackDescendants(Process process, ConcurrentHashMap<Long, ProcessHandle> descendants) {
+        ProcessHandle parent = process.toHandle();
+        while (process.isAlive()) {
+            try {
+                parent.descendants().forEach(handle -> descendants.put(handle.pid(), handle));
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (RuntimeException ignored) {
+                // A process can exit while the snapshot is being collected.
+            }
+        }
+        // Take one final snapshot before the tracker exits; previously observed handles remain retained.
+        try { parent.descendants().forEach(handle -> descendants.put(handle.pid(), handle)); }
+        catch (RuntimeException ignored) { }
+    }
+
+    private static void terminateTree(Process process, Collection<ProcessHandle> retainedDescendants) {
+        // Retain handles observed while the parent is alive. descendants() is only a snapshot and
+        // can become empty as soon as the parent exits, even while an inherited-pipe child survives.
+        ConcurrentHashMap<Long, ProcessHandle> targets = new ConcurrentHashMap<>();
+        retainedDescendants.forEach(handle -> targets.put(handle.pid(), handle));
         try {
-            if (!process.waitFor(500, TimeUnit.MILLISECONDS)) {
-                process.toHandle().descendants().forEach(handle -> { try { handle.destroyForcibly(); } catch (RuntimeException ignored) { } });
+            process.toHandle().descendants().forEach(handle -> targets.put(handle.pid(), handle));
+        } catch (RuntimeException ignored) { }
+        targets.values().stream().sorted(Comparator.comparingLong(ProcessHandle::pid).reversed())
+                .forEach(handle -> { try { if (handle.isAlive()) handle.destroy(); } catch (RuntimeException ignored) { } });
+        if (process.isAlive()) process.destroy();
+        try {
+            if (process.isAlive()) process.waitFor(500, TimeUnit.MILLISECONDS);
+            // Always force retained descendants after the grace period, regardless of parent state.
+            targets.values().forEach(handle -> {
+                try { if (handle.isAlive()) handle.destroyForcibly(); } catch (RuntimeException ignored) { }
+            });
+            if (process.isAlive()) {
                 process.destroyForcibly();
                 process.waitFor(2, TimeUnit.SECONDS);
             }
         } catch (InterruptedException e) {
+            targets.values().forEach(handle -> { try { if (handle.isAlive()) handle.destroyForcibly(); } catch (RuntimeException ignored) { } });
             process.destroyForcibly();
             Thread.currentThread().interrupt();
         }
