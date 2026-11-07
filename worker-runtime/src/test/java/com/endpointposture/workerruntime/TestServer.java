@@ -54,19 +54,56 @@ public final class TestServer implements AutoCloseable {
 
 
     public void onSequence(String path, int[] statuses, String body) {
+        String[] bodies = new String[statuses.length];
+        java.util.Arrays.fill(bodies, body);
+        onSequence(path, statuses, bodies);
+    }
+
+    public void onSequence(String path, int[] statuses, String[] bodies) {
+        if (statuses.length == 0 || statuses.length != bodies.length)
+            throw new IllegalArgumentException("statuses and bodies must have the same non-zero length");
         AtomicInteger index = new AtomicInteger();
         server.createContext(path, ex -> {
             String reqBody = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             requests.add(new Recorded(ex.getRequestMethod(), ex.getRequestURI().getPath(),
                     ex.getRequestHeaders().getFirst("X-Worker-Key"), reqBody));
-            int status = statuses[Math.min(index.getAndIncrement(), statuses.length - 1)];
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            int i = Math.min(index.getAndIncrement(), statuses.length - 1);
+            int status = statuses[i];
+            byte[] bytes = bodies[i].getBytes(StandardCharsets.UTF_8);
             ex.getResponseHeaders().add("Content-Type", "application/json");
-            ex.sendResponseHeaders(status, bytes.length);
-            try (OutputStream os = ex.getResponseBody()) {
-                os.write(bytes);
+            if (status == 204 || status == 304 || bytes.length == 0) {
+                ex.sendResponseHeaders(status, -1);
+            } else {
+                ex.sendResponseHeaders(status, bytes.length);
+                try (OutputStream os = ex.getResponseBody()) {
+                    os.write(bytes);
+                }
             }
             ex.close();
+        });
+    }
+
+    public void onBlocking(String path, int status, String body,
+                           java.util.concurrent.CountDownLatch entered,
+                           java.util.concurrent.CountDownLatch release) {
+        server.createContext(path, ex -> {
+            String reqBody = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            requests.add(new Recorded(ex.getRequestMethod(), ex.getRequestURI().getPath(),
+                    ex.getRequestHeaders().getFirst("X-Worker-Key"), reqBody));
+            entered.countDown();
+            try {
+                release.await();
+                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                ex.getResponseHeaders().add("Content-Type", "application/json");
+                ex.sendResponseHeaders(status, bytes.length);
+                try (OutputStream os = ex.getResponseBody()) {
+                    os.write(bytes);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                ex.close();
+            }
         });
     }
 
