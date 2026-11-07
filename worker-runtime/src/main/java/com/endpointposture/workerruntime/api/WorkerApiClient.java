@@ -6,10 +6,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -19,11 +22,14 @@ import java.util.UUID;
 
 /**
  * Typed client for /api/v1/workers/**. Redirects are never followed, so the key cannot be
- * forwarded to another host. Exceptions never include the key or request bodies.
+ * forwarded to another host. Response bodies are size-limited and exceptions never include keys.
  */
 public final class WorkerApiClient {
     public static final String KEY_HEADER = "X-Worker-Key";
     private static final String BASE_PATH = "/api/v1/workers";
+    private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
+
+    private record ApiResponse(int statusCode, HttpHeaders headers, String body) {}
 
     private final HttpClient http;
     private final URI base;
@@ -52,21 +58,21 @@ public final class WorkerApiClient {
     }
 
     public Enrolled enroll(String token) {
-        HttpResponse<String> res = send(post("/enroll", Map.of("token", token), false));
+        ApiResponse res = send(post("/enroll", Map.of("token", token), false));
         if (res.statusCode() == 401) throw new WorkerApiException.EnrollmentRejected(message(res));
         check(res);
         return read(res, Enrolled.class);
     }
 
     public HeartbeatResponse heartbeat() {
-        HttpResponse<String> res = send(post("/heartbeat", null, true));
+        ApiResponse res = send(post("/heartbeat", null, true));
         check(res);
         return read(res, HeartbeatResponse.class);
     }
 
     /** @return the claimed job, or empty when nothing is eligible (204) */
     public Optional<ClaimedJob> claim() {
-        HttpResponse<String> res = send(post("/jobs/claim", null, true));
+        ApiResponse res = send(post("/jobs/claim", null, true));
         if (res.statusCode() == 204) return Optional.empty();
         check(res);
         return Optional.of(read(res, ClaimedJob.class));
@@ -81,7 +87,7 @@ public final class WorkerApiClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("attempt", attempt);
         if (extensionSeconds != null) body.put("extensionSeconds", extensionSeconds);
-        HttpResponse<String> res = send(post("/jobs/" + jobId + "/lease/renew", body, true));
+        ApiResponse res = send(post("/jobs/" + jobId + "/lease/renew", body, true));
         check(res);
         try {
             JsonNode expiry = mapper.readTree(res.body()).get("leaseExpiresAt");
@@ -122,19 +128,27 @@ public final class WorkerApiClient {
         return b.build();
     }
 
-    private HttpResponse<String> send(HttpRequest request) {
+    private ApiResponse send(HttpRequest request) {
         try {
-            return http.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream body = response.body()) {
+                byte[] bytes = body.readNBytes(MAX_RESPONSE_BYTES + 1);
+                if (bytes.length > MAX_RESPONSE_BYTES)
+                    throw new WorkerTransportException("Worker API response exceeded the maximum allowed size of "
+                            + MAX_RESPONSE_BYTES + " bytes");
+                return new ApiResponse(response.statusCode(), response.headers(),
+                        new String(bytes, StandardCharsets.UTF_8));
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new WorkerTransportException("Interrupted while calling the worker API", e);
         } catch (IOException e) {
-            throw new WorkerTransportException("Cannot reach " + base + ": " + e.getClass().getSimpleName()
-                    + (e.getMessage() == null ? "" : ": " + e.getMessage()), e);
+            throw new WorkerTransportException("Cannot read response from " + base + ": "
+                    + e.getClass().getSimpleName(), e);
         }
     }
 
-    private void check(HttpResponse<String> res) {
+    private void check(ApiResponse res) {
         int s = res.statusCode();
         if (s / 100 == 2) return;
         String msg = message(res);
@@ -146,7 +160,7 @@ public final class WorkerApiClient {
         };
     }
 
-    private <T> T read(HttpResponse<String> res, Class<T> type) {
+    private <T> T read(ApiResponse res, Class<T> type) {
         try {
             return mapper.readValue(res.body(), type);
         } catch (JsonProcessingException e) {
@@ -154,7 +168,7 @@ public final class WorkerApiClient {
         }
     }
 
-    private String message(HttpResponse<String> res) {
+    private String message(ApiResponse res) {
         String body = res.body() == null ? "" : res.body().trim();
         String text = body;
         if (body.startsWith("{")) {
@@ -169,7 +183,7 @@ public final class WorkerApiClient {
         return text.length() > 200 ? text.substring(0, 200) : text;
     }
 
-    private static Duration retryAfter(HttpResponse<String> res) {
+    private static Duration retryAfter(ApiResponse res) {
         return res.headers().firstValue("Retry-After").map(v -> {
             try {
                 return Duration.ofSeconds(Math.max(0, Long.parseLong(v.trim())));
