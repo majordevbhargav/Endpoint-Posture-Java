@@ -23,7 +23,7 @@ class WorkerMainTest {
     private final ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
 
     private int run(Map<String, String> env) {
-        return WorkerMain.run(env, new PrintStream(outBuf), new PrintStream(errBuf), new FakeProtector());
+        return WorkerMain.run(env, new PrintStream(outBuf), new PrintStream(errBuf), new FakeProtector(), duration -> { throw new InterruptedException("test shutdown"); });
     }
 
     private Map<String, String> env(TestServer s, String token) {
@@ -87,13 +87,13 @@ class WorkerMainTest {
     }
 
     @Test
-    void anUnreachableBackendDuringHeartbeatExits5() throws Exception {
+    void anUnreachableBackendRetriesUntilTheWorkerIsStopped() throws Exception {
         Map<String, String> env;
         try (TestServer s = new TestServer()) {
             stubHappyPath(s);
             assertEquals(0, run(env(s, "ept_tok")));
             env = env(s, null);
         }
-        assertEquals(5, run(env));
+        assertEquals(0, run(env));
     }
 }
