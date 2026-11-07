@@ -104,7 +104,6 @@ public final class WorkerLifecycle {
                 backoff = nextBackoff(backoff);
             }
         }
-        return 0;
     }
 
     private static Duration nextBackoff(Duration current) {
