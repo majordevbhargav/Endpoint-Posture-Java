@@ -60,6 +60,10 @@ public final class TestServer implements AutoCloseable {
     }
 
     public void onSequence(String path, int[] statuses, String[] bodies) {
+        onSequence(path, statuses, bodies, Map.of());
+    }
+
+    public void onSequence(String path, int[] statuses, String[] bodies, Map<String, String> headers) {
         if (statuses.length == 0 || statuses.length != bodies.length)
             throw new IllegalArgumentException("statuses and bodies must have the same non-zero length");
         AtomicInteger index = new AtomicInteger();
@@ -70,6 +74,7 @@ public final class TestServer implements AutoCloseable {
             int i = Math.min(index.getAndIncrement(), statuses.length - 1);
             int status = statuses[i];
             byte[] bytes = bodies[i].getBytes(StandardCharsets.UTF_8);
+            headers.forEach((k, v) -> ex.getResponseHeaders().add(k, v));
             ex.getResponseHeaders().add("Content-Type", "application/json");
             if (status == 204 || status == 304 || bytes.length == 0) {
                 ex.sendResponseHeaders(status, -1);
