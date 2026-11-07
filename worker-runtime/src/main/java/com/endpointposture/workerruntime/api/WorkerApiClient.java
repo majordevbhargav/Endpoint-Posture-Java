@@ -135,7 +135,7 @@ public final class WorkerApiClient {
                 byte[] bytes = body.readNBytes(MAX_RESPONSE_BYTES + 1);
                 if (bytes.length > MAX_RESPONSE_BYTES)
                     throw new WorkerTransportException("Worker API response exceeded the maximum allowed size of "
-                            + MAX_RESPONSE_BYTES + " bytes");
+                            + MAX_RESPONSE_BYTES + " bytes", new IOException("response size limit exceeded"));
                 return new ApiResponse(response.statusCode(), response.headers(),
                         new String(bytes, StandardCharsets.UTF_8));
             }
