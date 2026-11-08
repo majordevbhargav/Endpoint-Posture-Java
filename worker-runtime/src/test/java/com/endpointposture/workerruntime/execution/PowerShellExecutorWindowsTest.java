@@ -32,7 +32,8 @@ class PowerShellExecutorWindowsTest {
     private String envelope(String outcome,String payload) {
         return "{\"schemaVersion\":1,\"jobId\":\""+ID+"\",\"jobType\":\"HARDWARE_CHECK\","
                 + "\"collectionOutcome\":\""+outcome+"\",\"reportPayload\":"+payload+","
-                + "\"errors\":[\"collection warning\"],\"warnings\":[]}";
+                + "\"errors\":" + ("PARTIAL".equals(outcome) ? "[\"collection warning\"]" : "FAILED".equals(outcome) ? "[\"collection failed\"]" : "[]")
+                + ",\"warnings\":[]}";
     }
     private void script(String source) throws Exception {
         Files.writeString(scripts.resolve("hardware_health_agent.ps1"),source);

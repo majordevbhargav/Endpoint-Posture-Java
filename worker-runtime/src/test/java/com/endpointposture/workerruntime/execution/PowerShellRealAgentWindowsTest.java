@@ -91,8 +91,33 @@ class PowerShellRealAgentWindowsTest {
             // The complete nested payload must survive JSON serialization and reparsing.
             JsonNode roundTrip=JSON.readTree(JSON.writeValueAsBytes(envelope));
             assertEquals(payload,roundTrip.path("reportPayload"),agent.file());
-            assertTrue(process.exitValue()==0 || "FAILED".equals(envelope.path("collectionOutcome").asText()),agent.file()+" exit="+process.exitValue()+" output="+output);
+            int exitCode = process.exitValue();
+            String outcome = envelope.path("collectionOutcome").asText();
+            assertTrue(exitCode >= 0, agent.file() + " returned a negative process exit code");
+            switch (outcome) {
+                case "SUCCESS" -> {
+                    assertEquals(0, exitCode, agent.file() + " SUCCESS must exit zero");
+                    assertTrue(envelope.path("errors").isEmpty(), agent.file() + " SUCCESS must not contain errors");
+                }
+                case "PARTIAL" -> assertTrue(
+                        hasNonBlankDiagnostic(envelope.path("errors")) || hasNonBlankDiagnostic(envelope.path("warnings")),
+                        agent.file() + " PARTIAL must explain incomplete collection");
+                case "FAILED" -> {
+                    assertTrue(exitCode > 0, agent.file() + " FAILED must exit non-zero");
+                    assertTrue(hasNonBlankDiagnostic(envelope.path("errors")),
+                            agent.file() + " FAILED must contain a non-blank error");
+                }
+                default -> fail(agent.file() + " returned an unsupported collection outcome: " + outcome);
+            }
         }
+    }
+
+    private static boolean hasNonBlankDiagnostic(JsonNode values) {
+        if (!values.isArray()) return false;
+        for (JsonNode value : values) {
+            if (value.isTextual() && !value.asText().isBlank()) return true;
+        }
+        return false;
     }
 
     private static String readWithTimeout(Process process,long seconds) throws Exception {
