@@ -1316,8 +1316,41 @@ if ($OutputOnly) {
     $Errors = @()
     $Warnings = @()
     if (-not $CollectionSucceeded -and $Detail) { $Errors += [string]$Detail }
-    if ($AppCollectionError) { $Warnings += [string]$AppCollectionError }
-    $Outcome = if (-not $CollectionSucceeded) { "FAILED" } elseif ($AllCheckStatuses -contains "ERROR") { "PARTIAL" } else { "SUCCESS" }
+
+    # Preserve actionable diagnostics for every check that could not be
+    # evaluated. In particular, firewall, open-port and application ERROR
+    # states must not collapse into an unexplained PARTIAL envelope.
+    $CheckErrorDiagnostics = @(
+        $AllChecks |
+        Where-Object { $_.status -eq "ERROR" } |
+        ForEach-Object {
+            $Summary = [string]$_.details.summary
+            if ([string]::IsNullOrWhiteSpace($Summary)) {
+                "$($_.checkType): check returned ERROR without diagnostic details."
+            }
+            else {
+                "$($_.checkType): $Summary"
+            }
+        }
+    )
+    $Warnings += $CheckErrorDiagnostics
+
+    $Outcome = if (-not $CollectionSucceeded) {
+        "FAILED"
+    }
+    elseif ($AllCheckStatuses -contains "ERROR") {
+        "PARTIAL"
+    }
+    else {
+        "SUCCESS"
+    }
+
+    if ($Outcome -eq "PARTIAL" -and
+        -not (@($Errors) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -and
+        -not (@($Warnings) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })) {
+        $Warnings += "PARTIAL posture result had no check-level diagnostic; inspect reportPayload.checks for ERROR states."
+    }
+
     Write-WorkerOutputEnvelope "POSTURE_CHECK" $Outcome $PayloadObject $Errors $Warnings
     if (-not $CollectionSucceeded) { exit 1 } else { exit 0 }
 }
