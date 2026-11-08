@@ -123,13 +123,17 @@ class WorkerJobResultReceiptTest {
                 WorkerResultRequest.CollectionOutcome.PARTIAL, payload,
                 List.of("One source failed"), List.of(), 0));
         assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.PARTIAL, payload, List.of(),
+                List.of("PowerShell reported partial collection"), 7));
+        assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.PARTIAL, payload,
+                List.of("One source failed"), List.of(), 7));
+        assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
                 WorkerResultRequest.CollectionOutcome.FAILED, payload,
                 List.of("PowerShell exited with code 1"), List.of(), 1));
 
         assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
                 WorkerResultRequest.CollectionOutcome.SUCCESS, payload, List.of(), List.of(), 2));
-        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
-                WorkerResultRequest.CollectionOutcome.PARTIAL, payload, List.of(), List.of("degraded"), 1));
         assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
                 WorkerResultRequest.CollectionOutcome.FAILED, payload, List.of("failed"), List.of(), 0));
         assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,

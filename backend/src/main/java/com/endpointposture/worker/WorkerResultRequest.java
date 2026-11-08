@@ -76,7 +76,7 @@ public record WorkerResultRequest(
         boolean hasWarning = warnings.stream().anyMatch(value -> value != null && !value.isBlank());
         return switch (collectionOutcome) {
             case SUCCESS -> processExitCode == 0 && errors.isEmpty();
-            case PARTIAL -> processExitCode == 0 && (hasError || hasWarning);
+            case PARTIAL -> (hasError || hasWarning);
             case FAILED -> processExitCode > 0 && hasError;
         };
     }

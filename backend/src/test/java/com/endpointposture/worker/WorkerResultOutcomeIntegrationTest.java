@@ -107,6 +107,44 @@ class WorkerResultOutcomeIntegrationTest {
         assertTrue(detail.contains("One optional check was unavailable"));
     }
 
+
+    @Test
+    void acceptsPartialResultsWhenPowerShellExitsNonZero() throws Exception {
+        WorkerRegistryService.Enrolled worker = enroll("worker-partial-exit-seven", "partial-exit-seven");
+
+        UUID warningEndpoint = endpoint();
+        UUID warningJob = job(warningEndpoint, "partial-exit-seven", JobType.POSTURE_CHECK);
+        int warningAttempt = jobService.claimNextJobInShard(
+                worker.workerId().toString(), "partial-exit-seven", Duration.ofMinutes(5))
+                .orElseThrow().getAttemptCount();
+        ObjectNode warningResult = envelope(warningAttempt, JobType.POSTURE_CHECK,
+                "PARTIAL", payloadFor(JobType.POSTURE_CHECK));
+        warningResult.putArray("warnings").add("PowerShell exited 7 after producing partial evidence");
+        warningResult.put("processExitCode", 7);
+        assertEquals(200, submit(warningJob, worker.apiKey(), warningResult).getResponse().getStatus());
+        assertEquals("COMPLETE", jdbc.queryForObject(
+                "SELECT status FROM posture_job WHERE id = ?", String.class, warningJob));
+        assertEquals("PARTIAL", jdbc.queryForObject(
+                "SELECT collection_outcome FROM worker_job_result_receipt WHERE job_id = ?",
+                String.class, warningJob));
+
+        UUID errorEndpoint = endpoint();
+        UUID errorJob = job(errorEndpoint, "partial-exit-seven", JobType.POSTURE_CHECK);
+        int errorAttempt = jobService.claimNextJobInShard(
+                worker.workerId().toString(), "partial-exit-seven", Duration.ofMinutes(5))
+                .orElseThrow().getAttemptCount();
+        ObjectNode errorResult = envelope(errorAttempt, JobType.POSTURE_CHECK,
+                "PARTIAL", payloadFor(JobType.POSTURE_CHECK));
+        errorResult.putArray("errors").add("A collection stage failed after partial evidence was produced");
+        errorResult.put("processExitCode", 7);
+        assertEquals(200, submit(errorJob, worker.apiKey(), errorResult).getResponse().getStatus());
+        assertEquals("COMPLETE", jdbc.queryForObject(
+                "SELECT status FROM posture_job WHERE id = ?", String.class, errorJob));
+        assertEquals("PARTIAL", jdbc.queryForObject(
+                "SELECT collection_outcome FROM worker_job_result_receipt WHERE job_id = ?",
+                String.class, errorJob));
+    }
+
     @Test
     void failedResultWritesFailureEvidenceAndUsesExistingRetryPolicy() throws Exception {
         WorkerRegistryService.Enrolled worker = enroll("worker-failed", "failed");

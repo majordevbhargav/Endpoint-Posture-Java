@@ -195,8 +195,6 @@ class WorkerResultDeliveryTest {
     void rejectsContradictoryExitCodesAndCollectionDiagnosticsBeforeAnyWrites() throws Exception {
         java.util.List<java.util.function.Consumer<ObjectNode>> invalidEnvelopes = java.util.List.of(
                 body -> body.put("processExitCode", 2),
-                body -> { body.put("collectionOutcome", "PARTIAL"); body.put("processExitCode", 1);
-                    body.putArray("warnings").add("degraded"); },
                 body -> { body.put("collectionOutcome", "FAILED"); body.put("processExitCode", 0);
                     body.putArray("errors").add("failed"); },
                 body -> { body.put("collectionOutcome", "FAILED"); body.put("processExitCode", 1); },
