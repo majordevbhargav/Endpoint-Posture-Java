@@ -129,7 +129,7 @@ class WorkerJobResultReceiptTest {
                 WorkerResultRequest.CollectionOutcome.PARTIAL, payload,
                 List.of("One source failed"), List.of(), 7));
         assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
-                WorkerResultRequest.CollectionOutcome.FAILED, payload,
+                WorkerResultRequest.CollectionOutcome.FAILED, mapper.nullNode(),
                 List.of("PowerShell exited with code 1"), List.of(), 1));
         assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
                 WorkerResultRequest.CollectionOutcome.FAILED, mapper.nullNode(),
