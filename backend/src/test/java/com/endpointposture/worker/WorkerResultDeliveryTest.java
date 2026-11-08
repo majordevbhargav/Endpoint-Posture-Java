@@ -83,7 +83,7 @@ class WorkerResultDeliveryTest {
         reordered.set("reportPayload", reversed);
 
         ObjectNode changedPayload = request(attempt, payload(macFor(spoofedEndpointId)));
-        changedPayload.get("reportPayload").put("hostname", "different-host");
+        ((ObjectNode) changedPayload.get("reportPayload")).put("hostname", "different-host");
         assertEquals(409, submit(jobId, worker.apiKey(), changedPayload).getResponse().getStatus());
 
         MvcResult duplicate = submit(jobId, worker.apiKey(), reordered);
