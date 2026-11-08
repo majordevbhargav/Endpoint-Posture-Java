@@ -131,6 +131,9 @@ class WorkerJobResultReceiptTest {
         assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
                 WorkerResultRequest.CollectionOutcome.FAILED, payload,
                 List.of("PowerShell exited with code 1"), List.of(), 1));
+        assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.FAILED, mapper.nullNode(),
+                List.of("PowerShell exited with code 1"), List.of(), 1));
 
         assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
                 WorkerResultRequest.CollectionOutcome.SUCCESS, payload, List.of(), List.of(), 2));
@@ -215,6 +218,14 @@ class WorkerJobResultReceiptTest {
         WorkerResultRequest jsonNullPayload = new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
                 WorkerResultRequest.CollectionOutcome.SUCCESS, mapper.nullNode(), List.of(), List.of(), 0);
         assertFalse(validator.validate(jsonNullPayload).isEmpty());
+        WorkerResultRequest partialNullPayload = new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.PARTIAL, mapper.nullNode(),
+                List.of(), List.of("partial evidence"), 0);
+        assertFalse(validator.validate(partialNullPayload).isEmpty());
+        WorkerResultRequest missingFailedPayload = new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.FAILED, null,
+                List.of("PowerShell exited with code 1"), List.of(), 1);
+        assertFalse(validator.validate(missingFailedPayload).isEmpty());
 
         WorkerResultRequest oversizedPayload = request(mapper.readTree(
                 "{\"data\":\"" + "x".repeat(WorkerResultRequest.MAX_REPORT_PAYLOAD_BYTES) + "\"}"));
