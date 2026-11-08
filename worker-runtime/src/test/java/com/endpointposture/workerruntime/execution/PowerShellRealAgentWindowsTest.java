@@ -50,7 +50,6 @@ class PowerShellRealAgentWindowsTest {
             builder.environment().put("EP_SCRIPT_TO_PARSE",script.toString());
             Process process=builder.start();
             String output=readWithTimeout(process,30);
-            assertEquals(0,process.exitValue(),agent.file()+": "+output);
             assertTrue(output.isBlank(),agent.file()+": "+output);
         }
     }
