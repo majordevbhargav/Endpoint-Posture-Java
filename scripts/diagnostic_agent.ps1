@@ -41,8 +41,23 @@ param(
     [string]$Username,
     [securestring]$Password,
     [string]$PlainPassword,
-    [string]$CommonCredPath = "$PSScriptRoot\posture_common_cred.xml"
+    [string]$CommonCredPath = "$PSScriptRoot\posture_common_cred.xml",
+    [switch]$OutputOnly
 )
+
+function Write-WorkerOutputEnvelope {
+    param([string]$JobType,[string]$CollectionOutcome,$ReportPayload,[string[]]$Errors=@(),[string[]]$Warnings=@())
+    $Envelope = [ordered]@{
+        schemaVersion = 1
+        jobId = $JobId
+        jobType = $JobType
+        collectionOutcome = $CollectionOutcome
+        reportPayload = $ReportPayload
+        errors = @($Errors | Where-Object { $_ })
+        warnings = @($Warnings | Where-Object { $_ })
+    }
+    Write-Output ("RESULT_JSON:" + ($Envelope | ConvertTo-Json -Compress -Depth 30))
+}
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -120,6 +135,7 @@ function Get-DiagnosticCred {
 
 function Submit-FailureAndExit {
     param([string]$Detail)
+    if ($OutputOnly) { Write-WorkerOutputEnvelope "DIAGNOSTIC_CHECK" "FAILED" $null @($Detail) @(); exit 1 }
 
     Write-Host ""
     Write-Host "ERROR: $Detail" -ForegroundColor Red
@@ -300,7 +316,7 @@ $ReportHostname = if ($Result -and $Result.hostname) { [string]$Result.hostname 
                   else { $null }
 $ReportIp = if ($ComputerName -match '^\d{1,3}(\.\d{1,3}){3}$') { $ComputerName } else { $null }
 
-$Payload = [ordered]@{
+$ReportPayload = [ordered]@{
     jobId      = $JobId
     endpoint   = [ordered]@{ mac = $Mac; hostname = $ReportHostname; ip = $ReportIp }
     status     = $Status
@@ -310,8 +326,17 @@ $Payload = [ordered]@{
     internet   = $Result.internet
     tcp443     = $Result.tcp443
     traceroute = $Result.traceroute
-} | ConvertTo-Json -Depth 8
-
+} 
+$Payload = $ReportPayload | ConvertTo-Json -Depth 8
+if ($OutputOnly) {
+    $Warnings = @()
+    if ($Status -eq "WINRM_UNAVAILABLE") { $Warnings += [string]$Detail }
+    if ($Result -and $Result.dns.error) { $Warnings += "DNS probe: $($Result.dns.error)" }
+    if ($Result -and -not $Result.traceroute.completed) { $Warnings += "Traceroute did not complete." }
+    $Outcome = if ($Warnings.Count -gt 0) { "PARTIAL" } else { "SUCCESS" }
+    Write-WorkerOutputEnvelope "DIAGNOSTIC_CHECK" $Outcome $ReportPayload @() $Warnings
+    exit 0
+}
 $ApiKey = $env:POSTURE_API_KEY
 $SubmitHeaders = @{}
 

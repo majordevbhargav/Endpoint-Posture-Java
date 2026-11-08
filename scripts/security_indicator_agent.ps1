@@ -24,8 +24,23 @@ param(
     [string]$Username,
     [securestring]$Password,
     [string]$PlainPassword,
-    [string]$CommonCredPath = "$PSScriptRoot\posture_common_cred.xml"
+    [string]$CommonCredPath = "$PSScriptRoot\posture_common_cred.xml",
+    [switch]$OutputOnly
 )
+
+function Write-WorkerOutputEnvelope {
+    param([string]$JobType,[string]$CollectionOutcome,$ReportPayload,[string[]]$Errors=@(),[string[]]$Warnings=@())
+    $Envelope = [ordered]@{
+        schemaVersion = 1
+        jobId = $JobId
+        jobType = $JobType
+        collectionOutcome = $CollectionOutcome
+        reportPayload = $ReportPayload
+        errors = @($Errors | Where-Object { $_ })
+        warnings = @($Warnings | Where-Object { $_ })
+    }
+    Write-Output ("RESULT_JSON:" + ($Envelope | ConvertTo-Json -Compress -Depth 30))
+}
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -70,6 +85,7 @@ function Get-SecurityCred {
 
 function Submit-FailureAndExit {
     param([string]$Detail)
+    if ($OutputOnly) { Write-WorkerOutputEnvelope "SECURITY_CHECK" "FAILED" $null @($Detail) @(); exit 1 }
     Write-Host "ERROR: $Detail" -ForegroundColor Red
     $Fail = [ordered]@{ jobId = $JobId; computer = $ComputerName; status = "ERROR"; detail = $Detail; submitted = $false }
     Write-Output ("RESULT_JSON:" + ($Fail | ConvertTo-Json -Compress))
@@ -151,7 +167,7 @@ $ReportHostname = if ($Result -and $Result.hostname) { [string]$Result.hostname 
 $ReportIp = if ($ComputerName -match '^\d{1,3}(\.\d{1,3}){3}$') { $ComputerName } else { $null }
 $SampleList = if ($Result) { @($Result.samples) } else { @() }
 
-$Payload = [ordered]@{
+$ReportPayload = [ordered]@{
     jobId           = $JobId
     endpoint        = [ordered]@{ mac = $Mac; hostname = $ReportHostname; ip = $ReportIp }
     status          = $Status
@@ -159,8 +175,15 @@ $Payload = [ordered]@{
     windowSeconds   = [int](($SampleCount - 1) * $SampleIntervalSec)
     intervalSeconds = $SampleIntervalSec
     samples         = $SampleList
-} | ConvertTo-Json -Depth 10
-
+} 
+$Payload = $ReportPayload | ConvertTo-Json -Depth 10
+if ($OutputOnly) {
+    $Warnings = @()
+    if ($Status -eq "WINRM_UNAVAILABLE") { $Warnings += [string]$Detail }
+    $Outcome = if ($Warnings.Count -gt 0) { "PARTIAL" } else { "SUCCESS" }
+    Write-WorkerOutputEnvelope "SECURITY_CHECK" $Outcome $ReportPayload @() $Warnings
+    exit 0
+}
 $Headers = @{}
 if (-not [string]::IsNullOrWhiteSpace($env:POSTURE_API_KEY)) { $Headers["X-Posture-Api-Key"] = $env:POSTURE_API_KEY.Trim() }
 else { Write-Host "WARNING: POSTURE_API_KEY is not set - the submit will be rejected." -ForegroundColor Yellow }

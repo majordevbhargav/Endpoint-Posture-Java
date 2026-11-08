@@ -198,8 +198,23 @@ param(
     # P1: application policy handed over by JobWorker (see .PARAMETER above).
     [string]$PolicyVersion,
     [string]$RequiredAppsList,
-    [string]$BlockedAppsList
+    [string]$BlockedAppsList,
+    [switch]$OutputOnly
 )
+
+function Write-WorkerOutputEnvelope {
+    param([string]$JobType,[string]$CollectionOutcome,$ReportPayload,[string[]]$Errors=@(),[string[]]$Warnings=@())
+    $Envelope = [ordered]@{
+        schemaVersion = 1
+        jobId = $JobId
+        jobType = $JobType
+        collectionOutcome = $CollectionOutcome
+        reportPayload = $ReportPayload
+        errors = @($Errors | Where-Object { $_ })
+        warnings = @($Warnings | Where-Object { $_ })
+    }
+    Write-Output ("RESULT_JSON:" + ($Envelope | ConvertTo-Json -Compress -Depth 30))
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -431,6 +446,7 @@ try {
                 "ERROR: $($_.Exception.Message)" `
                 -ForegroundColor Red
 
+            if ($OutputOnly) { Write-WorkerOutputEnvelope "POSTURE_CHECK" "FAILED" $null @($_.Exception.Message) @(); exit 1 }
             $FailResult = [ordered]@{
                 jobId     = $JobId
                 computer  = $ComputerName
@@ -525,7 +541,8 @@ try {
                     "WSMan error detail: $($_.Exception.Message)" `
                     -ForegroundColor DarkGray
 
-                $FailResult = [ordered]@{
+                if ($OutputOnly) { Write-WorkerOutputEnvelope "POSTURE_CHECK" "FAILED" $null @($_.Exception.Message) @(); exit 1 }
+            $FailResult = [ordered]@{
                     jobId     = $JobId
                     computer  = $ComputerName
                     compliant = $null
@@ -1150,7 +1167,8 @@ try {
 
         $OverallStatus = "ERROR"
 
-        $FailResult = [ordered]@{
+        if ($OutputOnly) { Write-WorkerOutputEnvelope "POSTURE_CHECK" "FAILED" $null @($_.Exception.Message) @(); exit 1 }
+            $FailResult = [ordered]@{
             jobId     = $JobId
             computer  = if ($OS) {
                 $OS.CSName
@@ -1293,6 +1311,49 @@ $PayloadObject = @{
 
 $Payload = $PayloadObject |
     ConvertTo-Json -Depth 10
+
+if ($OutputOnly) {
+    $Errors = @()
+    $Warnings = @()
+    if (-not $CollectionSucceeded -and $Detail) { $Errors += [string]$Detail }
+
+    # Preserve actionable diagnostics for every check that could not be
+    # evaluated. In particular, firewall, open-port and application ERROR
+    # states must not collapse into an unexplained PARTIAL envelope.
+    $CheckErrorDiagnostics = @(
+        $AllChecks |
+        Where-Object { $_.status -eq "ERROR" } |
+        ForEach-Object {
+            $Summary = [string]$_.details.summary
+            if ([string]::IsNullOrWhiteSpace($Summary)) {
+                "$($_.checkType): check returned ERROR without diagnostic details."
+            }
+            else {
+                "$($_.checkType): $Summary"
+            }
+        }
+    )
+    $Warnings += $CheckErrorDiagnostics
+
+    $Outcome = if (-not $CollectionSucceeded) {
+        "FAILED"
+    }
+    elseif ($AllCheckStatuses -contains "ERROR") {
+        "PARTIAL"
+    }
+    else {
+        "SUCCESS"
+    }
+
+    if ($Outcome -eq "PARTIAL" -and
+        -not (@($Errors) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -and
+        -not (@($Warnings) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })) {
+        $Warnings += "PARTIAL posture result had no check-level diagnostic; inspect reportPayload.checks for ERROR states."
+    }
+
+    Write-WorkerOutputEnvelope "POSTURE_CHECK" $Outcome $PayloadObject $Errors $Warnings
+    if (-not $CollectionSucceeded) { exit 1 } else { exit 0 }
+}
 
 # Authentication: the backend only accepts posture reports from a caller
 # that presents the shared agent key. JobWorker hands the key to this
