@@ -28,7 +28,7 @@ public record WorkerResultRequest(
         @Min(1) int schemaVersion,
         @NotNull JobType jobType,
         @NotNull CollectionOutcome collectionOutcome,
-        @NotNull JsonNode reportPayload,
+        JsonNode reportPayload,
         @NotNull @Size(max = 100) List<@NotNull @Size(max = 4096) String> errors,
         @NotNull @Size(max = 100) List<@NotNull @Size(max = 4096) String> warnings,
         @NotNull @Min(0) Integer processExitCode) {
@@ -38,14 +38,17 @@ public record WorkerResultRequest(
 
     public enum CollectionOutcome { SUCCESS, PARTIAL, FAILED }
 
-    @AssertTrue(message = "reportPayload must be a non-null JSON value")
-    public boolean isReportPayloadPresent() {
-        return reportPayload != null && !reportPayload.isNull() && !reportPayload.isMissingNode();
+    @AssertTrue(message = "reportPayload must be an object for SUCCESS/PARTIAL and explicit JSON null for FAILED")
+    public boolean isReportPayloadValid() {
+        if (collectionOutcome == CollectionOutcome.FAILED) {
+            return reportPayload != null && reportPayload.isNull();
+        }
+        return reportPayload != null && reportPayload.isObject();
     }
 
     @AssertTrue(message = "reportPayload must not exceed 1 MiB")
     public boolean isReportPayloadWithinLimit() {
-        return reportPayload == null
+        return reportPayload == null || reportPayload.isNull()
                 || reportPayload.toString().getBytes(StandardCharsets.UTF_8).length <= MAX_REPORT_PAYLOAD_BYTES;
     }
 
