@@ -37,10 +37,22 @@ public class SecurityIndicatorService {
         if (req.endpoint() == null || req.endpoint().mac() == null || req.endpoint().mac().isBlank()) {
             throw new IllegalArgumentException("endpoint.mac is required");
         }
-        EndpointSecurityIndicator.Status status = parseStatus(req.status());
         Endpoint endpoint = endpointService.upsertByMac(
                 req.endpoint().mac(), req.endpoint().ip(), req.endpoint().hostname(), null, null);
+        return ingestForTrustedEndpoint(endpoint.getId(), parseUuidOrNull(req.jobId()), req);
+    }
 
+    /** Worker path binds evidence to the locked job endpoint and job UUID. */
+    @Transactional
+    public SecurityIndicatorResponse ingestForWorker(UUID endpointId, UUID jobId, SecurityReportRequest req) {
+        if (endpointId == null || jobId == null || req == null) {
+            throw new IllegalArgumentException("A valid security-indicator payload is required");
+        }
+        return ingestForTrustedEndpoint(endpointId, jobId, req);
+    }
+
+    private SecurityIndicatorResponse ingestForTrustedEndpoint(UUID endpointId, UUID jobId, SecurityReportRequest req) {
+        EndpointSecurityIndicator.Status status = parseStatus(req.status());
         List<SecurityReportRequest.Sample> samples =
                 req.samples() == null ? List.of() : req.samples().stream().filter(Objects::nonNull).toList();
 
@@ -61,11 +73,11 @@ public class SecurityIndicatorService {
         }
 
         Map<String, Object> raw = objectMapper.convertValue(req, new TypeReference<Map<String, Object>>() {});
-        raw.put("jobId", jobId == null ? null : jobId.toString());
+        raw.put("jobId", jobId.toString());
 
         EndpointSecurityIndicator saved = repository.save(EndpointSecurityIndicator.builder()
-                .endpointId(endpoint.getId())
-                .jobId(parseUuidOrNull(req.jobId()))
+                .endpointId(endpointId)
+                .jobId(jobId)
                 .status(status).riskLevel(risk).findings(findings).summary(summary)
                 .rawReport(raw).errorMessage(error).build());
         return toResponse(saved);
