@@ -138,6 +138,9 @@ class WorkerResultDeliveryTest {
 
         assertEquals(409, submit(jobId, worker.apiKey(), request(attempt, payload(mac())))
                 .getResponse().getStatus());
+        jdbc.update("UPDATE posture_job SET status = 'QUEUED', lease_expires_at = NULL WHERE id = ?", jobId);
+        assertEquals(409, submit(jobId, worker.apiKey(), request(attempt, payload(mac())))
+                .getResponse().getStatus(), "a requeued attempt without a receipt is stale");
         ObjectNode unsupported = request(attempt, payload(mac()));
         unsupported.put("schemaVersion", 99);
         assertEquals(400, submit(jobId, worker.apiKey(), unsupported).getResponse().getStatus());
@@ -145,6 +148,46 @@ class WorkerResultDeliveryTest {
                 "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
         assertEquals(0, jdbc.queryForObject(
                 "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
+    }
+
+    @Test
+    void rejectsMismatchedJobTypeMissingFieldsMalformedNestedDataAndOversizedPayload() throws Exception {
+        UUID endpointId = endpoint(mac());
+        UUID jobId = job(endpointId, "site-validation");
+        WorkerRegistryService.Enrolled worker = enroll("worker-validation", "site-validation");
+        int attempt = jobService.claimNextJobInShard(
+                worker.workerId().toString(), "site-validation", Duration.ofMinutes(5))
+                .orElseThrow().getAttemptCount();
+
+        ObjectNode wrongType = request(attempt, payload(mac()));
+        wrongType.put("jobType", "HARDWARE_CHECK");
+        assertEquals(400, submit(jobId, worker.apiKey(), wrongType).getResponse().getStatus());
+
+        ObjectNode missingChecks = request(attempt, mapper.createObjectNode());
+        ((ObjectNode) missingChecks.get("reportPayload")).put("status", "COMPLIANT");
+        ((ObjectNode) missingChecks.get("reportPayload")).putArray("checks");
+        assertEquals(400, submit(jobId, worker.apiKey(), missingChecks).getResponse().getStatus());
+
+        ObjectNode malformedCheck = request(attempt, mapper.createObjectNode());
+        ((ObjectNode) malformedCheck.get("reportPayload")).put("status", "COMPLIANT");
+        ((ObjectNode) malformedCheck.get("reportPayload")).putArray("checks")
+                .addObject().put("status", "COMPLIANT");
+        assertEquals(400, submit(jobId, worker.apiKey(), malformedCheck).getResponse().getStatus());
+
+        ObjectNode invalidOutcome = request(attempt, payload(mac()));
+        invalidOutcome.put("collectionOutcome", "NOT_SUPPORTED");
+        assertEquals(400, submit(jobId, worker.apiKey(), invalidOutcome).getResponse().getStatus());
+
+        ObjectNode oversized = request(attempt, mapper.createObjectNode()
+                .put("blob", "x".repeat(WorkerResultRequest.MAX_REPORT_PAYLOAD_BYTES + 1)));
+        assertEquals(400, submit(jobId, worker.apiKey(), oversized).getResponse().getStatus());
+
+        assertEquals("RUNNING", jdbc.queryForObject(
+                "SELECT status FROM posture_job WHERE id = ?", String.class, jobId));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
     }
 
     private MvcResult submit(UUID jobId, String key, ObjectNode body) throws Exception {
