@@ -50,11 +50,30 @@ public class HardwareIngestService {
         if (req.endpoint() == null || isBlank(req.endpoint().mac())) {
             throw new IllegalArgumentException("endpoint.mac is required");
         }
-
         Endpoint endpoint = endpointService.upsertByMac(
                 req.endpoint().mac(), req.endpoint().ip(), req.endpoint().hostname(), null, null);
+        return ingestForTrustedEndpoint(endpoint.getId(), parseUuidOrNull(req.jobId()), req);
+    }
 
-        endpointService.updateHardware(endpoint.getId(),
+    /** Worker path binds evidence to the locked job endpoint, never the supplied MAC. */
+    @Transactional
+    public HardwareHealthResponse ingestForWorker(UUID endpointId, UUID jobId, HardwareReportRequest req) {
+        if (endpointId == null || jobId == null || req == null || req.endpoint() == null) {
+            throw new IllegalArgumentException("A valid hardware payload is required");
+        }
+        return ingestForTrustedEndpoint(endpointId, jobId, req);
+    }
+
+    /** Failure evidence is written against trusted IDs and does not upsert an endpoint. */
+    @Transactional
+    public void recordFailureForWorker(UUID endpointId, UUID jobId, String reason) {
+        if (endpointId == null || jobId == null) throw new IllegalArgumentException("Trusted endpoint and job IDs are required");
+        healthService.recordFailure(endpointId, jobId, reason);
+    }
+
+    private HardwareHealthResponse ingestForTrustedEndpoint(UUID endpointId, UUID jobId, HardwareReportRequest req) {
+        if (req.endpoint() == null) throw new IllegalArgumentException("endpoint details are required");
+        endpointService.updateHardware(endpointId,
                 req.endpoint().manufacturer(), req.endpoint().model(), req.endpoint().serialNumber());
 
         Map<String, Object> cpuSection = sub(req.cpuMemory(), "cpu");
@@ -99,15 +118,15 @@ public class HardwareIngestService {
         }
 
         return healthService.recordReport(
-                endpoint.getId(),
-                parseUuidOrNull(req.jobId()),
+                endpointId,
+                jobId,
                 req.endpoint().manufacturer(),
                 req.endpoint().model(),
                 req.endpoint().serialNumber(),
                 req.endpoint().biosVersion(),
                 cpuScore, memoryScore, storageScore, batteryScore,
                 eventCount, warrantyStatus, warrantyDaysRemaining,
-                toRawReportMap(req),
+                toRawReportMap(req, jobId),
                 Instant.now(),
                 recs
         );
@@ -163,9 +182,9 @@ public class HardwareIngestService {
         return s == null || s.isBlank();
     }
 
-    private Map<String, Object> toRawReportMap(HardwareReportRequest req) {
+    private Map<String, Object> toRawReportMap(HardwareReportRequest req, UUID trustedJobId) {
         return Map.of(
-                "jobId", req.jobId() == null ? "" : req.jobId(),
+                "jobId", trustedJobId.toString(),
                 "endpoint", req.endpoint() == null ? Map.of() : Map.of(
                         "manufacturer", nullToEmpty(req.endpoint().manufacturer()),
                         "model", nullToEmpty(req.endpoint().model()),

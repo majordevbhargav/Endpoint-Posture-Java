@@ -61,6 +61,7 @@ public class SecurityIndicatorService {
         }
 
         Map<String, Object> raw = objectMapper.convertValue(req, new TypeReference<Map<String, Object>>() {});
+        raw.put("jobId", jobId == null ? null : jobId.toString());
 
         EndpointSecurityIndicator saved = repository.save(EndpointSecurityIndicator.builder()
                 .endpointId(endpoint.getId())
