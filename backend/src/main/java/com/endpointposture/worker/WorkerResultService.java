@@ -66,8 +66,8 @@ public class WorkerResultService {
         }
         if (request.jobType() == null || request.collectionOutcome() == null
                 || request.errors() == null || request.warnings() == null
-                || request.reportPayload() == null || !request.reportPayload().isObject()) {
-            throw new IllegalArgumentException("The result envelope is incomplete");
+                || !request.isReportPayloadValid()) {
+            throw new IllegalArgumentException("The result envelope is incomplete or reportPayload is invalid for its outcome");
         }
         if (!request.isProcessOutcomeConsistent()) {
             throw new IllegalArgumentException("processExitCode, collectionOutcome, errors and warnings are inconsistent");
