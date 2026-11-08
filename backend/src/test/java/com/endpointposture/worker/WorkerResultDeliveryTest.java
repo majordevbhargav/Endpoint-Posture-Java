@@ -194,6 +194,7 @@ class WorkerResultDeliveryTest {
     @Test
     void rejectsContradictoryExitCodesAndCollectionDiagnosticsBeforeAnyWrites() throws Exception {
         java.util.List<java.util.function.Consumer<ObjectNode>> invalidEnvelopes = java.util.List.of(
+                body -> body.putNull("reportPayload"),
                 body -> body.put("processExitCode", 2),
                 body -> { body.put("collectionOutcome", "FAILED"); body.put("processExitCode", 0);
                     body.putArray("errors").add("failed"); },
