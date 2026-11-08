@@ -196,10 +196,10 @@ class WorkerResultDeliveryTest {
         java.util.List<java.util.function.Consumer<ObjectNode>> invalidEnvelopes = java.util.List.of(
                 body -> body.putNull("reportPayload"),
                 body -> body.put("processExitCode", 2),
-                body -> { body.put("collectionOutcome", "FAILED"); body.put("processExitCode", 0);
+                body -> { body.put("collectionOutcome", "FAILED"); body.putNull("reportPayload"); body.put("processExitCode", 0);
                     body.putArray("errors").add("failed"); },
-                body -> { body.put("collectionOutcome", "FAILED"); body.put("processExitCode", 1); },
-                body -> { body.put("collectionOutcome", "FAILED"); body.put("processExitCode", 1);
+                body -> { body.put("collectionOutcome", "FAILED"); body.putNull("reportPayload"); body.put("processExitCode", 1); },
+                body -> { body.put("collectionOutcome", "FAILED"); body.putNull("reportPayload"); body.put("processExitCode", 1);
                     body.putArray("errors").add("  "); },
                 body -> body.putArray("errors").add("unexpected error"),
                 body -> body.put("collectionOutcome", "PARTIAL"),
