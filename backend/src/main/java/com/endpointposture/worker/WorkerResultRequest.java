@@ -21,7 +21,7 @@ import java.util.TreeMap;
 
 /**
  * Logical result envelope submitted by an authenticated worker.
- * This contract is not exposed by an HTTP endpoint in PR6.4 Slice 1.
+ * Submitted through the authenticated worker result endpoint.
  */
 public record WorkerResultRequest(
         @Min(1) int attempt,
