@@ -42,6 +42,14 @@ class PowerShellOutputContractTest {
             assertFalse(outputOnly.contains("Invoke-RestMethod"),entry.getKey());
             assertFalse(outputOnly.contains("$env:POSTURE_API_KEY"),entry.getKey());
             assertTrue(script.indexOf("Invoke-RestMethod",close)>close,entry.getKey()+" legacy submit path moved");
+            if ("posture_agent.ps1".equals(entry.getKey())) {
+                assertTrue(outputOnly.contains("$AllChecks | Where-Object { $_.status -eq \"ERROR\" }"),
+                    "POSTURE_CHECK must derive output-only diagnostics from every ERROR check");
+                assertTrue(outputOnly.contains("$($_.checkType): $Summary"),
+                    "POSTURE_CHECK diagnostics must identify the check and preserve its detail");
+                assertTrue(outputOnly.contains("PARTIAL posture result had no check-level diagnostic"),
+                    "POSTURE_CHECK PARTIAL must have a nonblank fallback diagnostic");
+            }
         }
     }
 }
