@@ -154,8 +154,10 @@ class WorkerResultOutcomeIntegrationTest {
                 .orElseThrow().getAttemptCount();
 
         ObjectNode body = envelope(attempt, JobType.POSTURE_CHECK, "FAILED", mapper.createObjectNode());
+        body.putNull("reportPayload");
         body.putArray("errors").add("PowerShell process exited with code 1");
-        assertEquals(200, submit(jobId, worker.apiKey(), body).getResponse().getStatus());
+        assertEquals(200, submit(jobId, worker.apiKey(), body).getResponse().getStatus(),
+                "the PR6.3 failed-result envelope explicitly sends reportPayload: null");
         assertEquals("QUEUED", jdbc.queryForObject(
                 "SELECT status FROM posture_job WHERE id = ?", String.class, jobId));
         assertEquals("ERROR", jdbc.queryForObject(
