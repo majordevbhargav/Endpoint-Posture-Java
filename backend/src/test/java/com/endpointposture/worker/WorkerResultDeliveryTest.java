@@ -82,6 +82,10 @@ class WorkerResultDeliveryTest {
         reversed.set("checks", reordered.get("reportPayload").get("checks"));
         reordered.set("reportPayload", reversed);
 
+        ObjectNode changedPayload = request(attempt, payload(macFor(spoofedEndpointId)));
+        changedPayload.get("reportPayload").put("hostname", "different-host");
+        assertEquals(409, submit(jobId, worker.apiKey(), changedPayload).getResponse().getStatus());
+
         MvcResult duplicate = submit(jobId, worker.apiKey(), reordered);
         assertEquals(200, duplicate.getResponse().getStatus());
         JsonNode duplicateAck = mapper.readTree(duplicate.getResponse().getContentAsString());
@@ -115,6 +119,8 @@ class WorkerResultDeliveryTest {
 
         assertEquals(401, submit(jobId, WorkerCredentials.newKey(), body).getResponse().getStatus());
         assertEquals(409, submit(jobId, other.apiKey(), body).getResponse().getStatus());
+        ObjectNode wrongAttempt = request(attempt + 1, payload(mac()));
+        assertEquals(409, submit(jobId, owner.apiKey(), wrongAttempt).getResponse().getStatus());
         assertEquals("RUNNING", jdbc.queryForObject(
                 "SELECT status FROM posture_job WHERE id = ?", String.class, jobId));
         assertEquals(0, jdbc.queryForObject(

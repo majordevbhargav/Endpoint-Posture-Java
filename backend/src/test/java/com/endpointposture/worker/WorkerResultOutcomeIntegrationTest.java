@@ -116,6 +116,10 @@ class WorkerResultOutcomeIntegrationTest {
                 "SELECT status FROM assessment WHERE job_id = ?", String.class, jobId));
         assertEquals("FAILED", jdbc.queryForObject(
                 "SELECT collection_outcome FROM worker_job_result_receipt WHERE job_id = ?", String.class, jobId));
+        assertEquals(200, submit(jobId, worker.apiKey(), body).getResponse().getStatus(),
+                "an identical retry after requeue returns its original receipt");
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
     }
 
     private ObjectNode payloadFor(JobType type) {
