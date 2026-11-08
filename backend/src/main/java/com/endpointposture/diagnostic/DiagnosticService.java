@@ -84,7 +84,7 @@ public class DiagnosticService {
         }
 
         Map<String, Object> raw = new HashMap<>();
-        raw.put("jobId", jobId.toString());
+        raw.put("jobId", jobId == null ? null : jobId.toString());
         raw.put("status", status.name());
         raw.put("detail", req.detail());
         raw.put("gateway", req.gateway());

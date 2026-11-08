@@ -194,7 +194,7 @@ public class HardwareIngestService {
 
     private Map<String, Object> toRawReportMap(HardwareReportRequest req, UUID trustedJobId) {
         return Map.of(
-                "jobId", trustedJobId.toString(),
+                "jobId", trustedJobId == null ? "" : trustedJobId.toString(),
                 "endpoint", req.endpoint() == null ? Map.of() : Map.of(
                         "manufacturer", nullToEmpty(req.endpoint().manufacturer()),
                         "model", nullToEmpty(req.endpoint().model()),

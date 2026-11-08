@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 /**
@@ -113,7 +114,7 @@ public class WorkerResultService {
         WorkerJobResultReceipt receipt = WorkerJobResultReceipt.builder()
                 .jobId(jobId).attempt(request.attempt()).workerId(worker.id())
                 .resultHash(resultHash).schemaVersion(request.schemaVersion())
-                .collectionOutcome(outcome).build();
+                .collectionOutcome(outcome).acceptedAt(Instant.now().truncatedTo(ChronoUnit.MICROS)).build();
         try {
             return response(receipts.saveAndFlush(receipt));
         } catch (DataIntegrityViolationException e) {
