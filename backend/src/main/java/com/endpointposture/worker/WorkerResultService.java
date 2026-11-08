@@ -74,18 +74,21 @@ public class WorkerResultService {
         }
 
         String resultHash = request.sha256Hex(mapper);
+
+        // Check historical receipts before touching the job row. Receipts intentionally
+        // outlive jobs, so a retry must remain acknowledgeable after job retention deletes
+        // the lifecycle row.
+        WorkerResultResponse priorReceipt = existingReceiptResponse(
+                jobId, request.attempt(), worker, resultHash);
+        if (priorReceipt != null) return priorReceipt;
+
         PostureJob job = jobs.findByIdForResultUpdate(jobId)
                 .orElseThrow(() -> new WorkerResultConflictException("Job is not available for this result"));
 
-        // A receipt wins over current lifecycle state: retries of a committed request are idempotent.
-        var existing = receipts.findByJobIdAndAttempt(jobId, request.attempt());
-        if (existing.isPresent()) {
-            WorkerJobResultReceipt receipt = existing.get();
-            if (receipt.getWorkerId().equals(worker.id()) && receipt.getResultHash().equals(resultHash)) {
-                return response(receipt);
-            }
-            throw new WorkerResultConflictException("A different result is already recorded for this attempt");
-        }
+        // A concurrent first submission may have committed while this request waited
+        // for the job lock. Recheck under the lock before validating current ownership.
+        priorReceipt = existingReceiptResponse(jobId, request.attempt(), worker, resultHash);
+        if (priorReceipt != null) return priorReceipt;
 
         if (job.getStatus() != JobStatus.RUNNING
                 || job.getAttemptCount() != request.attempt()
@@ -168,6 +171,25 @@ public class WorkerResultService {
             case DIAGNOSTIC_CHECK -> diagnostics.recordFailure(endpointId, jobId, reason);
             case SECURITY_CHECK -> securityIndicators.recordFailure(endpointId, jobId, reason);
         }
+    }
+
+    /**
+     * Returns the durable acknowledgement when this exact worker already submitted
+     * this attempt, or rejects a conflicting historical receipt. A null return means
+     * no receipt exists yet.
+     */
+    private WorkerResultResponse existingReceiptResponse(
+            UUID jobId, int attempt, WorkerPrincipal worker, String resultHash) {
+        return receipts.findByJobIdAndAttempt(jobId, attempt)
+                .map(receipt -> {
+                    if (receipt.getWorkerId().equals(worker.id())
+                            && receipt.getResultHash().equals(resultHash)) {
+                        return response(receipt);
+                    }
+                    throw new WorkerResultConflictException(
+                            "A different result is already recorded for this attempt");
+                })
+                .orElse(null);
     }
 
     private WorkerResultResponse response(WorkerJobResultReceipt receipt) {
