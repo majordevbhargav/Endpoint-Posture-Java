@@ -69,6 +69,9 @@ public class WorkerResultService {
                 || request.reportPayload() == null || !request.reportPayload().isObject()) {
             throw new IllegalArgumentException("The result envelope is incomplete");
         }
+        if (!request.isProcessOutcomeConsistent()) {
+            throw new IllegalArgumentException("processExitCode, collectionOutcome, errors and warnings are inconsistent");
+        }
 
         String resultHash = request.sha256Hex(mapper);
         PostureJob job = jobs.findByIdForResultUpdate(jobId)

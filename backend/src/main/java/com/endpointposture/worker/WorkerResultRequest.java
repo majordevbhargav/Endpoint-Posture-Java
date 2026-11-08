@@ -31,7 +31,7 @@ public record WorkerResultRequest(
         @NotNull JsonNode reportPayload,
         @NotNull @Size(max = 100) List<@NotNull @Size(max = 4096) String> errors,
         @NotNull @Size(max = 100) List<@NotNull @Size(max = 4096) String> warnings,
-        @NotNull Integer processExitCode) {
+        @NotNull @Min(0) Integer processExitCode) {
 
     public static final int MAX_REPORT_PAYLOAD_BYTES = 1_048_576;
     public static final int MAX_DIAGNOSTIC_TEXT_BYTES = 65_536;
@@ -62,6 +62,25 @@ public record WorkerResultRequest(
      * SHA-256 over every envelope field. Object keys are recursively sorted,
      * while array order and scalar values are preserved.
      */
+    /**
+     * Keeps the process result and collection diagnostics semantically consistent.
+     * Shared by Bean Validation and the service guard for non-HTTP callers.
+     */
+    @AssertTrue(message = "collectionOutcome, processExitCode, errors and warnings are inconsistent")
+    public boolean isProcessOutcomeConsistent() {
+        if (collectionOutcome == null || processExitCode == null || processExitCode < 0
+                || errors == null || warnings == null) {
+            return false;
+        }
+        boolean hasError = errors.stream().anyMatch(value -> value != null && !value.isBlank());
+        boolean hasWarning = warnings.stream().anyMatch(value -> value != null && !value.isBlank());
+        return switch (collectionOutcome) {
+            case SUCCESS -> processExitCode == 0 && errors.isEmpty();
+            case PARTIAL -> processExitCode == 0 && (hasError || hasWarning);
+            case FAILED -> processExitCode > 0 && hasError;
+        };
+    }
+
     public String sha256Hex(ObjectMapper mapper) {
         try {
             ObjectNode envelope = mapper.createObjectNode();

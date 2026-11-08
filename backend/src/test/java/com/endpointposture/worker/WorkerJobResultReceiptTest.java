@@ -105,6 +105,61 @@ class WorkerJobResultReceiptTest {
         receipts.saveAndFlush(failed);
     }
 
+
+    @Test
+    void validatesProcessExitCodeAndCollectionOutcomeConsistency() {
+        Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+        JsonNode payload = mapper.createObjectNode();
+
+        assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.SUCCESS, payload, List.of(), List.of(), 0));
+        assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.SUCCESS, payload, List.of(),
+                List.of("Informational warning"), 0));
+        assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.PARTIAL, payload, List.of(),
+                List.of("Missing optional evidence"), 0));
+        assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.PARTIAL, payload,
+                List.of("One source failed"), List.of(), 0));
+        assertValid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.FAILED, payload,
+                List.of("PowerShell exited with code 1"), List.of(), 1));
+
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.SUCCESS, payload, List.of(), List.of(), 2));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.PARTIAL, payload, List.of(), List.of("degraded"), 1));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.FAILED, payload, List.of("failed"), List.of(), 0));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.FAILED, payload, List.of(), List.of(), 1));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.FAILED, payload, List.of("  "), List.of(), 1));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.SUCCESS, payload, List.of("unexpected"), List.of(), 0));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.PARTIAL, payload, List.of(), List.of(), 0));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.SUCCESS, payload, List.of(), List.of(), -1));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.SUCCESS, payload, List.of(), List.of(), null));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                null, payload, List.of(), List.of(), 0));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.SUCCESS, payload, null, List.of(), 0));
+        assertInvalid(validator, new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.SUCCESS, payload, List.of(), null, 0));
+    }
+
+    private void assertValid(Validator validator, WorkerResultRequest request) {
+        assertTrue(validator.validate(request).isEmpty(), request.toString());
+    }
+
+    private void assertInvalid(Validator validator, WorkerResultRequest request) {
+        assertFalse(validator.validate(request).isEmpty(), request.toString());
+    }
+
     @Test
     void hashIgnoresObjectKeyOrderRecursively() throws Exception {
         WorkerResultRequest first = request(mapper.readTree("""

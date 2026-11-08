@@ -130,6 +130,42 @@ class WorkerResultOutcomeIntegrationTest {
                 "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
     }
 
+
+    @Test
+    void acceptsSuccessWithWarningsAndPartialWithErrorsWhenExitCodeIsZero() throws Exception {
+        WorkerRegistryService.Enrolled worker = enroll("worker-diagnostics", "diagnostics");
+
+        UUID successEndpoint = endpoint();
+        UUID successJob = job(successEndpoint, "diagnostics", JobType.POSTURE_CHECK);
+        int successAttempt = jobService.claimNextJobInShard(
+                worker.workerId().toString(), "diagnostics", Duration.ofMinutes(5))
+                .orElseThrow().getAttemptCount();
+        ObjectNode success = envelope(successAttempt, JobType.POSTURE_CHECK, "SUCCESS",
+                payloadFor(JobType.POSTURE_CHECK));
+        success.putArray("warnings").add("Informational warning");
+        assertEquals(200, submit(successJob, worker.apiKey(), success).getResponse().getStatus());
+        assertEquals("COMPLETE", jdbc.queryForObject(
+                "SELECT status FROM posture_job WHERE id = ?", String.class, successJob));
+        assertEquals("SUCCESS", jdbc.queryForObject(
+                "SELECT collection_outcome FROM worker_job_result_receipt WHERE job_id = ?",
+                String.class, successJob));
+
+        UUID partialEndpoint = endpoint();
+        UUID partialJob = job(partialEndpoint, "diagnostics", JobType.POSTURE_CHECK);
+        int partialAttempt = jobService.claimNextJobInShard(
+                worker.workerId().toString(), "diagnostics", Duration.ofMinutes(5))
+                .orElseThrow().getAttemptCount();
+        ObjectNode partial = envelope(partialAttempt, JobType.POSTURE_CHECK, "PARTIAL",
+                payloadFor(JobType.POSTURE_CHECK));
+        partial.putArray("errors").add("One optional evidence source failed");
+        assertEquals(200, submit(partialJob, worker.apiKey(), partial).getResponse().getStatus());
+        assertEquals("COMPLETE", jdbc.queryForObject(
+                "SELECT status FROM posture_job WHERE id = ?", String.class, partialJob));
+        assertEquals("PARTIAL", jdbc.queryForObject(
+                "SELECT collection_outcome FROM worker_job_result_receipt WHERE job_id = ?",
+                String.class, partialJob));
+    }
+
     private ObjectNode payloadFor(JobType type) {
         ObjectNode p = mapper.createObjectNode();
         switch (type) {

@@ -190,6 +190,53 @@ class WorkerResultDeliveryTest {
                 "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
     }
 
+
+    @Test
+    void rejectsContradictoryExitCodesAndCollectionDiagnosticsBeforeAnyWrites() throws Exception {
+        java.util.List<java.util.function.Consumer<ObjectNode>> invalidEnvelopes = java.util.List.of(
+                body -> body.put("processExitCode", 2),
+                body -> { body.put("collectionOutcome", "PARTIAL"); body.put("processExitCode", 1);
+                    body.putArray("warnings").add("degraded"); },
+                body -> { body.put("collectionOutcome", "FAILED"); body.put("processExitCode", 0);
+                    body.putArray("errors").add("failed"); },
+                body -> { body.put("collectionOutcome", "FAILED"); body.put("processExitCode", 1); },
+                body -> { body.put("collectionOutcome", "FAILED"); body.put("processExitCode", 1);
+                    body.putArray("errors").add("  "); },
+                body -> body.putArray("errors").add("unexpected error"),
+                body -> body.put("collectionOutcome", "PARTIAL"),
+                body -> body.put("processExitCode", -1),
+                body -> body.putNull("processExitCode"),
+                body -> body.remove("processExitCode"),
+                body -> body.putNull("collectionOutcome"),
+                body -> body.remove("collectionOutcome"),
+                body -> body.putNull("errors"),
+                body -> body.remove("warnings")
+        );
+
+        int index = 0;
+        for (java.util.function.Consumer<ObjectNode> mutation : invalidEnvelopes) {
+            String shard = "site-exit-contract-" + index;
+            UUID endpointId = endpoint(mac());
+            UUID jobId = job(endpointId, shard);
+            WorkerRegistryService.Enrolled worker = enroll("worker-exit-" + index, shard);
+            int attempt = jobService.claimNextJobInShard(
+                    worker.workerId().toString(), shard, Duration.ofMinutes(5))
+                    .orElseThrow().getAttemptCount();
+            ObjectNode body = request(attempt, payload(mac()));
+            mutation.accept(body);
+
+            assertEquals(400, submit(jobId, worker.apiKey(), body).getResponse().getStatus(),
+                    "invalid envelope case " + index);
+            assertEquals("RUNNING", jdbc.queryForObject(
+                    "SELECT status FROM posture_job WHERE id = ?", String.class, jobId));
+            assertEquals(0, jdbc.queryForObject(
+                    "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
+            assertEquals(0, jdbc.queryForObject(
+                    "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
+            index++;
+        }
+    }
+
     private MvcResult submit(UUID jobId, String key, ObjectNode body) throws Exception {
         return mvc.perform(post("/api/v1/workers/jobs/{id}/result", jobId)
                 .header(WorkerAuthFilter.HEADER, key)
