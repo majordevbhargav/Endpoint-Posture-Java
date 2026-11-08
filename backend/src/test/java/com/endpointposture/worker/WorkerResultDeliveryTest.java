@@ -103,6 +103,37 @@ class WorkerResultDeliveryTest {
     }
 
     @Test
+    void returnsOriginalReceiptWhenRetryArrivesAfterJobRetentionDeletedTheJob() throws Exception {
+        String shard = "site-retained-receipt";
+        UUID endpointId = endpoint(mac());
+        UUID jobId = job(endpointId, shard);
+        WorkerRegistryService.Enrolled worker = enroll("worker-retained-receipt", shard);
+        int attempt = jobService.claimNextJobInShard(
+                worker.workerId().toString(), shard, Duration.ofMinutes(5))
+                .orElseThrow().getAttemptCount();
+        ObjectNode body = request(attempt, payload("02:AA:BB:CC:DD:EE"));
+
+        MvcResult accepted = submit(jobId, worker.apiKey(), body);
+        assertEquals(200, accepted.getResponse().getStatus());
+        JsonNode originalAck = mapper.readTree(accepted.getResponse().getContentAsString());
+        assertTrue(originalAck.get("accepted").asBoolean());
+
+        // V29 deliberately keeps receipt history independent of the job lifecycle row.
+        assertEquals(1, jdbc.update("DELETE FROM posture_job WHERE id = ?", jobId));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ? AND attempt = ?",
+                Integer.class, jobId, attempt));
+
+        MvcResult retry = submit(jobId, worker.apiKey(), body);
+        assertEquals(200, retry.getResponse().getStatus());
+        JsonNode retryAck = mapper.readTree(retry.getResponse().getContentAsString());
+        assertEquals(originalAck.get("receiptId").asText(), retryAck.get("receiptId").asText());
+        assertEquals(originalAck.get("acceptedAt").asText(), retryAck.get("acceptedAt").asText());
+        assertEquals(jobId.toString(), retryAck.get("jobId").asText());
+        assertEquals(attempt, retryAck.get("attempt").asInt());
+    }
+
+    @Test
     void rejectsMissingInvalidAndDifferentWorkerCredentials() throws Exception {
         UUID endpointId = endpoint(mac());
         UUID jobId = job(endpointId, "site-owner");
