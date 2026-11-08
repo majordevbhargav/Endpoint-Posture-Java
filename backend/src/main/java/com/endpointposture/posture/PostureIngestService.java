@@ -53,12 +53,18 @@ public class PostureIngestService {
             endpointService.updateHardware(endpoint.getId(),
                     req.hardware().manufacturer(), req.hardware().model(), req.hardware().serialNumber());
         }
-        return ingestForTrustedEndpoint(endpoint.getId(), parseUuidOrNull(req.jobId()), req);
+        return ingestForTrustedEndpoint(endpoint.getId(), parseUuidOrNull(req.jobId()), req, List.of(), List.of());
     }
 
     /** Worker path binds evidence to the locked job endpoint, never the supplied MAC. */
     @Transactional
     public AssessmentResponse ingestForWorker(UUID endpointId, UUID jobId, PostureReportRequest req) {
+        return ingestForWorker(endpointId, jobId, req, List.of(), List.of());
+    }
+
+    @Transactional
+    public AssessmentResponse ingestForWorker(UUID endpointId, UUID jobId, PostureReportRequest req,
+            List<String> errors, List<String> warnings) {
         if (endpointId == null || jobId == null || req == null || req.status() == null) {
             throw new IllegalArgumentException("A valid posture payload is required");
         }
@@ -69,7 +75,7 @@ public class PostureIngestService {
             endpointService.updateHardware(endpointId,
                     req.hardware().manufacturer(), req.hardware().model(), req.hardware().serialNumber());
         }
-        return ingestForTrustedEndpoint(endpointId, jobId, req);
+        return ingestForTrustedEndpoint(endpointId, jobId, req, errors, warnings);
     }
 
     /** Records worker failure evidence against trusted endpoint/job identifiers. */
@@ -79,16 +85,19 @@ public class PostureIngestService {
         assessmentService.recordFailure(endpointId, jobId, reason);
     }
 
-    private AssessmentResponse ingestForTrustedEndpoint(UUID endpointId, UUID jobId, PostureReportRequest req) {
+    private AssessmentResponse ingestForTrustedEndpoint(UUID endpointId, UUID jobId, PostureReportRequest req, List<String> errors, List<String> warnings) {
         List<CheckInput> checks = req.checks() == null ? List.of() : req.checks();
         if (checks.stream().anyMatch(c -> c == null || c.status() == null || c.checkType() == null || c.checkType().isBlank())) {
             throw new IllegalArgumentException("Every posture check requires checkType and status");
         }
         Instant completedAt = Instant.now();
         Instant startedAt = req.collectedAt() != null ? req.collectedAt() : completedAt;
+        String detail = summarize(checks);
+        if (errors != null && !errors.isEmpty()) detail += " | Worker errors: " + String.join("; ", errors);
+        if (warnings != null && !warnings.isEmpty()) detail += " | Worker warnings: " + String.join("; ", warnings);
         AssessmentResponse saved = assessmentService.recordAssessment(
                 endpointId, jobId, startedAt, completedAt,
-                overallStatus(req.status(), checks), summarize(checks), checks);
+                overallStatus(req.status(), checks), detail, checks);
         if (req.inventory() != null) {
             EndpointInventory inventory = inventoryRepository.save(EndpointInventory.builder()
                     .endpointId(endpointId).assessmentId(saved.id())

@@ -52,16 +52,22 @@ public class HardwareIngestService {
         }
         Endpoint endpoint = endpointService.upsertByMac(
                 req.endpoint().mac(), req.endpoint().ip(), req.endpoint().hostname(), null, null);
-        return ingestForTrustedEndpoint(endpoint.getId(), parseUuidOrNull(req.jobId()), req);
+        return ingestForTrustedEndpoint(endpoint.getId(), parseUuidOrNull(req.jobId()), req, List.of(), List.of());
     }
 
     /** Worker path binds evidence to the locked job endpoint, never the supplied MAC. */
     @Transactional
     public HardwareHealthResponse ingestForWorker(UUID endpointId, UUID jobId, HardwareReportRequest req) {
+        return ingestForWorker(endpointId, jobId, req, List.of(), List.of());
+    }
+
+    @Transactional
+    public HardwareHealthResponse ingestForWorker(UUID endpointId, UUID jobId, HardwareReportRequest req,
+            List<String> errors, List<String> warnings) {
         if (endpointId == null || jobId == null || req == null || req.endpoint() == null) {
             throw new IllegalArgumentException("A valid hardware payload is required");
         }
-        return ingestForTrustedEndpoint(endpointId, jobId, req);
+        return ingestForTrustedEndpoint(endpointId, jobId, req, errors, warnings);
     }
 
     /** Failure evidence is written against trusted IDs and does not upsert an endpoint. */
@@ -71,7 +77,7 @@ public class HardwareIngestService {
         healthService.recordFailure(endpointId, jobId, reason);
     }
 
-    private HardwareHealthResponse ingestForTrustedEndpoint(UUID endpointId, UUID jobId, HardwareReportRequest req) {
+    private HardwareHealthResponse ingestForTrustedEndpoint(UUID endpointId, UUID jobId, HardwareReportRequest req, List<String> errors, List<String> warnings) {
         if (req.endpoint() == null) throw new IllegalArgumentException("endpoint details are required");
         endpointService.updateHardware(endpointId,
                 req.endpoint().manufacturer(), req.endpoint().model(), req.endpoint().serialNumber());
@@ -117,6 +123,10 @@ public class HardwareIngestService {
                     asString(r.get("priority")), asString(r.get("area")), asString(r.get("action"))));
         }
 
+        Map<String, Object> rawReport = new java.util.LinkedHashMap<>(toRawReportMap(req, jobId));
+        if (errors != null && !errors.isEmpty()) rawReport.put("workerErrors", errors);
+        if (warnings != null && !warnings.isEmpty()) rawReport.put("workerWarnings", warnings);
+
         return healthService.recordReport(
                 endpointId,
                 jobId,
@@ -126,7 +136,7 @@ public class HardwareIngestService {
                 req.endpoint().biosVersion(),
                 cpuScore, memoryScore, storageScore, batteryScore,
                 eventCount, warrantyStatus, warrantyDaysRemaining,
-                toRawReportMap(req, jobId),
+                rawReport,
                 Instant.now(),
                 recs
         );

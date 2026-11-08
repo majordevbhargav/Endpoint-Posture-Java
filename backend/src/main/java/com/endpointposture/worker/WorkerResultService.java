@@ -104,7 +104,7 @@ public class WorkerResultService {
             }
             recordFailure(job.getJobType(), endpointId, jobId, reason);
         } else {
-            ingest(job.getJobType(), endpointId, jobId, request.reportPayload());
+            ingest(job.getJobType(), endpointId, jobId, request.reportPayload(), request.errors(), request.warnings());
             if (!jobService.completeFenced(jobId, worker.claimId(), request.attempt())) {
                 throw new WorkerResultConflictException("Attempt is no longer current");
             }
@@ -122,32 +122,32 @@ public class WorkerResultService {
         }
     }
 
-    private void ingest(JobType type, UUID endpointId, UUID jobId, JsonNode payload) {
+    private void ingest(JobType type, UUID endpointId, UUID jobId, JsonNode payload, java.util.List<String> errors, java.util.List<String> warnings) {
         try {
             switch (type) {
                 case POSTURE_CHECK -> {
                     PostureReportRequest req = mapper.treeToValue(payload, PostureReportRequest.class);
                     if (req.status() == null || req.checks() == null || req.checks().isEmpty())
                         throw new IllegalArgumentException("Posture payload requires status and checks");
-                    posture.ingestForWorker(endpointId, jobId, req);
+                    posture.ingestForWorker(endpointId, jobId, req, errors, warnings);
                 }
                 case HARDWARE_CHECK -> {
                     HardwareReportRequest req = mapper.treeToValue(payload, HardwareReportRequest.class);
                     if (req.cpuMemory() == null || req.storage() == null)
                         throw new IllegalArgumentException("Hardware payload requires cpuMemory and storage");
-                    hardware.ingestForWorker(endpointId, jobId, req);
+                    hardware.ingestForWorker(endpointId, jobId, req, errors, warnings);
                 }
                 case DIAGNOSTIC_CHECK -> {
                     DiagnosticReportRequest req = mapper.treeToValue(payload, DiagnosticReportRequest.class);
                     if (req.status() == null)
                         throw new IllegalArgumentException("Diagnostic payload requires status");
-                    diagnostics.ingestForWorker(endpointId, jobId, req);
+                    diagnostics.ingestForWorker(endpointId, jobId, req, errors, warnings);
                 }
                 case SECURITY_CHECK -> {
                     SecurityReportRequest req = mapper.treeToValue(payload, SecurityReportRequest.class);
                     if (req.status() == null)
                         throw new IllegalArgumentException("Security-indicator payload requires status");
-                    securityIndicators.ingestForWorker(endpointId, jobId, req);
+                    securityIndicators.ingestForWorker(endpointId, jobId, req, errors, warnings);
                 }
             }
         } catch (IllegalArgumentException e) {

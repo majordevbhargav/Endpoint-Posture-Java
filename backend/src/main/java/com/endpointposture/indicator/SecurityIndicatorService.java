@@ -39,19 +39,25 @@ public class SecurityIndicatorService {
         }
         Endpoint endpoint = endpointService.upsertByMac(
                 req.endpoint().mac(), req.endpoint().ip(), req.endpoint().hostname(), null, null);
-        return ingestForTrustedEndpoint(endpoint.getId(), parseUuidOrNull(req.jobId()), req);
+        return ingestForTrustedEndpoint(endpoint.getId(), parseUuidOrNull(req.jobId()), req, List.of(), List.of());
     }
 
     /** Worker path binds evidence to the locked job endpoint and job UUID. */
     @Transactional
     public SecurityIndicatorResponse ingestForWorker(UUID endpointId, UUID jobId, SecurityReportRequest req) {
+        return ingestForWorker(endpointId, jobId, req, List.of(), List.of());
+    }
+
+    @Transactional
+    public SecurityIndicatorResponse ingestForWorker(UUID endpointId, UUID jobId, SecurityReportRequest req,
+            List<String> errors, List<String> warnings) {
         if (endpointId == null || jobId == null || req == null) {
             throw new IllegalArgumentException("A valid security-indicator payload is required");
         }
-        return ingestForTrustedEndpoint(endpointId, jobId, req);
+        return ingestForTrustedEndpoint(endpointId, jobId, req, errors, warnings);
     }
 
-    private SecurityIndicatorResponse ingestForTrustedEndpoint(UUID endpointId, UUID jobId, SecurityReportRequest req) {
+    private SecurityIndicatorResponse ingestForTrustedEndpoint(UUID endpointId, UUID jobId, SecurityReportRequest req, List<String> errors, List<String> warnings) {
         EndpointSecurityIndicator.Status status = parseStatus(req.status());
         List<SecurityReportRequest.Sample> samples =
                 req.samples() == null ? List.of() : req.samples().stream().filter(Objects::nonNull).toList();
@@ -74,6 +80,8 @@ public class SecurityIndicatorService {
 
         Map<String, Object> raw = objectMapper.convertValue(req, new TypeReference<Map<String, Object>>() {});
         raw.put("jobId", jobId == null ? null : jobId.toString());
+        if (errors != null && !errors.isEmpty()) raw.put("workerErrors", errors);
+        if (warnings != null && !warnings.isEmpty()) raw.put("workerWarnings", warnings);
 
         EndpointSecurityIndicator saved = repository.save(EndpointSecurityIndicator.builder()
                 .endpointId(endpointId)

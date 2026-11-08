@@ -72,12 +72,17 @@ class WorkerResultOutcomeIntegrationTest {
                     "SELECT status FROM posture_job WHERE id = ?", String.class, jobId));
             assertEquals(1, jdbc.queryForObject(
                     "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
+            String evidenceTable = switch (type) {
+                case POSTURE_CHECK -> "assessment";
+                case HARDWARE_CHECK -> "hardware_health";
+                case DIAGNOSTIC_CHECK -> "endpoint_diagnostic";
+                case SECURITY_CHECK -> "endpoint_security_indicator";
+            };
+            assertEquals(1, jdbc.queryForObject(
+                    "SELECT count(*) FROM " + evidenceTable + " WHERE job_id = ?", Integer.class, jobId),
+                    type.name() + " evidence");
         }
 
-        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM assessment", Integer.class));
-        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM hardware_health", Integer.class));
-        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM endpoint_diagnostic", Integer.class));
-        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM endpoint_security_indicator", Integer.class));
     }
 
     @Test
@@ -97,6 +102,9 @@ class WorkerResultOutcomeIntegrationTest {
                 "SELECT collection_outcome FROM worker_job_result_receipt WHERE job_id = ?", String.class, jobId));
         assertEquals(1, jdbc.queryForObject(
                 "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
+        String detail = jdbc.queryForObject(
+                "SELECT detail FROM assessment WHERE job_id = ?", String.class, jobId);
+        assertTrue(detail.contains("One optional check was unavailable"));
     }
 
     @Test
