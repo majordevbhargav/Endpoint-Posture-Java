@@ -153,6 +153,10 @@ class WorkerJobResultReceiptTest {
                 null, null, null, null, null);
         assertFalse(validator.validate(nullRequiredFields).isEmpty());
 
+        WorkerResultRequest jsonNullPayload = new WorkerResultRequest(1, 1, JobType.POSTURE_CHECK,
+                WorkerResultRequest.CollectionOutcome.SUCCESS, mapper.nullNode(), List.of(), List.of(), 0);
+        assertFalse(validator.validate(jsonNullPayload).isEmpty());
+
         WorkerResultRequest oversizedPayload = request(mapper.readTree(
                 "{\"data\":\"" + "x".repeat(WorkerResultRequest.MAX_REPORT_PAYLOAD_BYTES) + "\"}"));
         assertFalse(validator.validate(oversizedPayload).isEmpty());

@@ -6,9 +6,9 @@ CREATE TABLE worker_job_result_receipt (
     job_id UUID NOT NULL,
     attempt INTEGER NOT NULL,
     worker_id UUID NOT NULL,
-    result_hash CHAR(64) NOT NULL,
+    result_hash VARCHAR(64) NOT NULL,
     schema_version INTEGER NOT NULL,
-    collection_outcome TEXT NOT NULL,
+    collection_outcome VARCHAR(16) NOT NULL,
     accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     CONSTRAINT uq_worker_job_result_receipt_job_attempt UNIQUE (job_id, attempt),

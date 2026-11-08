@@ -38,6 +38,11 @@ public record WorkerResultRequest(
 
     public enum CollectionOutcome { SUCCESS, PARTIAL, FAILED }
 
+    @AssertTrue(message = "reportPayload must be a non-null JSON value")
+    public boolean isReportPayloadPresent() {
+        return reportPayload != null && !reportPayload.isNull() && !reportPayload.isMissingNode();
+    }
+
     @AssertTrue(message = "reportPayload must not exceed 1 MiB")
     public boolean isReportPayloadWithinLimit() {
         return reportPayload == null
