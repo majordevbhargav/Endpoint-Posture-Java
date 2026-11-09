@@ -93,8 +93,7 @@ public class WorkerResultService {
         if (job.getStatus() != JobStatus.RUNNING
                 || job.getAttemptCount() != request.attempt()
                 || !worker.id().toString().equals(job.getClaimedBy())
-                || !worker.shard().equals(job.getShard())
-                || job.getLeaseExpiresAt() == null || !job.getLeaseExpiresAt().isAfter(Instant.now())) {
+                || !worker.shard().equals(job.getShard())) {
             throw new WorkerResultConflictException("Attempt is stale, expired or not owned by this worker");
         }
         if (request.jobType() != job.getJobType()) {

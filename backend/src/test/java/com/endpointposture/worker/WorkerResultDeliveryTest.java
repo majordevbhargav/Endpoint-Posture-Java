@@ -53,7 +53,7 @@ class WorkerResultDeliveryTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @Autowired WorkerRegistryService registry;
-    @Autowired JobService jobService;
+    @org.springframework.boot.test.mock.mockito.SpyBean JobService jobService;
 
     @Test
     void acceptsTrustedEndpointEvidenceAndReturnsOriginalReceiptForReorderedDuplicate() throws Exception {
@@ -175,6 +175,93 @@ class WorkerResultDeliveryTest {
         ObjectNode unsupported = request(attempt, payload(mac()));
         unsupported.put("schemaVersion", 99);
         assertEquals(400, submit(jobId, worker.apiKey(), unsupported).getResponse().getStatus());
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
+    }
+
+    @Test
+    void databaseClockIsAuthoritativeForLeaseExpiryAndApplicationClockCannotRejectValidLease() throws Exception {
+        UUID endpointId = endpoint(mac());
+        UUID jobId = job(endpointId, "site-db-authoritative");
+        WorkerRegistryService.Enrolled worker = enroll("worker-db-authoritative", "site-db-authoritative");
+        var claimed = jobService.claimNextJobInShard(worker.workerId().toString(), "site-db-authoritative", Duration.ofMinutes(5));
+        assertTrue(claimed.isPresent());
+        int attempt = claimed.orElseThrow().getAttemptCount();
+
+        // Simulate clock skew:
+        // The loaded job entity has lease_expires_at in the JVM's past (e.g. 5 seconds ago).
+        // Under the old implementation, this prematurely rejected the result before reaching the database.
+        jdbc.update("UPDATE posture_job SET lease_expires_at = now() - interval '5 seconds' WHERE id = ?", jobId);
+
+        // Simulate database-side fenced completion succeeding (authoritative PostgreSQL clock accepts the lease).
+        org.mockito.Mockito.doReturn(true).when(jobService).completeFenced(
+                org.mockito.ArgumentMatchers.eq(jobId),
+                org.mockito.ArgumentMatchers.eq(worker.workerId().toString()),
+                org.mockito.ArgumentMatchers.eq(attempt));
+
+        ObjectNode body = request(attempt, payload(mac()));
+        MvcResult accepted = submit(jobId, worker.apiKey(), body);
+        assertEquals(200, accepted.getResponse().getStatus(),
+                "Result must be accepted when database fenced operation succeeds despite past JVM lease timestamp");
+        org.mockito.Mockito.verify(jobService).completeFenced(
+                org.mockito.ArgumentMatchers.eq(jobId),
+                org.mockito.ArgumentMatchers.eq(worker.workerId().toString()),
+                org.mockito.ArgumentMatchers.eq(attempt));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
+        org.mockito.Mockito.verify(jobService).completeFenced(
+                org.mockito.ArgumentMatchers.eq(jobId),
+                org.mockito.ArgumentMatchers.eq(worker.workerId().toString()),
+                org.mockito.ArgumentMatchers.eq(attempt));
+    }
+
+    @Test
+    void rejectsSubmissionWhenWorkerShardDoesNotMatchJobShard() throws Exception {
+        UUID endpointId = endpoint(mac());
+        UUID jobId = job(endpointId, "shard-alpha");
+        WorkerRegistryService.Enrolled worker = enroll("worker-shard-mismatch", "shard-alpha");
+        var claimed = jobService.claimNextJobInShard(worker.workerId().toString(), "shard-alpha", Duration.ofMinutes(5));
+        assertTrue(claimed.isPresent());
+        int attempt = claimed.orElseThrow().getAttemptCount();
+
+        // Modify job shard to simulate shard mismatch while worker ID and attempt still match
+        jdbc.update("UPDATE posture_job SET shard = 'shard-beta' WHERE id = ?", jobId);
+
+        ObjectNode body = request(attempt, payload(mac()));
+        MvcResult rejected = submit(jobId, worker.apiKey(), body);
+        assertEquals(409, rejected.getResponse().getStatus());
+        assertEquals("RUNNING", jdbc.queryForObject(
+                "SELECT status FROM posture_job WHERE id = ?", String.class, jobId));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
+    }
+
+    @Test
+    void rejectsFailedResultWhenDatabaseLeaseHasExpired() throws Exception {
+        UUID endpointId = endpoint(mac());
+        UUID jobId = job(endpointId, "site-fail-expiry");
+        WorkerRegistryService.Enrolled worker = enroll("worker-fail-expiry", "site-fail-expiry");
+        var claimed = jobService.claimNextJobInShard(worker.workerId().toString(), "site-fail-expiry", Duration.ofMinutes(5));
+        assertTrue(claimed.isPresent());
+        int attempt = claimed.orElseThrow().getAttemptCount();
+
+        jdbc.update("UPDATE posture_job SET lease_expires_at = now() - interval '1 second' WHERE id = ?", jobId);
+
+        ObjectNode body = request(attempt, payload(mac()));
+        body.put("collectionOutcome", "FAILED");
+        body.putNull("reportPayload");
+        body.put("processExitCode", 1);
+        body.putArray("errors").add("PowerShell collection timed out");
+
+        assertEquals(409, submit(jobId, worker.apiKey(), body).getResponse().getStatus());
+        assertEquals("RUNNING", jdbc.queryForObject(
+                "SELECT status FROM posture_job WHERE id = ?", String.class, jobId));
         assertEquals(0, jdbc.queryForObject(
                 "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
         assertEquals(0, jdbc.queryForObject(
