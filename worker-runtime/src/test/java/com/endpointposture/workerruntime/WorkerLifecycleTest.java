@@ -295,4 +295,36 @@ class WorkerLifecycleTest {
             assertEquals(KEY, server.requests.get(1).workerKey());
         }
     }
+
+
+    @Test
+    void blockedHandlerContinuesHeartbeatsWithoutClaimingAgain() throws Exception {
+        try (TestServer server = new TestServer()) {
+            server.on(P + "/heartbeat", 200, HEARTBEAT);
+            String claim = "{\"jobId\":\"123e4567-e89b-12d3-a456-426614174000\",\"attempt\":1,"
+                    + "\"jobType\":\"DIAGNOSTIC\",\"spec\":{},\"leaseExpiresAt\":\"2026-11-06T10:05:00Z\"}";
+            server.on(P + "/jobs/claim", 200, claim);
+            AtomicInteger handled = new AtomicInteger();
+            java.util.concurrent.atomic.AtomicBoolean blocked = new java.util.concurrent.atomic.AtomicBoolean();
+            AtomicInteger sleeps = new AtomicInteger();
+            WorkerLifecycle.JobHandler handler = new WorkerLifecycle.JobHandler() {
+                @Override public void handle(com.endpointposture.workerruntime.api.ClaimedJob job) {
+                    handled.incrementAndGet();
+                    blocked.set(true); // model PowerShellJobHandler's sticky failure state
+                }
+                @Override public boolean isBusy() { return blocked.get(); }
+            };
+
+            int exit = lifecycle(server, handler, delay -> {
+                if (sleeps.incrementAndGet() == 3) throw new InterruptedException("stop");
+            }, new ByteArrayOutputStream()).run();
+
+            assertEquals(0, exit);
+            assertEquals(1, handled.get());
+            assertEquals(1, server.requests.stream().filter(r -> r.path().endsWith("/jobs/claim")).count());
+            assertEquals(3, server.requests.stream().filter(r -> r.path().endsWith("/heartbeat")).count(),
+                    "heartbeats must continue while blocked");
+        }
+    }
+
 }
