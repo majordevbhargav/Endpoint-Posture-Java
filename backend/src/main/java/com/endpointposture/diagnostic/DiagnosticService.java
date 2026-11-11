@@ -44,12 +44,28 @@ public class DiagnosticService {
         if (req.endpoint() == null || req.endpoint().mac() == null || req.endpoint().mac().isBlank()) {
             throw new IllegalArgumentException("endpoint.mac is required");
         }
-
-        EndpointDiagnostic.Status status = parseStatus(req.status());
-
         Endpoint endpoint = endpointService.upsertByMac(
                 req.endpoint().mac(), req.endpoint().ip(), req.endpoint().hostname(), null, null);
+        return ingestForTrustedEndpoint(endpoint.getId(), parseUuidOrNull(req.jobId()), req, List.of(), List.of());
+    }
 
+    /** Worker path binds evidence to the job's endpoint UUID; reported MAC is descriptive only. */
+    @Transactional
+    public DiagnosticResponse ingestForWorker(UUID endpointId, UUID jobId, DiagnosticReportRequest req) {
+        return ingestForWorker(endpointId, jobId, req, List.of(), List.of());
+    }
+
+    @Transactional
+    public DiagnosticResponse ingestForWorker(UUID endpointId, UUID jobId, DiagnosticReportRequest req,
+            List<String> errors, List<String> warnings) {
+        if (endpointId == null || jobId == null || req == null) {
+            throw new IllegalArgumentException("A valid diagnostic payload is required");
+        }
+        return ingestForTrustedEndpoint(endpointId, jobId, req, errors, warnings);
+    }
+
+    private DiagnosticResponse ingestForTrustedEndpoint(UUID endpointId, UUID jobId, DiagnosticReportRequest req, List<String> errors, List<String> warnings) {
+        EndpointDiagnostic.Status status = parseStatus(req.status());
         Integer score = null;
         EndpointDiagnostic.Band band = null;
         List<Map<String, Object>> deductions = null;
@@ -68,7 +84,7 @@ public class DiagnosticService {
         }
 
         Map<String, Object> raw = new HashMap<>();
-        raw.put("jobId", req.jobId());
+        raw.put("jobId", jobId == null ? null : jobId.toString());
         raw.put("status", status.name());
         raw.put("detail", req.detail());
         raw.put("gateway", req.gateway());
@@ -76,10 +92,12 @@ public class DiagnosticService {
         raw.put("internet", req.internet());
         raw.put("tcp443", req.tcp443());
         raw.put("traceroute", req.traceroute());
+        if (errors != null && !errors.isEmpty()) raw.put("workerErrors", errors);
+        if (warnings != null && !warnings.isEmpty()) raw.put("workerWarnings", warnings);
 
         EndpointDiagnostic saved = repository.save(EndpointDiagnostic.builder()
-                .endpointId(endpoint.getId())
-                .jobId(parseUuidOrNull(req.jobId()))
+                .endpointId(endpointId)
+                .jobId(jobId)
                 .status(status)
                 .score(score)
                 .band(band)
