@@ -161,7 +161,7 @@ class WorkerResultRollbackTest {
         jdbc.execute("CREATE SEQUENCE " + function + "_invocations");
         jdbc.execute("CREATE FUNCTION " + function + "() RETURNS trigger LANGUAGE plpgsql AS $trigger$ "
                 + "BEGIN PERFORM nextval('" + function + "_invocations'); "
-                + "RAISE EXCEPTION 'injected persistence failure: " + function + "'; END $trigger$");
+                + "RAISE EXCEPTION 'injected persistence failure: " + function + "'; END; $trigger$");
         jdbc.execute("CREATE TRIGGER " + function + " BEFORE INSERT ON " + table
                 + " FOR EACH ROW EXECUTE FUNCTION " + function + "()");
     }
