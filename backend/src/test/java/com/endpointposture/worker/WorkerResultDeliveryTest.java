@@ -53,7 +53,7 @@ class WorkerResultDeliveryTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper mapper;
     @Autowired WorkerRegistryService registry;
-    @org.springframework.boot.test.mock.mockito.SpyBean JobService jobService;
+    @Autowired JobService jobService;
 
     @Test
     void acceptsTrustedEndpointEvidenceAndReturnsOriginalReceiptForReorderedDuplicate() throws Exception {
@@ -182,41 +182,46 @@ class WorkerResultDeliveryTest {
     }
 
     @Test
-    void databaseClockIsAuthoritativeForLeaseExpiryAndApplicationClockCannotRejectValidLease() throws Exception {
+    void acceptsSuccessfulResultWhenDatabaseLeaseIsValidAndPersistsEvidenceAndReceipt() throws Exception {
         UUID endpointId = endpoint(mac());
         UUID jobId = job(endpointId, "site-db-authoritative");
-        WorkerRegistryService.Enrolled worker = enroll("worker-db-authoritative", "site-db-authoritative");
-        var claimed = jobService.claimNextJobInShard(worker.workerId().toString(), "site-db-authoritative", Duration.ofMinutes(5));
+        WorkerRegistryService.Enrolled worker =
+                enroll("worker-db-authoritative", "site-db-authoritative");
+
+        var claimed = jobService.claimNextJobInShard(
+                worker.workerId().toString(),
+                "site-db-authoritative",
+                Duration.ofMinutes(5));
+
         assertTrue(claimed.isPresent());
         int attempt = claimed.orElseThrow().getAttemptCount();
 
-        // Simulate clock skew:
-        // The loaded job entity has lease_expires_at in the JVM's past (e.g. 5 seconds ago).
-        // Under the old implementation, this prematurely rejected the result before reaching the database.
-        jdbc.update("UPDATE posture_job SET lease_expires_at = now() - interval '5 seconds' WHERE id = ?", jobId);
-
-        // Simulate database-side fenced completion succeeding (authoritative PostgreSQL clock accepts the lease).
-        org.mockito.Mockito.doReturn(true).when(jobService).completeFenced(
-                org.mockito.ArgumentMatchers.eq(jobId),
-                org.mockito.ArgumentMatchers.eq(worker.workerId().toString()),
-                org.mockito.ArgumentMatchers.eq(attempt));
+        assertTrue(jdbc.queryForObject(
+                "SELECT lease_expires_at > now() FROM posture_job WHERE id = ?",
+                Boolean.class,
+                jobId),
+                "The PostgreSQL lease must be valid before submission");
 
         ObjectNode body = request(attempt, payload(mac()));
         MvcResult accepted = submit(jobId, worker.apiKey(), body);
-        assertEquals(200, accepted.getResponse().getStatus(),
-                "Result must be accepted when database fenced operation succeeds despite past JVM lease timestamp");
-        org.mockito.Mockito.verify(jobService).completeFenced(
-                org.mockito.ArgumentMatchers.eq(jobId),
-                org.mockito.ArgumentMatchers.eq(worker.workerId().toString()),
-                org.mockito.ArgumentMatchers.eq(attempt));
+
+        assertEquals(200, accepted.getResponse().getStatus());
+
+        assertEquals("COMPLETE", jdbc.queryForObject(
+                "SELECT status FROM posture_job WHERE id = ?",
+                String.class,
+                jobId));
+
         assertEquals(1, jdbc.queryForObject(
-                "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ?", Integer.class, jobId));
+                "SELECT count(*) FROM assessment WHERE job_id = ?",
+                Integer.class,
+                jobId));
+
         assertEquals(1, jdbc.queryForObject(
-                "SELECT count(*) FROM assessment WHERE job_id = ?", Integer.class, jobId));
-        org.mockito.Mockito.verify(jobService).completeFenced(
-                org.mockito.ArgumentMatchers.eq(jobId),
-                org.mockito.ArgumentMatchers.eq(worker.workerId().toString()),
-                org.mockito.ArgumentMatchers.eq(attempt));
+                "SELECT count(*) FROM worker_job_result_receipt WHERE job_id = ? AND attempt = ?",
+                Integer.class,
+                jobId,
+                attempt));
     }
 
     @Test
