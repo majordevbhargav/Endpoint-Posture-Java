@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Worker service template for WinSW 2.12.0. Installation remains Manual until
+     the installer has configured and verified the dedicated service account. -->
+<service>
+  <id>EndpointPostureWorker</id>
+  <name>VE Endpoint Posture Worker</name>
+  <description>Windows endpoint collection worker with durable local result outbox</description>
+  <executable>__JAVA_EXECUTABLE__</executable>
+  <arguments>-Xms128m -Xmx512m -Duser.timezone=UTC -jar "%BASE%\worker-runtime.jar"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <startmode>Manual</startmode>
+  <delayedAutoStart />
+  <stoptimeout>45 sec</stoptimeout>
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <onfailure action="restart" delay="120 sec" />
+  <onfailure action="none" />
+  <resetfailure>1 hour</resetfailure>
+  <env name="EP_BACKEND_URL" value="__EP_BACKEND_URL__" />
+  <env name="EP_WORKER_STATE_FILE" value="__EP_WORKER_STATE_FILE__" />
+  <env name="EP_WORKER_DATA_DIRECTORY" value="__EP_WORKER_DATA_DIRECTORY__" />
+  <env name="EP_POWERSHELL_EXECUTION_ENABLED" value="false" />
+  <env name="EP_POWERSHELL_EXE" value="%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" />
+  <env name="EP_SCRIPTS_DIRECTORY" value="%BASE%\scripts" />
+  <logpath>__EP_WORKER_LOG_DIRECTORY__</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>10</keepFiles>
+  </log>
+</service>
