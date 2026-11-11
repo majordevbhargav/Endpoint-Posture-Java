@@ -4,8 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Result receipt acknowledgement contract reserved for a later slice.
- * No controller returns this response in PR6.4 Slice 1.
+ * Acknowledgement returned after a worker result has been accepted and durably recorded.
  */
 public record WorkerResultResponse(
         boolean accepted,
