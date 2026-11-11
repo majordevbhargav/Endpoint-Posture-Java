@@ -58,6 +58,14 @@ class WorkerConfigTest {
     }
 
     @Test
+    void dataDirectoryCanBeConfiguredIndependentlyOfCredentialFile() {
+        WorkerConfig c=WorkerConfig.fromEnvironment(Map.of("EP_BACKEND_URL","https://h",
+                "EP_WORKER_STATE_FILE","C:/secrets/state.json",
+                "EP_WORKER_DATA_DIRECTORY","C:/ProgramData/WorkerData"));
+        assertEquals(Path.of("C:/ProgramData/WorkerData/worker-results.sqlite"),c.outboxFile());
+    }
+
+    @Test
     void defaultsAndErrors() {
         WorkerConfig c = WorkerConfig.fromEnvironment(Map.of("EP_BACKEND_URL", "https://h"));
         assertTrue(c.stateFile().endsWith("state.json"));

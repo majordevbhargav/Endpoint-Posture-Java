@@ -27,8 +27,11 @@ After enrollment the token is no longer needed. Remove `EP_ENROLLMENT_TOKEN` aft
 |---|---|---|
 | `EP_BACKEND_URL` | required | scheme, host and port only |
 | `EP_WORKER_STATE_FILE` | `%ProgramData%\EndpointPostureWorker\state.json` | holds the DPAPI-protected key |
+| `EP_WORKER_DATA_DIRECTORY` | `%ProgramData%\EndpointPostureWorker` | persistent directory for the SQLite result outbox |
 | `EP_ENROLLMENT_TOKEN` | none | single-use; read from the environment only |
 | `EP_HTTP_CONNECT_TIMEOUT_SECONDS` / `EP_HTTP_REQUEST_TIMEOUT_SECONDS` | 10 / 30 | |
+| `EP_RESULT_DELIVERY_GRACE_MINUTES` | 15 | maximum period during which the worker renews a pending result lease |
+| `EP_RESULT_MAX_CUMULATIVE_LEASE_EXTENSION_SECONDS` | 900 | maximum requested lease extension across delivery attempts |
 
 ## Security notes
 - The key is DPAPI-protected (current user). Run the worker as the same Windows account that enrolled.
@@ -36,6 +39,9 @@ After enrollment the token is no longer needed. Remove `EP_ENROLLMENT_TOKEN` aft
 - DPAPI subprocess input is limited to 16 KiB; captured stdout and stderr are limited to 64 KiB and 16 KiB.
 - Worker API response bodies are limited to 1 MiB.
 - Restrict the state directory's ACL to the Windows service account during installation (PR6.5).
+- The worker stores results in `worker-results.sqlite` under `EP_WORKER_DATA_DIRECTORY` using SQLite WAL and full synchronous commits. SQLite and its WAL/SHM sidecars must remain on persistent local storage and accessible to the worker account.
+- The repository does not select a worker service identity. Configure the service with a dedicated account, run enrollment under that same account (DPAPI CurrentUser scope), and run `Configure-WorkerDataDirectory.ps1 -ServiceAccount <DOMAIN\account>` elevated to grant access to the data directory. Do not assume the backend's `svc-posture` identity is the worker identity.
+- The outbox preserves result request bytes and retries after restart. A result is marked delivered only after a matching backend receipt acknowledgement; permanent failures remain stored and block further job claims for operator review.
 - The key is only ever sent to the origin it enrolled with; a different `EP_BACKEND_URL` is refused.
 - HTTP redirects are never followed.
 - If enrollment succeeds but the key cannot be saved, the token is spent: an admin must revoke the worker and issue a new token.

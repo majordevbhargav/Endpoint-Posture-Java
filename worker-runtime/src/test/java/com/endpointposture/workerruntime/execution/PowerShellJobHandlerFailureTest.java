@@ -110,4 +110,22 @@ class PowerShellJobHandlerFailureTest {
         assertFalse(handler.isBusy());
         handler.close();
     }
+
+    @Test void durablePersistenceFailureRetainsCompletedObjectAndBlocksClaims() throws Exception {
+        var logs=new ByteArrayOutputStream();
+        JobResultHandoff failing=new JobResultHandoff() {
+            @Override public void accept(CompletedJobResult result) { throw new IllegalStateException("database is corrupt"); }
+            @Override public boolean hasPendingResults() { return false; }
+            @Override public boolean durable() { return true; }
+            @Override public boolean retryPersistenceFailure(Exception failure) { return false; }
+        };
+        var result=completed();
+        var handler=new PowerShellJobHandler(job->validated(),
+                (job,spec)->new PowerShellExecutor.ExecutionResult(0,result.envelope(),false,false),
+                new PrintStream(logs),failing);
+        handler.handle(claim());
+        awaitBlocked(handler,logs);
+        handler.close();
+        assertTrue(logs.toString().contains("result remains only in process memory"));
+    }
 }

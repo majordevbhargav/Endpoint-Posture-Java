@@ -23,6 +23,8 @@ public final class PowerShellJobHandler implements WorkerLifecycle.JobHandler, A
     private final AtomicBoolean active = new AtomicBoolean();
     /** Sticky fail-closed state: a claimed job that was not handed off must stop further claims. */
     private final AtomicBoolean blocked = new AtomicBoolean();
+    /** Temporary retention while a durable store is unavailable; never clears the sticky block on shutdown. */
+    private volatile CompletedJobResult pendingPersistence;
     private volatile Thread executionThread;
 
     public PowerShellJobHandler(URI backend, PowerShellExecutionConfig config, PrintStream err) {
@@ -53,7 +55,7 @@ public final class PowerShellJobHandler implements WorkerLifecycle.JobHandler, A
     }
 
     @Override public boolean isBusy() {
-        return blocked.get() || active.get() || resultHandoff.hasPendingResults();
+        return blocked.get() || active.get() || pendingPersistence != null || resultHandoff.hasPendingResults();
     }
 
     @Override public void handle(ClaimedJob claimed) {
@@ -66,7 +68,7 @@ public final class PowerShellJobHandler implements WorkerLifecycle.JobHandler, A
                 PowerShellExecutor.ExecutionResult result = executor.execute(claimed, job);
                 CompletedJobResult completed = new CompletedJobResult(claimed, job, result.exitCode(),
                         result.result(), result.stdoutTruncated(), result.stderrTruncated());
-                resultHandoff.accept(completed);
+                persistUntilAccepted(completed);
                 handedOff.set(true);
                 err.println("PowerShell result handed off for job " + claimed.jobId()
                         + " (exit=" + result.exitCode() + ", collectionOutcome="
@@ -99,6 +101,35 @@ public final class PowerShellJobHandler implements WorkerLifecycle.JobHandler, A
         }
     }
 
+    private void persistUntilAccepted(CompletedJobResult completed) throws InterruptedException {
+        pendingPersistence=completed;
+        long delaySeconds=1;
+        while(true) {
+            try {
+                resultHandoff.accept(completed);
+                pendingPersistence=null;
+                return;
+            } catch(Exception e) {
+                if(!resultHandoff.durable() || !resultHandoff.retryPersistenceFailure(e)) {
+                    if(!resultHandoff.durable()) pendingPersistence=null;
+                    throw new IllegalStateException("Result handoff failed",e);
+                }
+                err.println("CRITICAL: durable result persistence failed for job "
+                        + completed.claimedJob().jobId() + " (" + e.getClass().getSimpleName()
+                        + ": " + safeDiagnostic(e) + "); retaining the completed result in memory and retrying while claims remain blocked.");
+                Thread.sleep(delaySeconds*1000);
+                delaySeconds=Math.min(60,delaySeconds*2);
+            }
+        }
+    }
+
+    private static String safeDiagnostic(Exception e) {
+        String message=e.getMessage();
+        if(message==null||message.isBlank()) return e.getClass().getSimpleName();
+        message=message.replaceAll("[\\r\\n\\t]"," ");
+        return message.length()>240?message.substring(0,240):message;
+    }
+
     @Override public void close() {
         Thread thread = executionThread;
         if (thread != null) {
@@ -109,9 +140,18 @@ public final class PowerShellJobHandler implements WorkerLifecycle.JobHandler, A
         if (blocked.get()) {
             err.println("CRITICAL: worker is blocked after a claimed job failed before result handoff.");
         }
-        if (resultHandoff.hasPendingResults()) {
-            err.println("CRITICAL: worker shutdown with completed results still pending; "
-                    + "they were not acknowledged or removed from the handoff. Drain/export them before restart.");
+        if (pendingPersistence != null) {
+            err.println("CRITICAL: shutdown before completed result reached durable storage for job "
+                    + pendingPersistence.claimedJob().jobId() + "; result remains only in process memory.");
+        }
+        try {
+            if (resultHandoff.hasPendingResults()) {
+                err.println("CRITICAL: worker shutdown with completed results still pending; "
+                        + "they were not acknowledged or removed from the handoff. Drain/export them before restart.");
+            }
+        } catch(RuntimeException e) {
+            err.println("CRITICAL: could not inspect durable result storage during shutdown: "
+                    + safeDiagnostic(e));
         }
     }
 }

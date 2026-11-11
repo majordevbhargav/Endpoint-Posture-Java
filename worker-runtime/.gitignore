@@ -1,3 +1,4 @@
 target/
+maven-cache/
 state.json
 *.tmp
