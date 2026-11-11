@@ -130,4 +130,67 @@ class ResultDispatcherTest {
             assertTrue(server.requests.stream().noneMatch(r->r.path().endsWith("/lease/renew")));
         }
     }
+
+    @Test void committedResultIsRecoveredAndDeliveredAfterStoreRestart() throws Exception {
+        String ack="{\"accepted\":true,\"receiptId\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\"jobId\":\""+job+"\",\"attempt\":1,\"collectionOutcome\":\"SUCCESS\",\"acceptedAt\":\"2026-11-11T12:00:00Z\"}";
+        var database=dir.resolve("restart.sqlite");
+        try(var firstProcess=new SqliteJobResultHandoff(database,UUID.randomUUID(),"s",Duration.ofMinutes(2))) {
+            firstProcess.accept(result());
+            assertEquals("PENDING",firstProcess.state(job,1));
+        }
+        try(var server=new TestServer();var recovered=new SqliteJobResultHandoff(database,UUID.randomUUID(),"s",Duration.ofMinutes(2))) {
+            server.on("/api/v1/workers/jobs/"+job+"/result",200,ack);
+            var config=new WorkerConfig(server.uri(),dir.resolve("state.json"),null,Duration.ofSeconds(1),Duration.ofSeconds(2));
+            try(var dispatcher=new ResultDispatcher(recovered,WorkerApiClient.authenticated(config,"epw_test_key"),System.err,0)) {
+                assertTrue(awaitState(recovered,"DELIVERED"));
+            }
+            assertEquals(1,server.requests.stream().filter(r->r.path().endsWith("/result")).count());
+        }
+    }
+
+    @Test void lostAcknowledgementReplaysExactPayloadAndRecoversMatchingReceipt() throws Exception {
+        String ack="{\"accepted\":true,\"receiptId\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\"jobId\":\""+job+"\",\"attempt\":1,\"collectionOutcome\":\"SUCCESS\",\"acceptedAt\":\"2026-11-11T12:00:00Z\"}";
+        try(var server=new TestServer();var store=new SqliteJobResultHandoff(dir.resolve("lost-ack.sqlite"),UUID.randomUUID(),"s",Duration.ofMinutes(2))) {
+            // The first simulated backend acceptance loses its response; the next identical POST receives the receipt.
+            server.onDropThenSequence("/api/v1/workers/jobs/"+job+"/result",new int[]{200,200},new String[]{"",ack});
+            store.accept(result());
+            byte[] expected=store.pending(1).get(0).requestPayload();
+            var config=new WorkerConfig(server.uri(),dir.resolve("state.json"),null,Duration.ofSeconds(1),Duration.ofSeconds(2));
+            try(var dispatcher=new ResultDispatcher(store,WorkerApiClient.authenticated(config,"epw_test_key"),System.err,0)) {
+                assertTrue(awaitState(store,"DELIVERED"));
+            }
+            var posts=server.requests.stream().filter(r->r.path().endsWith("/result")).toList();
+            assertTrue(posts.size()>=2);
+            assertArrayEquals(expected,posts.get(0).body().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            assertEquals(posts.get(0).body(),posts.get(1).body());
+        }
+    }
+
+    @Test void authenticationRejectionRetainsResultWithoutRetryingAsSuccess() throws Exception {
+        try(var server=new TestServer();var store=new SqliteJobResultHandoff(dir.resolve("auth-reject.sqlite"),UUID.randomUUID(),"s",Duration.ofMinutes(2))) {
+            server.on("/api/v1/workers/jobs/"+job+"/result",401,"{\"message\":\"unauthorized\"}");
+            store.accept(result());
+            var config=new WorkerConfig(server.uri(),dir.resolve("state.json"),null,Duration.ofSeconds(1),Duration.ofSeconds(2));
+            try(var dispatcher=new ResultDispatcher(store,WorkerApiClient.authenticated(config,"epw_invalid_key"),System.err,0)) {
+                assertTrue(awaitState(store,"PERMANENT_FAILURE"));
+            }
+            assertEquals("PERMANENT_FAILURE",store.state(job,1));
+            assertTrue(store.hasPendingResults());
+            assertEquals(1,server.requests.size());
+            assertEquals("epw_invalid_key",server.requests.get(0).workerKey());
+        }
+    }
+
+    @Test void acknowledgementWithWrongJobIdentityIsRetained() throws Exception {
+        String ack="{\"accepted\":true,\"receiptId\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\"jobId\":\"123e4567-e89b-12d3-a456-426614174001\",\"attempt\":1,\"collectionOutcome\":\"SUCCESS\",\"acceptedAt\":\"2026-11-11T12:00:00Z\"}";
+        try(var server=new TestServer();var store=new SqliteJobResultHandoff(dir.resolve("wrong-identity.sqlite"),UUID.randomUUID(),"s",Duration.ofMinutes(2))) {
+            server.on("/api/v1/workers/jobs/"+job+"/result",200,ack);
+            store.accept(result());
+            var config=new WorkerConfig(server.uri(),dir.resolve("state.json"),null,Duration.ofSeconds(1),Duration.ofSeconds(2));
+            try(var dispatcher=new ResultDispatcher(store,WorkerApiClient.authenticated(config,"epw_test_key"),System.err,0)) {
+                assertTrue(awaitState(store,"PERMANENT_FAILURE"));
+            }
+            assertTrue(store.hasPendingResults());
+        }
+    }
 }
