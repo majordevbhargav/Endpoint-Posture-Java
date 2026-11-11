@@ -118,7 +118,7 @@ class WorkerResultRollbackTest {
         if (result != null) {
             int status = result.getResponse().getStatus();
             assertTrue(status >= 500 && status < 600,
-                    () -> "Expected a server-side persistence failure, but received HTTP " + status
+                    "Expected a server-side persistence failure, but received HTTP " + status
                             + " with body: " + result.getResponse().getContentAsString());
         } else {
             assertNotNull(propagated, "Expected the persistence failure to be returned or propagated");
@@ -159,9 +159,9 @@ class WorkerResultRollbackTest {
 
     private void installRejectTrigger(String table, String function) {
         jdbc.execute("CREATE SEQUENCE " + function + "_invocations");
-        jdbc.execute("CREATE FUNCTION " + function + "() RETURNS trigger LANGUAGE plpgsql AS $ "
+        jdbc.execute("CREATE FUNCTION " + function + "() RETURNS trigger LANGUAGE plpgsql AS $trigger$ "
                 + "BEGIN PERFORM nextval('" + function + "_invocations'); "
-                + "RAISE EXCEPTION 'injected persistence failure: " + function + "'; END $");
+                + "RAISE EXCEPTION 'injected persistence failure: " + function + "'; END $trigger$");
         jdbc.execute("CREATE TRIGGER " + function + " BEFORE INSERT ON " + table
                 + " FOR EACH ROW EXECUTE FUNCTION " + function + "()");
     }
