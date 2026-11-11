@@ -87,7 +87,7 @@ class WorkerResultRollbackTest {
 
         installRejectTrigger("assessment", "reject_assessment_insert");
         try {
-            invokeExpectingFailure(jobId, worker.apiKey(), body);
+            invokeExpectingFailure(jobId, worker.apiKey(), body, "reject_assessment_insert");
         } finally {
             dropRejectTrigger("assessment", "reject_assessment_insert");
         }
@@ -95,23 +95,57 @@ class WorkerResultRollbackTest {
 
         installRejectTrigger("worker_job_result_receipt", "reject_receipt_insert");
         try {
-            invokeExpectingFailure(jobId, worker.apiKey(), body);
+            invokeExpectingFailure(jobId, worker.apiKey(), body, "reject_receipt_insert");
         } finally {
             dropRejectTrigger("worker_job_result_receipt", "reject_receipt_insert");
         }
         assertRolledBack(jobId);
     }
 
-    private void invokeExpectingFailure(UUID id, String key, ObjectNode body) throws Exception {
+    private void invokeExpectingFailure(UUID id, String key, ObjectNode body, String triggerFunction)
+            throws Exception {
+        MvcResult result = null;
+        Exception propagated = null;
         try {
-            MvcResult result = mvc.perform(post("/api/v1/workers/jobs/{id}/result", id)
+            result = mvc.perform(post("/api/v1/workers/jobs/{id}/result", id)
                     .header(WorkerAuthFilter.HEADER, key)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(mapper.writeValueAsBytes(body))).andReturn();
-            assertTrue(result.getResponse().getStatus() >= 400);
-        } catch (Exception expectedDatabaseFailure) {
-            // MockMvc may propagate an unhandled database exception instead of rendering a 500 response.
+        } catch (Exception failure) {
+            propagated = failure;
         }
+
+        if (result != null) {
+            int status = result.getResponse().getStatus();
+            assertTrue(status >= 500 && status < 600,
+                    () -> "Expected a server-side persistence failure, but received HTTP " + status
+                            + " with body: " + result.getResponse().getContentAsString());
+        } else {
+            assertNotNull(propagated, "Expected the persistence failure to be returned or propagated");
+            assertTrue(hasInjectedPersistenceFailure(propagated, triggerFunction),
+                    () -> "Expected the injected PostgreSQL trigger failure for " + triggerFunction
+                            + " in the exception cause chain, but got: " + propagated);
+        }
+
+        assertTrue(triggerWasInvoked(triggerFunction),
+                "The injected trigger " + triggerFunction + " must demonstrably execute");
+    }
+
+    private boolean hasInjectedPersistenceFailure(Throwable failure, String triggerFunction) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.sql.SQLException
+                    && cause.getMessage() != null
+                    && cause.getMessage().contains("injected persistence failure: " + triggerFunction)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean triggerWasInvoked(String triggerFunction) {
+        return Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT is_called FROM " + triggerFunction + "_invocations",
+                Boolean.class));
     }
 
     private void assertRolledBack(UUID jobId) {
@@ -124,8 +158,10 @@ class WorkerResultRollbackTest {
     }
 
     private void installRejectTrigger(String table, String function) {
-        jdbc.execute("CREATE FUNCTION " + function + "() RETURNS trigger LANGUAGE plpgsql AS $$ "
-                + "BEGIN RAISE EXCEPTION 'injected persistence failure'; END $$");
+        jdbc.execute("CREATE SEQUENCE " + function + "_invocations");
+        jdbc.execute("CREATE FUNCTION " + function + "() RETURNS trigger LANGUAGE plpgsql AS $ "
+                + "BEGIN PERFORM nextval('" + function + "_invocations'); "
+                + "RAISE EXCEPTION 'injected persistence failure: " + function + "'; END $");
         jdbc.execute("CREATE TRIGGER " + function + " BEFORE INSERT ON " + table
                 + " FOR EACH ROW EXECUTE FUNCTION " + function + "()");
     }
@@ -133,5 +169,6 @@ class WorkerResultRollbackTest {
     private void dropRejectTrigger(String table, String function) {
         jdbc.execute("DROP TRIGGER IF EXISTS " + function + " ON " + table);
         jdbc.execute("DROP FUNCTION IF EXISTS " + function + "()");
+        jdbc.execute("DROP SEQUENCE IF EXISTS " + function + "_invocations");
     }
 }
