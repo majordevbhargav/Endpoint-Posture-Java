@@ -11,6 +11,8 @@ Updated: 2026-11-11
 
 ## PR6.5 implementation progress
 
+PR6.5 implementation and verification are complete. Commit `ee259f44388791a8c7feb6fa80fe3ae9095c4be8` was pushed to `feature/pr6-5-reliable-result-delivery`; pull request [#15](https://github.com/majordevbhargav/Endpoint-Posture-Java/pull/15) targets `feature/aws-linux-backend-worker-separation` and is open, not merged.
+
 Implemented in the worker module:
 
 - Pinned Xerial SQLite JDBC dependency; versioned schema; WAL; FULL synchronous commits; per-connection busy timeout and foreign-key enforcement.
@@ -29,19 +31,29 @@ Verification completed so far:
 - Maven's configured user settings point to unwritable `C:\.m2`; temporary workspace-local Maven settings were used and removed. The Maven cache remains ignored under `worker-runtime/maven-cache/`.
 - Docker Desktop was accessed for Testcontainers after explicit command approval; Testcontainers cleaned up its PostgreSQL containers.
 
-Remaining PR6.5 gate work:
-
-- Rerun focused dispatcher tests after the last diagnostic-message-only change.
-- Inspect complete tracked and untracked diff, run `git diff --check`, secret scan, and verify generated Maven cache/settings are excluded/removed.
-- ACL script is parameterized but has not been applied: the repository does not define the worker service account, so no identity was assumed. Review service-account setup evidence and state this limit in the PR.
-- Commit, push PR6.5 branch, create PR against `feature/aws-linux-backend-worker-separation`.
-
 ## PR6.6 progress
 
-Not started. Start only after PR6.5 verification, commit, push and PR creation are complete. Create `feature/pr6-6-worker-reliability-hardening` from the PR6.5 commit, then implement end-to-end crash/recovery, fencing/concurrency and outage hardening. Do not modify the integration branch or merge either PR.
+Branch `feature/pr6-6-worker-reliability-hardening` was created at PR6.5 commit `ee259f44388791a8c7feb6fa80fe3ae9095c4be8`.
+
+Added deterministic dispatcher scenarios in `worker-runtime/src/test/java/com/endpointposture/workerruntime/execution/ResultDispatcherTest.java` and the local HTTP harness in `worker-runtime/src/test/java/com/endpointposture/workerruntime/TestServer.java`:
+
+- Reopen a committed SQLite outbox and recover delivery after process/store restart.
+- Simulate a backend that accepts a post but drops its response, then returns the original receipt; the retry sends the exact persisted bytes.
+- Retain HTTP 401 responses as permanent failures and continue blocking new claims.
+- Retain a 2xx acknowledgement whose job identity does not match the submitted record.
+
+PR6.6 verification:
+
+- `worker-runtime`: `mvn -s maven-local-settings.xml -B '-Duser.timezone=UTC' clean verify` — 107 tests, 0 failures/errors, 1 skipped. Windows PowerShell and SQLite native tests executed in this Windows session.
+- `backend`: `mvn -s maven-local-settings.xml -B '-Duser.timezone=UTC' verify` — 549 tests, 0 failures/errors/skips; Testcontainers and PostgreSQL 16 ran after retrying with Docker access.
+- The first sandboxed backend invocation failed before 25 Docker-backed tests because the Docker named pipe was denied; the elevated rerun passed the full suite.
+- A focused `ResultDispatcherTest` run passed 11 tests before the full worker verification.
+- `git diff --check` completed cleanly. A credential-pattern scan across worker source, worker documentation, the ACL script, and this log returned no matches. Temporary Maven settings were removed; the Maven cache is ignored.
+
+Still to complete before PR6.6 publish: commit, push, and create PR targeting `feature/aws-linux-backend-worker-separation` with PR6.5 as its base dependency. Do not merge either PR.
 
 ## Known verification limits / outstanding issues
 
 - No actual worker service identity is provisioned in this checkout. ACL behavior under a designated service identity and service restart under WinSW require that deployment identity to be selected/configured.
-- Backend Testcontainers tests exercise the existing result endpoint/service; current worker dispatcher tests use a local HTTP test server. A true worker-to-live-backend lifecycle test remains PR6.6 work.
+- Backend Testcontainers tests exercise the existing result endpoint/service; current worker dispatcher tests use a local HTTP test server. A single live HTTP process test connecting the worker client to a running backend was not added. The boundary is covered in separate backend contract integration and worker transport tests, but is not equivalent to a single end-to-end deployment test.
 - No frontend files or contracts have changed; frontend checks are not applicable so far.

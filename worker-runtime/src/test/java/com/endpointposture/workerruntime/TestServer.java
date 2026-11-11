@@ -88,6 +88,33 @@ public final class TestServer implements AutoCloseable {
         });
     }
 
+    /** Records a request and closes its socket without an HTTP response, then serves later responses. */
+    public void onDropThenSequence(String path, int[] statuses, String[] bodies) {
+        if (statuses.length == 0 || statuses.length != bodies.length)
+            throw new IllegalArgumentException("statuses and bodies must have the same non-zero length");
+        AtomicInteger index = new AtomicInteger();
+        server.createContext(path, ex -> {
+            String reqBody = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            requests.add(new Recorded(ex.getRequestMethod(), ex.getRequestURI().getPath(),
+                    ex.getRequestHeaders().getFirst("X-Worker-Key"), reqBody));
+            int i = Math.min(index.getAndIncrement(), statuses.length - 1);
+            try {
+                if (i == 0) {
+                    ex.getResponseBody().close();
+                    return;
+                }
+                byte[] bytes = bodies[i].getBytes(StandardCharsets.UTF_8);
+                ex.getResponseHeaders().add("Content-Type", "application/json");
+                ex.sendResponseHeaders(statuses[i], bytes.length);
+                try (OutputStream os = ex.getResponseBody()) { os.write(bytes); }
+            } catch (IOException ignored) {
+                // The client may already have abandoned a deliberately dropped response.
+            } finally {
+                ex.close();
+            }
+        });
+    }
+
     public void onBlocking(String path, int status, String body,
                            java.util.concurrent.CountDownLatch entered,
                            java.util.concurrent.CountDownLatch release) {
