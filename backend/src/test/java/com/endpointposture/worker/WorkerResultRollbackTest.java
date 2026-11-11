@@ -123,7 +123,7 @@ class WorkerResultRollbackTest {
         } else {
             assertNotNull(propagated, "Expected the persistence failure to be returned or propagated");
             assertTrue(hasInjectedPersistenceFailure(propagated, triggerFunction),
-                    () -> "Expected the injected PostgreSQL trigger failure for " + triggerFunction
+                    "Expected the injected PostgreSQL trigger failure for " + triggerFunction
                             + " in the exception cause chain, but got: " + propagated);
         }
 
