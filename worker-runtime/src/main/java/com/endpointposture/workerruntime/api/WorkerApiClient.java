@@ -112,6 +112,27 @@ public final class WorkerApiClient {
         check(send(post("/jobs/" + jobId + "/fail", body, true)));
     }
 
+    /** Submit the exact durable request bytes stored in the local result outbox. */
+    public WorkerResultAcknowledgement submitResult(UUID jobId, byte[] exactPayload) {
+        if (jobId == null || exactPayload == null) throw new IllegalArgumentException("jobId and payload are required");
+        HttpRequest request = HttpRequest.newBuilder(base.resolve(BASE_PATH + "/jobs/" + jobId + "/result"))
+                .timeout(requestTimeout).header("Accept", "application/json")
+                .header("Content-Type", "application/json").header(KEY_HEADER, requireKey())
+                .POST(HttpRequest.BodyPublishers.ofByteArray(exactPayload)).build();
+        ApiResponse response = send(request);
+        check(response);
+        WorkerResultAcknowledgement ack = read(response, WorkerResultAcknowledgement.class);
+        if (!ack.accepted() || ack.receiptId() == null || !jobId.equals(ack.jobId())
+                || ack.attempt() < 1 || ack.collectionOutcome() == null || ack.acceptedAt() == null)
+            throw new WorkerApiException(response.statusCode(), "Unexpected worker result acknowledgement");
+        return ack;
+    }
+
+    private String requireKey() {
+        if (apiKey == null) throw new IllegalStateException("This call needs an authenticated client");
+        return apiKey;
+    }
+
     private HttpRequest post(String path, Object body, boolean auth) {
         if (auth && apiKey == null) throw new IllegalStateException("This call needs an authenticated client");
         HttpRequest.Builder b = HttpRequest.newBuilder(base.resolve(BASE_PATH + path))

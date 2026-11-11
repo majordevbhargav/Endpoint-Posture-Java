@@ -12,11 +12,18 @@ import java.util.Objects;
  * argument, where it would show in process listings) and is redacted from toString.
  */
 public record WorkerConfig(URI backendUrl, Path stateFile, String enrollmentToken,
-                           Duration connectTimeout, Duration requestTimeout) {
+                           Duration connectTimeout, Duration requestTimeout, Path dataDirectory) {
+
+    public WorkerConfig(URI backendUrl, Path stateFile, String enrollmentToken,
+                        Duration connectTimeout, Duration requestTimeout) {
+        this(backendUrl,stateFile,enrollmentToken,connectTimeout,requestTimeout,
+                stateFile.toAbsolutePath().normalize().getParent());
+    }
 
     public WorkerConfig {
         Objects.requireNonNull(backendUrl, "backendUrl");
         Objects.requireNonNull(stateFile, "stateFile");
+        if (dataDirectory == null) dataDirectory = stateFile.toAbsolutePath().normalize().getParent();
         Objects.requireNonNull(connectTimeout, "connectTimeout");
         Objects.requireNonNull(requestTimeout, "requestTimeout");
         backendUrl = normalize(backendUrl);
@@ -33,12 +40,14 @@ public record WorkerConfig(URI backendUrl, Path stateFile, String enrollmentToke
         if (url == null) throw new IllegalArgumentException("EP_BACKEND_URL is required");
         String stateRaw = trimToNull(env.get("EP_WORKER_STATE_FILE"));
         Path state = stateRaw != null ? Path.of(stateRaw) : defaultStateFile(env);
+        String dataRaw=trimToNull(env.get("EP_WORKER_DATA_DIRECTORY"));
+        Path data=dataRaw==null?state.toAbsolutePath().normalize().getParent():Path.of(dataRaw);
         return new WorkerConfig(
                 URI.create(url),
                 state,
                 env.get("EP_ENROLLMENT_TOKEN"),
                 seconds(env, "EP_HTTP_CONNECT_TIMEOUT_SECONDS", 10),
-                seconds(env, "EP_HTTP_REQUEST_TIMEOUT_SECONDS", 30));
+                seconds(env, "EP_HTTP_REQUEST_TIMEOUT_SECONDS", 30), data);
     }
 
     static Path defaultStateFile(Map<String, String> env) {
@@ -46,6 +55,9 @@ public record WorkerConfig(URI backendUrl, Path stateFile, String enrollmentToke
         if (programData != null) return Path.of(programData, "EndpointPostureWorker", "state.json");
         return Path.of(System.getProperty("user.home"), ".endpoint-posture-worker", "state.json");
     }
+
+    /** Persistent directory shared by the DPAPI state file and local result outbox. */
+    public Path outboxFile() { return dataDirectory.toAbsolutePath().normalize().resolve("worker-results.sqlite"); }
 
     private static URI normalize(URI u) {
         String scheme = u.getScheme();

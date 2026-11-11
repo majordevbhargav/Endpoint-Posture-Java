@@ -7,6 +7,8 @@ import com.endpointposture.workerruntime.credentials.SecretProtector;
 import com.endpointposture.workerruntime.credentials.StoredCredentials;
 import com.endpointposture.workerruntime.execution.PowerShellExecutionConfig;
 import com.endpointposture.workerruntime.execution.PowerShellJobHandler;
+import com.endpointposture.workerruntime.execution.SqliteJobResultHandoff;
+import com.endpointposture.workerruntime.execution.ResultDispatcher;
 
 import java.io.PrintStream;
 import java.time.Duration;
@@ -62,10 +64,16 @@ public final class WorkerMain {
             WorkerLifecycle.Sleeper sleeper) {
         WorkerConfig config;
         PowerShellExecutionConfig execution;
+        Duration deliveryGrace;
+        int maxLeaseExtension;
 
         try {
             config = WorkerConfig.fromEnvironment(env);
             execution = PowerShellExecutionConfig.fromEnvironment(env);
+            deliveryGrace=Duration.ofMinutes(Long.parseLong(env.getOrDefault("EP_RESULT_DELIVERY_GRACE_MINUTES", "15")));
+            maxLeaseExtension=Integer.parseInt(env.getOrDefault("EP_RESULT_MAX_CUMULATIVE_LEASE_EXTENSION_SECONDS", "900"));
+            if(deliveryGrace.isZero()||deliveryGrace.isNegative()||maxLeaseExtension<0)
+                throw new IllegalArgumentException("Result delivery grace must be positive and maximum lease extension cannot be negative");
         } catch (IllegalArgumentException e) {
             err.println("Configuration error: " + e.getMessage());
             return 2;
@@ -85,26 +93,30 @@ public final class WorkerMain {
         out.println((boot.newlyEnrolled() ? "Enrolled as worker '" : "Using stored credentials for worker '")
                 + credentials.name() + "' (shard " + credentials.shard() + ").");
 
+        WorkerApiClient api = WorkerApiClient.authenticated(config, credentials.apiKey());
         if (!execution.enabled()) {
             out.println(
                     "PowerShell execution is disabled. Set EP_POWERSHELL_EXECUTION_ENABLED=true "
-                            + "after script contract review.");
-            return new WorkerLifecycle(
-                    WorkerApiClient.authenticated(config, credentials.apiKey()),
-                    null,
-                    sleeper,
-                    err).run();
+                            + "after script contract review. Pending results will still be delivered.");
         }
 
-        PowerShellJobHandler handler = new PowerShellJobHandler(config.backendUrl(), execution, err);
+        SqliteJobResultHandoff handoff;
         try {
-            return new WorkerLifecycle(
-                    WorkerApiClient.authenticated(config, credentials.apiKey()),
-                    handler,
-                    sleeper,
-                    err).run();
+            handoff = new SqliteJobResultHandoff(config.outboxFile(), credentials.workerId(), credentials.shard(),
+                    deliveryGrace);
+        } catch (RuntimeException e) {
+            err.println("Startup error initializing durable result storage: " + e.getMessage());
+            return 6;
+        }
+        PowerShellJobHandler handler = execution.enabled()
+                ? new PowerShellJobHandler(config.backendUrl(), execution, err, handoff) : null;
+        ResultDispatcher dispatcher = new ResultDispatcher(handoff, api, err,maxLeaseExtension);
+        try {
+            return new WorkerLifecycle(api, handler, sleeper, err).run();
         } finally {
-            handler.close();
+            dispatcher.close();
+            if (handler != null) handler.close();
+            handoff.close();
         }
     }
 }

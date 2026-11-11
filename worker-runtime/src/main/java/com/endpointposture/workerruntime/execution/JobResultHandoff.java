@@ -6,4 +6,9 @@ public interface JobResultHandoff {
 
     /** True while accepted results have not been acknowledged/drained by the reporting layer. */
     boolean hasPendingResults();
+
+    /** Durable stores may retry transient write failures without losing their caller's snapshot. */
+    default boolean durable() { return false; }
+
+    default boolean retryPersistenceFailure(Exception failure) { return false; }
 }
