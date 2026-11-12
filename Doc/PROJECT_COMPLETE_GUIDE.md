@@ -365,7 +365,8 @@ Errors: `400` validation or fleet cap (JSON `{"message": ...}`), `401` bad or mi
 | `app.jobs.recheck.failure-backoff-hours` / `sweep-interval-ms` | 6 / 300000 | |
 | `app.jobs.recheck.max-per-sweep` | 500 | most jobs one sweep queues per job type, oldest-checked first |
 | `app.ise.base-url`, `username`, `password` | blank | blank disables ISE features safely |
-| `app.ise.verify-tls` | false | lab only; logs a startup WARN |
+| `app.ise.verify-tls` | true | `ISE_VERIFY_TLS`; production profiles refuse false; lab-only override |
+| `app.ise.trust-store`, `trust-store-password`, `trust-store-type` | blank, blank, `PKCS12` | `ISE_TRUSTSTORE_PATH`, `ISE_TRUSTSTORE_PASSWORD`, `ISE_TRUSTSTORE_TYPE`; blank path uses the JVM default trust configuration |
 | `app.ise.session-poll-interval-ms` | 15000 | |
 | `app.ise.disconnect-grace-polls` | 2 | |
 | `app.ise.touch-min-minutes` | 5 | `last_seen_at` of a still-connected device is rewritten only when older than this |

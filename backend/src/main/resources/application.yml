@@ -114,7 +114,12 @@ app:
     base-url: ${ISE_BASE_URL:}
     username: ${ISE_USERNAME:}
     password: ${ISE_PASSWORD:}
-    verify-tls: false
+    verify-tls: ${ISE_VERIFY_TLS:true}
+    # Leave the path blank to use the JVM default trust configuration.
+    # For a private ISE CA, point this at a PKCS12/JKS truststore containing that CA.
+    trust-store: ${ISE_TRUSTSTORE_PATH:}
+    trust-store-password: ${ISE_TRUSTSTORE_PASSWORD:}
+    trust-store-type: ${ISE_TRUSTSTORE_TYPE:PKCS12}
     session-poll-interval-ms: 15000
     disconnect-grace-polls: 2
     # S12: last_seen_at is rewritten for a still-connected device only when older than this.
