@@ -1,28 +1,24 @@
 package com.endpointposture.ise.config;
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509TrustManager;
 import java.io.InputStream;
 import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.time.Duration;
 
-/** Builds the optional ISE HTTP client with either a private CA truststore or the
- * deliberately insecure, non-production compatibility mode. A {@code null}
- * result means the JDK's normal default trust configuration should be used. */
+/** Builds an ISE HTTP client with a configured truststore, or delegates to the JVM defaults. */
 public final class IseHttpClientFactory {
 
     private IseHttpClientFactory() {}
 
     public static HttpClient create(IseProperties properties) {
         if (!properties.isVerifyTls()) {
-            return insecureClient();
+            throw new IllegalStateException(
+                    "ISE TLS certificate verification must be enabled; remove app.ise.verify-tls=false");
         }
         if (properties.getTrustStore() == null || properties.getTrustStore().isBlank()) {
             return null;
@@ -50,23 +46,6 @@ public final class IseHttpClientFactory {
             return context;
         } catch (Exception e) {
             throw new IllegalStateException("Could not load ISE truststore configured by app.ise.trust-store", e);
-        }
-    }
-
-    private static HttpClient insecureClient() {
-        try {
-            TrustManager[] trustAll = { new X509TrustManager() {
-                @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-                @Override public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-            } };
-            SSLContext context = SSLContext.getInstance("TLS");
-            context.init(null, trustAll, new SecureRandom());
-            return HttpClient.newBuilder().sslContext(context).connectTimeout(Duration.ofSeconds(15)).build();
-        } catch (Exception e) {
-            throw new IllegalStateException("Could not build an insecure HTTP client for app.ise.verify-tls=false", e);
         }
     }
 }
