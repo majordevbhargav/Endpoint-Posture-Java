@@ -1,6 +1,8 @@
 package com.endpointposture.ise;
 
 import com.endpointposture.ise.config.IseProperties;
+import com.endpointposture.ise.config.IseHttpClientFactory;
+import com.endpointposture.security.SecureXml;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -12,16 +14,8 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-import javax.xml.parsers.DocumentBuilderFactory;
-import java.io.ByteArrayInputStream;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -66,39 +60,11 @@ public class ErsIseTransport implements IseTransport {
         }
 
         RestClient.Builder builder = RestClient.builder().baseUrl(props.getBaseUrl());
-        if (!props.isVerifyTls()) {
-            // Lab/self-signed ISE deployments commonly present a
-            // certificate the JVM's default trust store won't recognize.
-            // Matches the Python side's urllib3.disable_warnings(...) +
-            // verify=False behavior - a deliberate, configured choice
-            // (app.ise.verify-tls), not an accident.
-            builder = builder.requestFactory(new JdkClientHttpRequestFactory(insecureHttpClient()));
+        HttpClient httpClient = IseHttpClientFactory.create(props);
+        if (httpClient != null) {
+            builder = builder.requestFactory(new JdkClientHttpRequestFactory(httpClient));
         }
         this.restClient = builder.build();
-    }
-
-    private HttpClient insecureHttpClient() {
-        try {
-            TrustManager[] trustAll = new TrustManager[] { new X509TrustManager() {
-                public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-            } };
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            ctx.init(null, trustAll, new SecureRandom());
-            return HttpClient.newBuilder()
-                    .sslContext(ctx)
-                    .connectTimeout(Duration.ofSeconds(15))
-                    .build();
-        } catch (Exception e) {
-            throw new IllegalStateException("Could not build an insecure HTTP client for app.ise.verify-tls=false", e);
-        }
     }
 
     @Override
@@ -279,9 +245,7 @@ public class ErsIseTransport implements IseTransport {
             if (xml == null || xml.isBlank())
                 return Map.of();
 
-            Document doc = DocumentBuilderFactory.newInstance()
-                    .newDocumentBuilder()
-                    .parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
+            Document doc = SecureXml.parse(xml);
 
             Map<String, String> fields = new HashMap<>();
             NodeList all = doc.getElementsByTagName("*");

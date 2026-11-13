@@ -189,6 +189,21 @@ class ErsIseTransportTest {
     }
 
     @Test
+    void attributeMode_rejectsDoctypeAndExternalEntity() {
+        handle("/admin/API/mnt/Session/MACAddress/AA:BB:CC:DD:EE:08", exchange -> {
+            String xml = "<!DOCTYPE session [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]>"
+                    + "<session><user_name>&xxe;</user_name><acs_server>psn01</acs_server></session>";
+            sendXml(exchange, 200, xml);
+        });
+
+        ErsIseTransport transport = new ErsIseTransport(buildProps(IseProperties.Mode.ATTRIBUTE));
+        IseResult result = transport.publishEnforcement(
+                "AA:BB:CC:DD:EE:08", EnforcementAction.RESTRICT, null);
+        assertFalse(result.success());
+        assertTrue(result.detail().contains("NO_ACTIVE_SESSION"));
+    }
+
+    @Test
     void attributeMode_sessionWithNoPsn_returnsFailure() {
         handle("/admin/API/mnt/Session/MACAddress/AA:BB:CC:DD:EE:05", exchange -> {
             String xml = "<session><user_name>alice</user_name><nas_ip_address>10.0.0.1</nas_ip_address></session>";

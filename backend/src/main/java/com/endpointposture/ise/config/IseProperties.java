@@ -4,8 +4,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * ISE connection and enforcement settings, bound from {@code app.ise.*}.
- * All fields default to blank/disabled so the app boots and the session
- * watcher and ISE actions safely no-op when ISE isn't configured yet.
+ * ISE connection fields default to blank so the app boots and the session
+ * watcher and ISE actions safely no-op when ISE isn't configured yet. TLS
+ * verification defaults to enabled.
  *
  * <p>This replaces the earlier version of this file: it adds
  * {@link #enforcementMode} and {@link #ancPolicyName}, used by
@@ -30,7 +31,10 @@ public class IseProperties {
     private String baseUrl = "";
     private String username = "";
     private String password = "";
-    private boolean verifyTls = false;
+    private boolean verifyTls = true;
+    private String trustStore = "";
+    private String trustStorePassword = "";
+    private String trustStoreType = "PKCS12";
     private long sessionPollIntervalMs = 15000;
     private Mode enforcementMode = Mode.ATTRIBUTE;
 
@@ -50,6 +54,12 @@ public class IseProperties {
     public void setPassword(String v) { this.password = v; }
     public boolean isVerifyTls() { return verifyTls; }
     public void setVerifyTls(boolean v) { this.verifyTls = v; }
+    public String getTrustStore() { return trustStore; }
+    public void setTrustStore(String v) { this.trustStore = v; }
+    public String getTrustStorePassword() { return trustStorePassword; }
+    public void setTrustStorePassword(String v) { this.trustStorePassword = v; }
+    public String getTrustStoreType() { return trustStoreType; }
+    public void setTrustStoreType(String v) { this.trustStoreType = v; }
     public long getSessionPollIntervalMs() { return sessionPollIntervalMs; }
     public void setSessionPollIntervalMs(long v) { this.sessionPollIntervalMs = v; }
     public Mode getEnforcementMode() { return enforcementMode; }

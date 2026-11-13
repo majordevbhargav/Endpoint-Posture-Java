@@ -44,6 +44,10 @@ class ApplicationConfigBindingTest {
         assertEquals("15000", props.getProperty("spring.datasource.hikari.connection-timeout"));
         assertEquals("500", props.getProperty("app.jobs.recheck.max-per-sweep"));
         assertEquals("5", props.getProperty("app.ise.touch-min-minutes"));
+        assertEquals("${ISE_VERIFY_TLS:true}", props.getProperty("app.ise.verify-tls"));
+        assertEquals("${ISE_TRUSTSTORE_PATH:}", props.getProperty("app.ise.trust-store"));
+        assertEquals("${ISE_TRUSTSTORE_PASSWORD:}", props.getProperty("app.ise.trust-store-password"));
+        assertEquals("${ISE_TRUSTSTORE_TYPE:PKCS12}", props.getProperty("app.ise.trust-store-type"));
         assertEquals("2000", props.getProperty("app.api.fleet-list-max-endpoints"));
 
         // Phase B hardening assertions

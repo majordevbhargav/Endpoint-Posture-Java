@@ -27,7 +27,7 @@ Supply at runtime through environment variables or a secret store (Windows machi
 
 ## 2. Cisco ISE
 
-- `app.ise.verify-tls` MUST be `true`. A startup WARN is logged when it is `false`. Import the ISE CA into the JVM truststore (`-Djavax.net.ssl.trustStore=...`).
+- `app.ise.verify-tls` defaults to `true`; production profiles (`linux`, `prod`, `production`) refuse startup if it is set to `false`. Import the ISE CA into the JVM truststore with `-Djavax.net.ssl.trustStore=/path/to/truststore.p12` and `-Djavax.net.ssl.trustStorePassword=...`, or configure `ISE_TRUSTSTORE_PATH`, `ISE_TRUSTSTORE_PASSWORD`, and `ISE_TRUSTSTORE_TYPE` (PKCS12 by default). The configured application truststore is used by both ISE HTTP clients.
 - Use dedicated least-privilege ISE accounts: an ERS operator for endpoint/ANC calls, a Monitoring account for MNT sessions.
 - Confirm the real ANC policy name before `app.ise.enforcement-mode: ANC` (the default `Quarantine` is a guess, DECISIONS D5).
 - If using the standing pxGrid Direct feed (X1), verify ISE version is 3.1+ and has the pxGrid Direct feature enabled.

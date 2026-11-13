@@ -104,4 +104,13 @@ class IseSessionClientXmlTest {
         String malformedXml = "<activeList><activeSession><calling_station_id>AA:BB:CC";
         assertThrows(Exception.class, () -> client.parseActiveList(malformedXml));
     }
+
+    @Test
+    void parseActiveList_rejectsDoctypeAndExternalEntity() {
+        String xml = """
+                <!DOCTYPE activeList [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+                <activeList><activeSession><calling_station_id>&xxe;</calling_station_id></activeSession></activeList>
+                """;
+        assertThrows(Exception.class, () -> client.parseActiveList(xml));
+    }
 }

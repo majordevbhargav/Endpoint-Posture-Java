@@ -27,6 +27,18 @@ class LinuxProfileConfigTest {
     }
 
     @Test
+    void tlsConfigurationIsCompatibleAcrossDefaultLinuxAndSimulationProfiles() {
+        Properties base = load("application.yml");
+        Properties linux = load("application-linux.yml");
+        Properties sim = load("application-sim.yml");
+        assertEquals("${ISE_VERIFY_TLS:true}", base.getProperty("app.ise.verify-tls"));
+        assertNull(linux.getProperty("app.ise.verify-tls"), "linux inherits the secure default");
+        assertNull(sim.getProperty("app.ise.verify-tls"), "sim inherits the secure default");
+        assertTrue(linux.keySet().stream().noneMatch(k -> k.toString().startsWith("app.ise.")));
+        assertTrue(sim.keySet().stream().noneMatch(k -> k.toString().startsWith("app.ise.")));
+    }
+
+    @Test
     void defaultProfileStillEnablesWorkersAndRecheck() {
         Properties base = load("application.yml");
         assertEquals("true", base.getProperty("app.jobs.workers.enabled"));
